@@ -100,6 +100,17 @@ button.row:hover{background:var(--surface-2)}
 .sortbar{display:flex;align-items:center;gap:8px;margin-bottom:10px}
 .sortbar label{font-size:12px;font-weight:700;color:var(--muted);white-space:nowrap}
 .sortbar select{flex:1;min-width:0;padding:8px 10px}
+.pill.top{background:var(--accent-soft);color:var(--accent)}
+.pill.down{background:var(--neg-soft);color:var(--neg)}
+.pill.slow{background:var(--surface-2);color:var(--muted)}
+.wk{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:4px;align-items:end;height:96px}
+.wk div{position:relative;background:var(--accent);border-radius:3px 3px 0 0;min-height:2px}
+.wk div.z{background:var(--line)}
+.wk span{position:absolute;top:-15px;left:0;right:0;text-align:center;font-size:10px;font-family:var(--f-num);color:var(--muted)}
+.wk-lbl{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:6px}
+.kv{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid var(--line);font-size:14px}
+.kv:first-child{border-top:0}
+.kv b{font-family:var(--f-num);font-weight:600;text-align:right}
 .pill.ord{background:var(--accent-soft);color:var(--accent)}
 .pill.low{background:var(--neg-soft);color:var(--neg)}
 .empty{padding:26px 16px;text-align:center;color:var(--muted);font-size:14px}
@@ -247,7 +258,7 @@ const METHODS={bar:'Bar',ueb:'Überweisung',karte:'Karte',paypal:'PayPal',sonst:
 const TYPES={verkauf:'Verkauf',einkauf:'Einkauf',ausgabe:'Ausgabe'};
 
 const DEF={owner:'',company:'',address:'',email:'',phone:'',uidNr:'',iban:'',
-  kleinunternehmer:true,limit:55000,defaultTax:20,lowStock:3,
+  kleinunternehmer:true,limit:55000,defaultTax:20,lowStock:3,leadTime:7,coverDays:30,
   categories:['Allgemein'],expenseCats:['Versand','Verpackung','Gebühren','Werbung','Material','Sonstiges'],
   invoiceYear:new Date().getFullYear(),nextInvoice:1,payTerms:'Zahlbar innerhalb von 14 Tagen ohne Abzug.'};
 
@@ -316,6 +327,81 @@ function customerList(){
   Object.values(m).forEach(c=>{if(c.rec)c.name=c.rec.name});
   return Object.values(m);
 }
+const DAY=864e5;
+const dayT=d=>new Date(d+'T12:00:00').getTime();
+const addDays=n=>{const d=new Date(Date.now()+n*DAY);return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`};
+function productStats(p,sm,pm){
+  const st=S.settings,now=dayT(today())+DAY/2;
+  sm=sm||stockMap();pm=pm||pendingMap();
+  const sales=[];let firstMove=Infinity;
+  S.entries.forEach(e=>{(e.items||[]).forEach(i=>{if(i.pid!==p.id)return;const t=dayT(e.date);if(t<firstMove)firstMove=t;
+    if(e.type==='verkauf'&&e.delivered!==false)sales.push({t,qty:num(i.qty),rev:num(i.qty)*num(i.price),cogs:num(i.qty)*num(i.ek),party:e.party||'Laufkunde'})})});
+  const age=isFinite(firstMove)?Math.max(1,Math.round((now-firstMove)/DAY)):0;
+  const win=Math.min(90,Math.max(14,age));
+  const sumQ=(from,to)=>sales.filter(x=>x.t>now-from*DAY&&x.t<=now-to*DAY).reduce((a,x)=>a+x.qty,0);
+  const q30=sumQ(30,0),q30p=sumQ(60,30),qWin=sumQ(win,0);
+  const rate=qWin/win;
+  const stock=sm[p.id]||0,res=pm.res[p.id]||0,inc=pm.inc[p.id]||0,avail=stock-res;
+  const lead=num(st.leadTime??7),cover=num(st.coverDays??30),low=num(p.low??st.lowStock);
+  const rop=rate*lead+low;
+  const need=avail+inc<=rop;
+  const reach=rate>0?avail/rate:Infinity;
+  const daysToOrder=rate>0?Math.floor((avail+inc-rop)/rate):Infinity;
+  const suggest=Math.max(0,Math.ceil(rate*(lead+cover)+low-avail-inc))||(need?Math.max(1,low+1-avail-inc):0);
+  const trend=q30p>0?(q30-q30p)/q30p:(q30>0?null:0);
+  const weeks=Array.from({length:12},(_,k)=>sales.filter(x=>x.t>now-(12-k)*7*DAY&&x.t<=now-(11-k)*7*DAY).reduce((a,x)=>a+x.qty,0));
+  const last=sales.length?Math.max(...sales.map(x=>x.t)):null;
+  const since=last?Math.round((now-last)/DAY):null;
+  const tot=sales.reduce((a,x)=>({q:a.q+x.qty,rev:a.rev+x.rev,cogs:a.cogs+x.cogs}),{q:0,rev:0,cogs:0});
+  const cust={};sales.forEach(x=>{cust[x.party]=(cust[x.party]||0)+x.qty});
+  const enough=sales.length>=2&&age>=7;
+  let status='stabil';
+  if(!sales.length)status=stock>0&&age>=30?'ladenhueter':'neu';
+  else if(stock>0&&since>=60)status='ladenhueter';
+  else if(trend===null&&q30>=2)status='steigend';
+  else if(trend!==null&&trend>=0.25&&q30>=3)status='steigend';
+  else if(trend!==null&&trend<=-0.3)status='sinkend';
+  return{sales,age,win,q30,q30p,rate,stock,res,inc,avail,lead,cover,low,rop,need,reach,daysToOrder,suggest,trend,weeks,last,since,tot,cust,enough,status};
+}
+const STATUS={steigend:['top','Läuft gut ↑'],sinkend:['down','Läuft schwächer ↓'],stabil:['slow','Stabil'],ladenhueter:['down','Ladenhüter'],neu:['slow','Noch keine Verkäufe']};
+const fmtTrend=t=>t===null?'vorher 0':t===0?'±0 %':(t>0?'+':'−')+Math.round(Math.abs(t)*100)+' %';
+const fmtReach=r=>!isFinite(r)?'–':r<=0?'leer':r<1?'< 1 Tag':r>365?'über 1 Jahr':'ca. '+Math.round(r)+' Tage';
+function orderText(ps){
+  if(ps.need)return ps.inc?'jetzt (trotz Bestellung)':'jetzt';
+  if(!isFinite(ps.daysToOrder)||ps.daysToOrder>180)return 'nicht absehbar';
+  return ps.daysToOrder<=0?'jetzt':'ca. '+fdate(addDays(ps.daysToOrder));
+}
+function openProductStats(id){
+  const p=prodById(id);if(!p)return;const ps=productStats(p);
+  const [cls,lbl]=STATUS[ps.status];const max=Math.max(1,...ps.weeks);
+  const avg=ps.tot.q?ps.tot.rev/ps.tot.q:0;
+  const topc=Object.entries(ps.cust).sort((a,b)=>b[1]-a[1]).slice(0,3);
+  openSheet(p.name,`
+   <p style="margin:-6px 0 12px" class="muted">${esc(p.cat||'Allgemein')} · VK ${eur(p.vk)} · EK ${eur(p.ek)}${p.vk>0?' · '+Math.round((p.vk-p.ek)/p.vk*100)+' % Marge':''} <span class="pill ${cls}">${lbl}</span></p>
+   ${ps.need?`<div class="banner" style="display:flex;justify-content:space-between;align-items:center;gap:10px"><span>Nachbestellen empfohlen: <b>${ps.suggest} ${esc(p.unit||'Stk')}</b></span><button class="btn sm" data-act="reorder" data-id="${p.id}">Bestellung anlegen</button></div>`:''}
+   <div class="kpis" style="margin:0 0 12px">
+    <div class="kpi"><div class="lbl">Bestand${ps.res?' (frei)':''}</div><div class="val ${ps.avail<=ps.low?'neg':''}">${ps.avail}${ps.res?` <small class="muted" style="font-size:12px">von ${ps.stock}</small>`:''}</div></div>
+    <div class="kpi"><div class="lbl">Verkauft · 30 Tage</div><div class="val">${ps.q30} <small class="${ps.trend>0||ps.trend===null&&ps.q30?'pos':ps.trend<0?'neg':'muted'}" style="font-size:12px">${ps.q30||ps.q30p?fmtTrend(ps.trend):''}</small></div></div>
+    <div class="kpi"><div class="lbl">Reicht noch</div><div class="val">${fmtReach(ps.reach)}</div></div>
+    <div class="kpi"><div class="lbl">Nachbestellen</div><div class="val ${ps.need?'warn':''}" style="font-size:15px">${orderText(ps)}</div></div>
+   </div>
+   <div class="chart" style="margin-bottom:12px"><div class="eyebrow" style="margin-bottom:22px">Verkaufte Menge je Woche</div>
+    <div class="wk">${ps.weeks.map(w=>`<div class="${w?'':'z'}" style="height:${w/max*100}%">${w?`<span>${w}</span>`:''}</div>`).join('')}</div>
+    <div class="wk-lbl"><span>vor 12 Wochen</span><span>diese Woche</span></div></div>
+   <div class="card" style="margin-bottom:12px">
+    <div class="kv"><span>Verkauft insgesamt</span><b>${ps.tot.q} ${esc(p.unit||'Stk')}</b></div>
+    <div class="kv"><span>Umsatz insgesamt</span><b>${eur(ps.tot.rev)}</b></div>
+    <div class="kv"><span>Rohertrag insgesamt</span><b class="pos">${eur(ps.tot.rev-ps.tot.cogs)}</b></div>
+    <div class="kv"><span>Ø Verkaufspreis</span><b>${ps.tot.q?eur(avg)+(Math.abs(avg-p.vk)>=0.01&&p.vk?` <span class="muted" style="font-weight:400">(${avg<p.vk?'−':'+'}${Math.round(Math.abs(avg-p.vk)/p.vk*100)} %)</span>`:''):'–'}</b></div>
+    <div class="kv"><span>Ø pro Woche</span><b>${ps.rate?(ps.rate*7).toFixed(1).replace('.',','):'0'}</b></div>
+    <div class="kv"><span>Letzter Verkauf</span><b>${ps.last?(ps.since===0?'heute':`vor ${ps.since} Tag${ps.since===1?'':'en'}`):'–'}</b></div>
+    <div class="kv"><span>Gebundenes Kapital</span><b>${eur(Math.max(0,ps.stock)*num(p.ek))}</b></div>
+    ${ps.inc||ps.res?`<div class="kv"><span>Bestellt / reserviert</span><b>+${ps.inc} / ${ps.res}</b></div>`:''}
+    ${topc.length?`<div class="kv"><span>Kauft am meisten</span><b style="font-family:var(--f-ui)">${topc.map(([n,q])=>`${esc(n)} (${q})`).join(', ')}</b></div>`:''}
+   </div>
+   <p class="hint" style="margin:0 0 14px">${ps.enough?`Prognose aus den Verkäufen der letzten ${ps.win} Tage. Nachbestellen, wenn der freie Bestand nur noch für ${ps.lead} Tage Lieferzeit plus ${ps.low} Stück Puffer reicht. Die Empfehlung deckt ${ps.cover} Tage ab.`:'Für eine verlässliche Prognose braucht es noch ein paar Verkäufe – die Zahlen werden mit jedem Verkauf genauer.'} Lieferzeit und Bestellreichweite änderst du unter Mehr → Firmendaten.</p>
+   <div class="btn-row"><button class="btn ghost" data-act="stock" data-id="${p.id}">Bestand korrigieren</button><button class="btn ghost" data-act="edit-product" data-id="${p.id}">Bearbeiten</button></div>`);
+}
 function inPeriod(d,p){const t=today();if(p==='monat')return d.slice(0,7)===t.slice(0,7);if(p==='jahr')return d.slice(0,4)===t.slice(0,4);return true}
 function totals(list){
   const t={ein:0,aus:0,warenAus:0,umsatz:0,cogs:0,offenFord:0,offenVerb:0,n:0};
@@ -363,7 +449,7 @@ const sorted=l=>[...l].sort((a,b)=>(b.date+(b.created||'')).localeCompare(a.date
 function vStart(){
   const t=totals(S.entries.filter(e=>inPeriod(e.date,UI.period)));
   const all=totals(S.entries);
-  const sm=stockMap();const low=S.products.filter(p=>sm[p.id]<=num(p.low??S.settings.lowStock)).length;
+  const sm=stockMap();const pmS=pendingMap();const low=S.products.filter(p=>productStats(p,sm,pmS).need).length;
   const lagerwert=S.products.reduce((s,p)=>s+Math.max(0,sm[p.id])*num(p.ek),0);
   const pl={monat:'diesen Monat',jahr:'dieses Jahr',alle:'gesamt'}[UI.period];
   const recent=sorted(S.entries).slice(0,6);
@@ -421,13 +507,16 @@ function vLager(){
    <div class="kpi"><div class="lbl">Möglicher Rohertrag</div><div class="val pos">${eur(v.vk-v.ek)}</div></div>
   </div>
   ${UI.lagerCat==='alle'&&Object.keys(byCat).length>1?`<div class="tbl-wrap" style="margin-bottom:14px"><table><thead><tr><th>Kategorie</th><th>Warenwert (EK)</th></tr></thead><tbody>${Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([k,x])=>`<tr><td>${esc(k)}</td><td>${eur(x)}</td></tr>`).join('')}</tbody></table></div>`:''}`:''}
-  <div class="list">${l.length?l.map(p=>{const s=sm[p.id],inc=pm.inc[p.id]||0,res=pm.res[p.id]||0;const low=s+inc-res<=num(p.low??S.settings.lowStock);
-    return `<button class="row" data-act="stock" data-id="${p.id}"><span class="tag ${low?'aus':'vk'}">${esc((p.unit||'Stk').slice(0,3))}</span>
+  ${(()=>{const need=S.products.map(p=>({p,ps:productStats(p,sm,pm)})).filter(x=>x.ps.need);return need.length?`<div class="sec-head" style="margin-top:0"><h2>Nachbestellen empfohlen (${need.length})</h2></div>
+   <div class="list" style="margin-bottom:14px">${need.map(({p,ps})=>`<button class="row" data-act="prod" data-id="${p.id}"><span class="tag aus">!</span><span style="min-width:0"><span class="row-title" style="display:block">${esc(p.name)}</span><span class="row-sub" style="display:block">frei ${ps.avail}${ps.inc?' · +'+ps.inc+' bestellt':''} · reicht ${fmtReach(ps.reach)}</span></span><span class="row-amt"><span class="num">${ps.suggest}</span><span class="row-sub">empfohlen</span></span></button>`).join('')}</div>
+   <div class="sec-head" style="margin-top:0"><h2>Alle Produkte</h2></div>`:''})()}
+  <div class="list">${l.length?l.map(p=>{const s=sm[p.id],inc=pm.inc[p.id]||0,res=pm.res[p.id]||0;const ps=productStats(p,sm,pm);const low=ps.need;
+    return `<button class="row" data-act="prod" data-id="${p.id}"><span class="tag ${low?'aus':'vk'}">${esc((p.unit||'Stk').slice(0,3))}</span>
     <span style="min-width:0"><span class="row-title" style="display:block">${esc(p.name)}${p.sample?'<span class="pill ex">Beispiel</span>':''}</span>
-    <span class="row-sub" style="display:block">${esc(p.cat||'Allgemein')}${p.sku?' · '+esc(p.sku):''} · Wert ${eur(Math.max(0,s)*num(p.ek))}${inc?` · <b class="pos">+${inc} bestellt</b>`:''}${res?` · <b class="warn">${res} reserviert</b>`:''}</span></span>
+    <span class="row-sub" style="display:block">${esc(p.cat||'Allgemein')}${p.sku?' · '+esc(p.sku):''} · Wert ${eur(Math.max(0,s)*num(p.ek))}${inc?` · <b class="pos">+${inc} bestellt</b>`:''}${res?` · <b class="warn">${res} reserviert</b>`:''}${ps.rate>0?' · reicht '+fmtReach(ps.reach):''}</span></span>
     <span class="row-amt"><span class="num ${low?'neg':''}" style="font-size:18px">${s}</span>${low?'<span class="pill low">Nachbestellen</span>':''}</span></button>`}).join('')
     :'<div class="empty"><b>Keine Produkte</b>Produkte legst du unter „Mehr → Produkte“ an.</div>'}</div>
-  <p class="hint" style="margin-top:10px">Bestand = Anfangsbestand + erhaltene Einkäufe − gelieferte Verkäufe. „Bestellt“ ist Ware, die noch kommt, „reserviert“ sind Kundenbestellungen, die noch nicht geliefert sind. Tippe ein Produkt an, um nach einer Inventur zu korrigieren.</p>`;
+  <p class="hint" style="margin-top:10px">Bestand = Anfangsbestand + erhaltene Einkäufe − gelieferte Verkäufe. „Bestellt“ ist Ware, die noch kommt, „reserviert“ sind Kundenbestellungen, die noch nicht geliefert sind. Tippe ein Produkt an für Verkaufsstatistik, Prognose und Inventur.</p>`;
 }
 
 function vAuswertung(){
@@ -447,7 +536,14 @@ function vAuswertung(){
   const exp={};ye.filter(e=>e.type==='ausgabe').forEach(e=>{const k=e.expenseCat||'Sonstiges';exp[k]=(exp[k]||0)+num(e.total)});
   const st=S.settings;const pct=st.limit?Math.min(100,yt.umsatz/st.limit*100):0;
   const active=months.filter(m=>m.t.n||m.t.aus||m.t.ein);
+  const psAll=S.products.map(p=>({p,ps:productStats(p)})).sort((a,b)=>b.ps.q30-a.ps.q30||b.ps.tot.rev-a.ps.tot.rev);
   return header('Auswertung')+`
+  ${psAll.length?`<div class="sec-head" style="margin-top:0"><h2>Produkt-Check · letzte 30 Tage</h2></div>
+  <div class="list" style="margin-bottom:6px">${psAll.map(({p,ps})=>{const [c,l]=STATUS[ps.status];return `<button class="row" data-act="prod" data-id="${p.id}"><span class="tag ${ps.need?'aus':'vk'}">${ps.q30}</span>
+   <span style="min-width:0"><span class="row-title" style="display:block">${esc(p.name)}</span><span class="row-sub" style="display:block">${ps.q30} verkauft${ps.q30||ps.q30p?' · '+fmtTrend(ps.trend)+' zum Vormonat':''} · reicht ${fmtReach(ps.reach)}</span></span>
+   <span class="row-amt"><span class="pill ${ps.need?'low':c}">${ps.need?'Nachbestellen':l}</span></span></button>`}).join('')}</div>
+  <p class="hint" style="margin:0 0 4px">Tippe ein Produkt an für Wochenverlauf, Prognose und Bestellempfehlung.</p>
+  <div class="sec-head"><h2>Jahresauswertung</h2></div>`:''}
   <div class="chips">${years.map(v=>`<button class="chip ${+y===v?'on':''}" data-act="year" data-v="${v}">${v}</button>`).join('')}</div>
   <div class="chart"><div class="eyebrow" style="margin-bottom:10px">Überschuss je Monat ${y}</div>
    <div class="bars"><div class="zero" style="top:${zero}%"></div>${bars}</div>
@@ -541,7 +637,7 @@ function vMehr(){
   let prods=S.products.filter(p=>UI.pcat==='alle'||(p.cat||'Allgemein')===UI.pcat);
   const pq=UI.pq.trim().toLowerCase();if(pq)prods=prods.filter(p=>(p.name+' '+(p.sku||'')).toLowerCase().includes(pq));
   prods.sort(cmp);
-  const prow=p=>`<button class="row" data-act="edit-product" data-id="${p.id}"><span class="tag ek">${esc((p.cat||'A').slice(0,2))}</span>
+  const prow=p=>`<button class="row" data-act="prod" data-id="${p.id}"><span class="tag ek">${esc((p.cat||'A').slice(0,2))}</span>
     <span style="min-width:0"><span class="row-title" style="display:block">${esc(p.name)}${p.sample?'<span class="pill ex">Beispiel</span>':''}</span><span class="row-sub" style="display:block">${UI.psort==='kat'?'':esc(p.cat||'Allgemein')+' · '}EK ${eur(p.ek)} · Bestand ${sm[p.id]}${p.sku?' · '+esc(p.sku):''}</span></span>
     <span class="row-amt"><span class="num">${eur(p.vk)}</span><span class="row-sub">${p.vk>0?Math.round((p.vk-p.ek)/p.vk*100)+' % Marge':''}</span></span></button>`;
   let plist='';
@@ -811,7 +907,10 @@ function openSettings(){
    <label class="check"><input type="checkbox" id="sKu" ${st.kleinunternehmer?'checked':''}> Kleinunternehmer (keine Umsatzsteuer)</label>
    <div class="grid3"><label class="field"><span>Umsatzgrenze €</span><input class="inp num" id="sLimit" type="number" value="${st.limit}"></label>
     <label class="field"><span>Standard-USt</span><select class="inp" id="sTax">${[20,13,10,0].map(r=>`<option value="${r}" ${num(st.defaultTax)===r?'selected':''}>${r} %</option>`).join('')}</select></label>
-    <label class="field"><span>Lagerwarnung ab</span><input class="inp num" id="sLow" type="number" min="0" value="${st.lowStock}"></label></div>
+    <label class="field"><span>Puffer (Stück)</span><input class="inp num" id="sLow" type="number" min="0" value="${st.lowStock}"></label></div>
+   <div class="grid2"><label class="field"><span>Lieferzeit (Tage)</span><input class="inp num" id="sLead" type="number" min="0" value="${st.leadTime??7}"></label>
+    <label class="field"><span>Bestellen für (Tage)</span><input class="inp num" id="sCover" type="number" min="1" value="${st.coverDays??30}"></label></div>
+   <p class="hint">Daraus berechnet die App, wann du nachbestellen solltest und wie viel: genug für die Lieferzeit plus die gewählte Anzahl Tage, plus Puffer.</p>
    <div class="grid2"><label class="field"><span>Nächste Rechnungsnr.</span><input class="inp num" id="sNext" type="number" min="1" value="${st.nextInvoice}"></label>
     <label class="field"><span>Zahlungsziel-Text</span><input class="inp" id="sTerms" value="${esc(st.payTerms)}"></label></div>
    <p class="hint">Rechnungsnummern laufen fortlaufend pro Jahr (z. B. ${new Date().getFullYear()}-001) und starten jedes Jahr neu bei 1.</p>
@@ -820,7 +919,7 @@ function openSettings(){
 async function saveSettings(){
   const v=id=>$(id).value.trim();
   await Store.setSettings({...S.settings,owner:v('#sOwner'),company:v('#sCompany'),address:v('#sAddress'),email:v('#sEmail'),phone:v('#sPhone'),uidNr:v('#sUid'),iban:v('#sIban'),
-    kleinunternehmer:$('#sKu').checked,limit:num(v('#sLimit')),defaultTax:num(v('#sTax')),lowStock:Math.round(num(v('#sLow'))),nextInvoice:Math.max(1,Math.round(num(v('#sNext')))),payTerms:v('#sTerms')});
+    kleinunternehmer:$('#sKu').checked,limit:num(v('#sLimit')),defaultTax:num(v('#sTax')),lowStock:Math.round(num(v('#sLow'))),leadTime:Math.max(0,Math.round(num(v('#sLead')))),coverDays:Math.max(1,Math.round(num(v('#sCover')))),nextInvoice:Math.max(1,Math.round(num(v('#sNext')))),payTerms:v('#sTerms')});
   closeSheet();toast('Firmendaten gespeichert');
 }
 
@@ -910,6 +1009,8 @@ document.addEventListener('click',async ev=>{
     case'del-product':{const used=S.entries.some(e=>(e.items||[]).some(i=>i.pid===P.id));
       if(await ask(used?'Produkt löschen? Bestehende Buchungen behalten den Produktnamen.':'Produkt löschen?')){await Store.del('products',P.id);closeSheet();toast('Produkt gelöscht')}break}
     case'stock':openStock(id);break;
+    case'prod':openProductStats(id);break;
+    case'reorder':{const p=prodById(id);const ps=productStats(p);closeSheet();openEntryForm('einkauf',null,{items:[{pid:p.id,qty:ps.suggest,price:p.ek}],delivered:false,paid:false,updateEk:true});break}
     case'save-stock':{const p=prodById(id);const cur=stockMap()[id];const n=Math.round(num($('#sCount').value));await Store.put('products',{...p,stockStart:num(p.stockStart)+(n-cur)}).catch(()=>{});closeSheet();toast('Bestand korrigiert');break}
     case'edit-settings':openSettings();break;
     case'save-settings':saveSettings();break;
