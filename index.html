@@ -406,8 +406,18 @@ function vLager(){
   const sm=stockMap(),pm=pendingMap();const cats=['alle',...new Set(S.products.map(p=>p.cat||'Allgemein'))];
   let l=[...S.products].sort((a,b)=>(a.cat||'').localeCompare(b.cat||'')||a.name.localeCompare(b.name));
   if(UI.lagerCat!=='alle')l=l.filter(p=>(p.cat||'Allgemein')===UI.lagerCat);
+  const v={ek:0,vk:0,stk:0,inc:0};
+  l.forEach(p=>{const q=Math.max(0,sm[p.id]);v.ek+=q*num(p.ek);v.vk+=q*num(p.vk);v.stk+=q;v.inc+=(pm.inc[p.id]||0)*num(p.ek)});
+  const byCat={};S.products.forEach(p=>{const k=p.cat||'Allgemein';byCat[k]=(byCat[k]||0)+Math.max(0,sm[p.id])*num(p.ek)});
   return header('Lager')+`
   ${cats.length>2?`<div class="chips">${cats.map(c=>`<button class="chip ${UI.lagerCat===c?'on':''}" data-act="lagercat" data-v="${esc(c)}">${c==='alle'?'Alle':esc(c)}</button>`).join('')}</div>`:''}
+  ${S.products.length?`<div class="kpi-main" style="margin:0 0 8px"><div class="lbl">Warenwert im Lager${UI.lagerCat!=='alle'?' · '+esc(UI.lagerCat):''} (zum Einkaufspreis)</div><div class="val">${eur(v.ek)}</div>
+   <div class="sub">${v.stk} Stück auf Lager${v.inc?` · dazu ${eur(v.inc)} bestellt`:''}</div></div>
+  <div class="kpis" style="margin:0 0 14px">
+   <div class="kpi"><div class="lbl">Verkaufswert (VK)</div><div class="val">${eur(v.vk)}</div></div>
+   <div class="kpi"><div class="lbl">Möglicher Rohertrag</div><div class="val pos">${eur(v.vk-v.ek)}</div></div>
+  </div>
+  ${UI.lagerCat==='alle'&&Object.keys(byCat).length>1?`<div class="tbl-wrap" style="margin-bottom:14px"><table><thead><tr><th>Kategorie</th><th>Warenwert (EK)</th></tr></thead><tbody>${Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([k,x])=>`<tr><td>${esc(k)}</td><td>${eur(x)}</td></tr>`).join('')}</tbody></table></div>`:''}`:''}
   <div class="list">${l.length?l.map(p=>{const s=sm[p.id],inc=pm.inc[p.id]||0,res=pm.res[p.id]||0;const low=s+inc-res<=num(p.low??S.settings.lowStock);
     return `<button class="row" data-act="stock" data-id="${p.id}"><span class="tag ${low?'aus':'vk'}">${esc((p.unit||'Stk').slice(0,3))}</span>
     <span style="min-width:0"><span class="row-title" style="display:block">${esc(p.name)}${p.sample?'<span class="pill ex">Beispiel</span>':''}</span>
