@@ -49,6 +49,10 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .eyebrow{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
 h1{font-size:24px;font-weight:800;letter-spacing:-.02em;margin:2px 0 0;text-wrap:balance}
 h2{font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:22px 0 8px}
+.add-btn{border:0;background:var(--accent);color:var(--accent-ink);font-weight:700;font-size:14px;border-radius:99px;padding:9px 15px;white-space:nowrap;flex-shrink:0}
+.sec-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:22px 0 8px}
+.sec-head h2{margin:0}
+.sec-head .add-btn{padding:7px 13px;font-size:13px}
 .store-chip{font-size:11px;font-weight:600;padding:4px 9px;border-radius:99px;background:var(--surface-2);color:var(--muted);white-space:nowrap}
 .store-chip.cloud{background:var(--accent-soft);color:var(--accent)}
 
@@ -339,9 +343,9 @@ function render(){
   if(!UI.ready){m.innerHTML=header('Kassabuch')+`<div class="list"><div class="empty">Daten werden geladen …</div></div>`;return}
   m.innerHTML=({start:vStart,buchungen:vBuchungen,kunden:vKunden,lager:vLager,auswertung:vAuswertung,mehr:vMehr}[UI.screen])();
 }
-function header(t){
+function header(t,act){
   const c=Store.mode==='cloud'?'':'<span class="store-chip cloud">Offline · nur auf diesem Gerät</span>';
-  return `<div class="top"><div><div class="eyebrow">${esc(S.settings.company||S.settings.owner||'Kassabuch')}</div><h1>${t}</h1></div>${c}</div>`;
+  return `<div class="top" style="align-items:center"><div><div class="eyebrow">${esc(S.settings.company||S.settings.owner||'Kassabuch')}</div><h1>${t}</h1></div>${act||c}</div>`;
 }
 function entryRow(e){
   const tagCls={verkauf:'vk',einkauf:'ek',ausgabe:'aus'}[e.type],tagTxt={verkauf:'VK',einkauf:'EK',ausgabe:'AG'}[e.type];
@@ -395,11 +399,10 @@ function vBuchungen(){
   const q=UI.q.trim().toLowerCase();
   if(q)l=l.filter(e=>[e.party,e.note,e.invoiceNo,e.expenseCat,...(e.items||[]).map(i=>i.name)].join(' ').toLowerCase().includes(q));
   const chips=[['alle','Alle'],['verkauf','Verkäufe'],['einkauf','Einkäufe'],['ausgabe','Ausgaben'],['bestellt','Bestellt'],['offen','Offen']];
-  return header('Buchungen')+`
+  return header('Buchungen','<button class="add-btn" data-act="new-entry" data-v="verkauf">+ Buchung</button>')+`
   <input class="search" id="q" type="search" placeholder="Suchen: Kunde, Produkt, Rechnungsnr. …" value="${esc(UI.q)}">
   <div class="chips">${chips.map(([k,v])=>`<button class="chip ${f===k?'on':''}" data-act="filter" data-v="${k}">${v}</button>`).join('')}</div>
-  <div class="list">${l.length?l.map(entryRow).join(''):'<div class="empty">Keine passenden Buchungen.</div>'}</div>
-  <div class="btn-row" style="margin-top:12px"><button class="btn" data-act="new-entry" data-v="verkauf">+ Neue Buchung</button></div>`;
+  <div class="list">${l.length?l.map(entryRow).join(''):'<div class="empty">Keine passenden Buchungen.</div>'}</div>`;
 }
 
 function vLager(){
@@ -409,7 +412,7 @@ function vLager(){
   const v={ek:0,vk:0,stk:0,inc:0};
   l.forEach(p=>{const q=Math.max(0,sm[p.id]);v.ek+=q*num(p.ek);v.vk+=q*num(p.vk);v.stk+=q;v.inc+=(pm.inc[p.id]||0)*num(p.ek)});
   const byCat={};S.products.forEach(p=>{const k=p.cat||'Allgemein';byCat[k]=(byCat[k]||0)+Math.max(0,sm[p.id])*num(p.ek)});
-  return header('Lager')+`
+  return header('Lager','<button class="add-btn" data-act="new-product">+ Produkt</button>')+`
   ${cats.length>2?`<div class="chips">${cats.map(c=>`<button class="chip ${UI.lagerCat===c?'on':''}" data-act="lagercat" data-v="${esc(c)}">${c==='alle'?'Alle':esc(c)}</button>`).join('')}</div>`:''}
   ${S.products.length?`<div class="kpi-main" style="margin:0 0 8px"><div class="lbl">Warenwert im Lager${UI.lagerCat!=='alle'?' · '+esc(UI.lagerCat):''} (zum Einkaufspreis)</div><div class="val">${eur(v.ek)}</div>
    <div class="sub">${v.stk} Stück auf Lager${v.inc?` · dazu ${eur(v.inc)} bestellt`:''}</div></div>
@@ -470,15 +473,14 @@ function vKunden(){
   let l=customerList().sort((a,b)=>(b.last||'').localeCompare(a.last||'')||a.name.localeCompare(b.name));
   const q=UI.cq.trim().toLowerCase();if(q)l=l.filter(c=>(c.name+' '+(c.rec?.phone||'')+' '+(c.rec?.email||'')).toLowerCase().includes(q));
   const offen=customerList().reduce((s,c)=>s+c.offen,0),best=customerList().reduce((s,c)=>s+c.bestellt,0);
-  return header('Kunden')+`
+  return header('Kunden','<button class="add-btn" data-act="new-cust">+ Kunde</button>')+`
   <input class="search" id="cq" type="search" placeholder="Kunde suchen …" value="${esc(UI.cq)}">
   ${offen||best?`<p class="hint" style="margin:0 0 10px">${offen?`Offen zu zahlen: <b class="warn">${eur(offen)}</b>`:''}${offen&&best?' · ':''}${best?`<b class="pos">${best} Bestellung${best>1?'en':''}</b> noch nicht geliefert`:''}</p>`:''}
   <div class="list">${l.length?l.map(c=>`<button class="row" data-act="cust" data-name="${esc(c.name)}"><span class="tag vk">${esc(initials(c.name))}</span>
     <span style="min-width:0"><span class="row-title" style="display:block">${esc(c.name)}</span>
     <span class="row-sub" style="display:block">${c.n} Kauf${c.n===1?'':'e'}${c.last?' · zuletzt '+fdate(c.last):''}</span></span>
     <span class="row-amt"><span class="num">${eur(c.umsatz)}</span>${c.bestellt?`<span class="pill ord">${c.bestellt} bestellt</span>`:c.offen?`<span class="pill open">${eur(c.offen)} offen</span>`:''}</span></button>`).join('')
-    :`<div class="empty"><b>${q?'Kein Kunde gefunden':'Noch keine Kunden'}</b>${q?'':'Kunden entstehen automatisch beim ersten Verkauf – oder du legst sie hier an.'}</div>`}</div>
-  <button class="btn" style="margin-top:12px" data-act="new-cust">+ Kunde anlegen</button>`;
+    :`<div class="empty"><b>${q?'Kein Kunde gefunden':'Noch keine Kunden'}</b>${q?'':'Kunden entstehen automatisch beim ersten Verkauf – oder du legst sie hier an.'}</div>`}</div>`;
 }
 function openCustomer(name){
   const c=customerList().find(x=>x.name.toLowerCase()===name.toLowerCase());
@@ -549,12 +551,11 @@ function vMehr(){
   else plist=prods.map(prow).join('');
   const hasSample=S.entries.some(e=>e.sample)||S.products.some(p=>p.sample);
   return header('Mehr')+`
-  <h2 style="margin-top:0">Produkte</h2>
+  <div class="sec-head" style="margin-top:0"><h2>Produkte (${S.products.length})</h2><button class="add-btn" data-act="new-product">+ Produkt</button></div>
   ${S.products.length>3?`<input class="search" id="pq" type="search" placeholder="Produkt suchen …" value="${esc(UI.pq)}">`:''}
   ${S.products.length?`<div class="sortbar"><label for="psort">Sortieren</label><select class="inp" id="psort">${Object.entries(SORTS).map(([k,v])=>`<option value="${k}" ${UI.psort===k?'selected':''}>${v}</option>`).join('')}</select></div>`:''}
   ${pcats.length>1?`<div class="chips"><button class="chip ${UI.pcat==='alle'?'on':''}" data-act="pcat" data-v="alle">Alle (${S.products.length})</button>${pcats.map(c=>`<button class="chip ${UI.pcat===c?'on':''}" data-act="pcat" data-v="${esc(c)}">${esc(c)}</button>`).join('')}</div>`:''}
   <div class="list">${plist}</div>
-  <button class="btn" style="margin-top:10px" data-act="new-product">+ Produkt anlegen</button>
 
   <h2>Produktkategorien</h2>
   <div class="cat-list">${st.categories.map((c,i)=>`<span>${esc(c)}<button data-act="del-cat" data-k="categories" data-i="${i}" aria-label="${esc(c)} entfernen">✕</button></span>`).join('')}</div>
