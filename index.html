@@ -892,7 +892,7 @@ function renderEntryForm(){
      <label>Menge<input class="inp num" type="number" inputmode="decimal" min="0" step="1" data-row="${i}" data-k="qty" value="${it.qty}"></label>
      <label>${t==='verkauf'?'VK':'EK'} / Stk €<input class="inp num" type="number" inputmode="decimal" min="0" step="0.01" data-row="${i}" data-k="price" value="${it.price}"></label>
      <button class="x" data-act="rm-row" data-i="${i}" aria-label="Position entfernen">✕</button>
-     <div class="sum"><span>${it.pid&&t==='verkauf'?'EK '+eur(prodById(it.pid)?.ek):''}</span><span class="num" id="rs${i}">${eur(num(it.qty)*num(it.price))}</span></div></div>`).join('')}</div>
+     <div class="sum"><span>${it.pid&&t==='verkauf'?'EK '+eur(it.ek??prodById(it.pid)?.ek):''}</span><span class="num" id="rs${i}">${eur(num(it.qty)*num(it.price))}</span></div></div>`).join('')}</div>
    <button class="add-row" data-act="add-row">+ Position</button>`;
   const ps=F.id?S.entries.find(x=>x.id===F.id):null;
   const body=`
@@ -933,7 +933,7 @@ function formCalc(){
   if(F.type==='einkauf')return{sub,total:sub};
   const regular=r2(sub+num(F.extra));
   const total=String(F.override).trim()!==''?r2(num(F.override)):regular;
-  const cogs=r2(F.items.reduce((s,i)=>s+num(i.qty)*num(prodById(i.pid)?.ek??i.ek),0));
+  const cogs=r2(F.items.reduce((s,i)=>s+num(i.qty)*num(i.ek??prodById(i.pid)?.ek),0));
   return{sub,regular,total,discount:r2(regular-total),cogs};
 }
 function updateSummary(){
@@ -959,7 +959,7 @@ async function saveEntry(){
   if(F.type!=='ausgabe'){e.delivered=!!F.delivered}
   if(F.type==='ausgabe'){e.expenseCat=F.expenseCat;delete e.items}
   else{
-    e.items=F.items.map(i=>{const p=prodById(i.pid);return{pid:i.pid,name:p?.name||i.name,qty:num(i.qty),price:r2(num(i.price)),ek:r2(F.type==='verkauf'?num(p?.ek??i.ek):num(i.price)),tax:S.settings.kleinunternehmer?0:num(p?.tax??S.settings.defaultTax),unit:p?.unit||'Stk'}});
+    e.items=F.items.map(i=>{const p=prodById(i.pid);return{pid:i.pid,name:i.name||p?.name||'?',qty:num(i.qty),price:r2(num(i.price)),ek:r2(F.type==='verkauf'?num(i.ek??p?.ek):num(i.price)),tax:i.tax??(S.settings.kleinunternehmer?0:num(p?.tax??S.settings.defaultTax)),unit:i.unit||p?.unit||'Stk'}});
     if(F.type==='verkauf'){Object.assign(e,{partyAddress:F.partyAddress.trim(),extra:r2(num(F.extra)),regular:c.regular,discount:c.discount,cogs:c.cogs})}
   }
   const prev=old?paysOf(old).map(p=>({...p})):[];let pays;
@@ -1241,7 +1241,7 @@ function openProduct(id,preset){
    ${st.kleinunternehmer?'':`<label class="field"><span>USt-Satz</span><select class="inp" id="pTax">${[20,13,10,0].map(r=>`<option value="${r}" ${num(P.tax)===r?'selected':''}>${r} %</option>`).join('')}</select></label>`}
    <div class="grid2"><label class="field"><span>${p?'Anfangsbestand':'Bestand jetzt'}</span><input class="inp num" id="pStock" type="number" step="1" value="${P.stockStart}"></label>
     <label class="field"><span>Warnen ab Bestand</span><input class="inp num" id="pLow" type="number" min="0" step="1" value="${P.low}" placeholder="${st.lowStock}"></label></div>
-   ${p?'<p class="hint">Den aktuellen Bestand korrigierst du am einfachsten im Lager.</p>':''}
+   ${p?'<p class="hint">Preisänderungen gelten nur für neue Buchungen. Bereits gebuchte Verkäufe und Einkäufe behalten ihren damaligen Preis, Einkaufspreis und Namen. Den Bestand korrigierst du am einfachsten im Lager.</p>':''}
    <button class="btn" data-act="save-product">${p?'Speichern':'Produkt anlegen'}</button>
    ${p?'<button class="btn danger" style="margin-top:8px" data-act="del-product">Produkt löschen</button>':''}`);
 }
@@ -1375,7 +1375,7 @@ document.addEventListener('click',async ev=>{
     case'lagercat':UI.lagerCat=v;render();break;
     case'year':UI.year=+v;render();break;
     case'new-entry':openEntryForm(v);break;
-    case'ftype':F.type=v;F.items=v==='ausgabe'?[]:F.items.length?F.items.map(i=>{const p=prodById(i.pid);return{...i,price:p?(v==='verkauf'?p.vk:p.ek):i.price}}):[{pid:'',qty:1,price:0}];renderEntryForm();break;
+    case'ftype':F.type=v;F.items=v==='ausgabe'?[]:F.items.length?F.items.map(i=>{const p=prodById(i.pid);return{pid:i.pid,qty:i.qty,price:p?(v==='verkauf'?p.vk:p.ek):i.price}}):[{pid:'',qty:1,price:0}];renderEntryForm();break;
     case'add-row':F.items.push({pid:'',qty:1,price:0});renderEntryForm();break;
     case'rm-row':F.items.splice(+b.dataset.i,1);if(!F.items.length)F.items.push({pid:'',qty:1,price:0});renderEntryForm();break;
     case'save-entry':saveEntry();break;
@@ -1461,7 +1461,7 @@ document.addEventListener('change',async ev=>{
   if(t.id==='psort'){UI.psort=t.value;try{localStorage.setItem('kb_psort',t.value)}catch{}render();return}
   if(t.id==='importFile'&&t.files[0]){importJSON(t.files[0]);t.value='';return}
   if(!F)return;
-  if(t.dataset.k==='pid'){const it=F.items[+t.dataset.row];it.pid=t.value;const p=prodById(t.value);if(p)it.price=F.type==='verkauf'?p.vk:p.ek;renderEntryForm();return}
+  if(t.dataset.k==='pid'){const it=F.items[+t.dataset.row];it.pid=t.value;delete it.ek;delete it.name;delete it.tax;delete it.unit;const p=prodById(t.value);if(p)it.price=F.type==='verkauf'?p.vk:p.ek;renderEntryForm();return}
   if(t.dataset.f==='paid'){F.payStatus=t.value;return}
   if(t.dataset.f==='delivered'){F.delivered=t.value==='1';if(!F.id)F.payStatus=F.delivered?'1':'0';renderEntryForm();return}
   if(t.dataset.f==='party'&&F.type==='verkauf'){const c=custByName(t.value);if(c&&c.address&&!F.partyAddress.trim()){F.partyAddress=c.address;const ta=document.querySelector('[data-f="partyAddress"]');if(ta)ta.value=c.address}return}
