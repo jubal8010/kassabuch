@@ -91,6 +91,11 @@ button.row:hover{background:var(--surface-2)}
 .pill.open{background:var(--warn-soft);color:var(--warn)}
 .pill.ok{background:var(--surface-2);color:var(--muted)}
 .pill.ex{background:var(--surface-2);color:var(--muted);margin-left:4px}
+.grp-head{padding:8px 13px 6px;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);background:var(--surface-2);border-top:1px solid var(--line);display:flex;justify-content:space-between}
+.grp-head:first-child{border-top:0}
+.sortbar{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.sortbar label{font-size:12px;font-weight:700;color:var(--muted);white-space:nowrap}
+.sortbar select{flex:1;min-width:0;padding:8px 10px}
 .pill.ord{background:var(--accent-soft);color:var(--accent)}
 .pill.low{background:var(--neg-soft);color:var(--neg)}
 .empty{padding:26px 16px;text-align:center;color:var(--muted);font-size:14px}
@@ -243,7 +248,7 @@ const DEF={owner:'',company:'',address:'',email:'',phone:'',uidNr:'',iban:'',
   invoiceYear:new Date().getFullYear(),nextInvoice:1,payTerms:'Zahlbar innerhalb von 14 Tagen ohne Abzug.'};
 
 const S={settings:{...DEF},products:[],entries:[],customers:[]};
-const UI={cq:'',screen:'start',period:'monat',filter:'alle',q:'',lagerCat:'alle',year:new Date().getFullYear(),ready:false};
+const UI={cq:'',pq:'',pcat:'alle',psort:(()=>{try{return localStorage.getItem('kb_psort')||'kat'}catch{return'kat'}})(),screen:'start',period:'monat',filter:'alle',q:'',lagerCat:'alle',year:new Date().getFullYear(),ready:false};
 const LKEY='kassabuch_v1';
 
 /* ---------- storage: cloud (db) with local fallback ---------- */
@@ -515,13 +520,30 @@ async function saveCustomer(){
 
 function vMehr(){
   const st=S.settings;const sm=stockMap();
-  const prods=[...S.products].sort((a,b)=>(a.cat||'').localeCompare(b.cat||'')||a.name.localeCompare(b.name));
+  const SORTS={kat:'Kategorie',az:'Name A–Z',za:'Name Z–A',vkab:'Preis aufsteigend',vkzu:'Preis absteigend',marge:'Marge (höchste zuerst)',bestand:'Bestand (wenig zuerst)'};
+  const mg=p=>p.vk>0?(p.vk-p.ek)/p.vk:-1;const nm=(a,b)=>a.name.localeCompare(b.name,'de');
+  const cmp={kat:(a,b)=>(a.cat||'Allgemein').localeCompare(b.cat||'Allgemein','de')||nm(a,b),az:nm,za:(a,b)=>-nm(a,b),
+    vkab:(a,b)=>num(a.vk)-num(b.vk)||nm(a,b),vkzu:(a,b)=>num(b.vk)-num(a.vk)||nm(a,b),marge:(a,b)=>mg(b)-mg(a)||nm(a,b),bestand:(a,b)=>sm[a.id]-sm[b.id]||nm(a,b)}[UI.psort]||nm;
+  const pcats=[...new Set(S.products.map(p=>p.cat||'Allgemein'))].sort((a,b)=>a.localeCompare(b,'de'));
+  if(UI.pcat!=='alle'&&!pcats.includes(UI.pcat))UI.pcat='alle';
+  let prods=S.products.filter(p=>UI.pcat==='alle'||(p.cat||'Allgemein')===UI.pcat);
+  const pq=UI.pq.trim().toLowerCase();if(pq)prods=prods.filter(p=>(p.name+' '+(p.sku||'')).toLowerCase().includes(pq));
+  prods.sort(cmp);
+  const prow=p=>`<button class="row" data-act="edit-product" data-id="${p.id}"><span class="tag ek">${esc((p.cat||'A').slice(0,2))}</span>
+    <span style="min-width:0"><span class="row-title" style="display:block">${esc(p.name)}${p.sample?'<span class="pill ex">Beispiel</span>':''}</span><span class="row-sub" style="display:block">${UI.psort==='kat'?'':esc(p.cat||'Allgemein')+' · '}EK ${eur(p.ek)} · Bestand ${sm[p.id]}${p.sku?' · '+esc(p.sku):''}</span></span>
+    <span class="row-amt"><span class="num">${eur(p.vk)}</span><span class="row-sub">${p.vk>0?Math.round((p.vk-p.ek)/p.vk*100)+' % Marge':''}</span></span></button>`;
+  let plist='';
+  if(!prods.length)plist=`<div class="empty">${S.products.length?'Kein Produkt passt zur Suche.':'Noch keine Produkte.'}</div>`;
+  else if(UI.psort==='kat'){const g={};prods.forEach(p=>{(g[p.cat||'Allgemein']=g[p.cat||'Allgemein']||[]).push(p)});
+    plist=Object.keys(g).map(k=>`<div class="grp-head"><span>${esc(k)}</span><span>${g[k].length}</span></div>`+g[k].map(prow).join('')).join('')}
+  else plist=prods.map(prow).join('');
   const hasSample=S.entries.some(e=>e.sample)||S.products.some(p=>p.sample);
   return header('Mehr')+`
   <h2 style="margin-top:0">Produkte</h2>
-  <div class="list">${prods.length?prods.map(p=>`<button class="row" data-act="edit-product" data-id="${p.id}"><span class="tag ek">${esc((p.cat||'A').slice(0,2))}</span>
-    <span style="min-width:0"><span class="row-title" style="display:block">${esc(p.name)}${p.sample?'<span class="pill ex">Beispiel</span>':''}</span><span class="row-sub" style="display:block">${esc(p.cat||'Allgemein')} · EK ${eur(p.ek)} · Bestand ${sm[p.id]}</span></span>
-    <span class="row-amt"><span class="num">${eur(p.vk)}</span><span class="row-sub">${p.vk>0?Math.round((p.vk-p.ek)/p.vk*100)+' % Marge':''}</span></span></button>`).join(''):'<div class="empty">Noch keine Produkte.</div>'}</div>
+  ${S.products.length>3?`<input class="search" id="pq" type="search" placeholder="Produkt suchen …" value="${esc(UI.pq)}">`:''}
+  ${S.products.length?`<div class="sortbar"><label for="psort">Sortieren</label><select class="inp" id="psort">${Object.entries(SORTS).map(([k,v])=>`<option value="${k}" ${UI.psort===k?'selected':''}>${v}</option>`).join('')}</select></div>`:''}
+  ${pcats.length>1?`<div class="chips"><button class="chip ${UI.pcat==='alle'?'on':''}" data-act="pcat" data-v="alle">Alle (${S.products.length})</button>${pcats.map(c=>`<button class="chip ${UI.pcat===c?'on':''}" data-act="pcat" data-v="${esc(c)}">${esc(c)}</button>`).join('')}</div>`:''}
+  <div class="list">${plist}</div>
   <button class="btn" style="margin-top:10px" data-act="new-product">+ Produkt anlegen</button>
 
   <h2>Produktkategorien</h2>
@@ -861,6 +883,7 @@ document.addEventListener('click',async ev=>{
       await Store.put('entries',{...e,delivered:true,orderDate:e.orderDate||e.date,date:today()}).catch(()=>{});
       toast(e.type==='verkauf'?'Als geliefert markiert':'Ware ist im Lager');setTimeout(()=>openEntry(id),0);break}
     case'cust':openCustomer(b.dataset.name);break;
+    case'pcat':UI.pcat=v;render();break;
     case'new-cust':openCustomerForm();break;
     case'edit-cust':openCustomerForm(b.dataset.name);break;
     case'save-cust':saveCustomer();break;
@@ -890,13 +913,14 @@ document.addEventListener('click',async ev=>{
 });
 document.addEventListener('input',ev=>{
   const t=ev.target;
-  if(t.id==='q'||t.id==='cq'){UI[t.id]=t.value;const pos=t.selectionStart;render();const n=$('#'+t.id);n.focus();n.setSelectionRange(pos,pos);return}
+  if(t.id==='q'||t.id==='cq'||t.id==='pq'){UI[t.id]=t.value;const pos=t.selectionStart;render();const n=$('#'+t.id);n.focus();n.setSelectionRange(pos,pos);return}
   if(!F)return;
   if(t.dataset.row!==undefined&&t.dataset.k!=='pid'){F.items[+t.dataset.row][t.dataset.k]=t.value;updateSummary();return}
   if(t.dataset.f&&t.type!=='checkbox'&&t.tagName!=='SELECT'){F[t.dataset.f]=t.value;updateSummary()}
 });
 document.addEventListener('change',ev=>{
   const t=ev.target;
+  if(t.id==='psort'){UI.psort=t.value;try{localStorage.setItem('kb_psort',t.value)}catch{}render();return}
   if(t.id==='importFile'&&t.files[0]){importJSON(t.files[0]);t.value='';return}
   if(!F)return;
   if(t.dataset.k==='pid'){const it=F.items[+t.dataset.row];it.pid=t.value;const p=prodById(t.value);if(p)it.price=F.type==='verkauf'?p.vk:p.ek;renderEntryForm();return}
