@@ -249,23 +249,17 @@ tfoot td{font-weight:700;border-top:2px solid var(--ink)}
 @media (prefers-reduced-motion:no-preference){.sheet{animation:up .18s ease-out}@keyframes up{from{transform:translateY(16px);opacity:.6}to{transform:none;opacity:1}}}
 .label-prev{background:#e9ece8;border-radius:12px;padding:14px;display:flex;justify-content:center}
 .label-prev .shiplbl{width:min(100%,300px);box-shadow:0 2px 10px rgba(0,0,0,.15)}
-.shiplbl{container-type:inline-size;aspect-ratio:2/3;background:#fff;color:#111;font-family:-apple-system,'Helvetica Neue',Arial,sans-serif;display:flex;flex-direction:column;padding:5cqw;gap:4cqw;overflow:hidden;line-height:1.25}
-.lb-k{font-size:2.6cqw;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#666;margin-bottom:1cqw}
-.lb-top{display:flex;justify-content:space-between;gap:4cqw}
-.lb-from{font-size:3.4cqw;min-width:0;overflow-wrap:anywhere}
-.lb-from b{font-size:3.8cqw}
-.lb-stamp{flex-shrink:0;width:26cqw;height:20cqw;border:0.5cqw dashed #999;border-radius:1.5cqw;display:grid;place-items:center;text-align:center;font-size:2.6cqw;color:#999;text-transform:uppercase;letter-spacing:.06em}
-.lb-to{flex:1;border:0.7cqw solid #111;border-radius:2cqw;padding:5cqw;display:flex;flex-direction:column;justify-content:center;overflow-wrap:anywhere}
-.lb-name{font-size:7cqw;font-weight:800;line-height:1.15;margin-bottom:1.5cqw}
-.lb-line{font-size:5.6cqw}
-.lb-city{font-size:6.6cqw;margin-top:1cqw}
+.shiplbl{container-type:inline-size;aspect-ratio:2/3;background:#fff;color:#111;font-family:-apple-system,'Helvetica Neue',Arial,sans-serif;display:flex;flex-direction:column;padding:6cqw;gap:5cqw;overflow:hidden;line-height:1.25}
+.lb-k{font-size:2.8cqw;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#666;margin-bottom:1cqw}
+.lb-from{font-size:3.8cqw;overflow-wrap:anywhere}
+.lb-from b{font-size:4.2cqw}
+.lb-to{flex:1;border:0.7cqw solid #111;border-radius:2cqw;padding:6cqw;display:flex;flex-direction:column;justify-content:center;overflow-wrap:anywhere}
+.lb-name{font-size:7.6cqw;font-weight:800;line-height:1.15;margin-bottom:1.5cqw}
+.lb-line{font-size:6cqw}
+.lb-city{font-size:7.2cqw;margin-top:1cqw}
 .lb-city b{font-weight:800;letter-spacing:.04em}
-.lb-cty{font-size:6.6cqw;font-weight:800;letter-spacing:.06em;margin-top:1cqw}
-.lb-ph{font-size:3.6cqw;margin-top:2.5cqw;color:#333}
-.lb-flags{display:flex;flex-wrap:wrap;gap:2cqw}
-.lb-flags span{background:#111;color:#fff;font-weight:800;font-size:3.6cqw;letter-spacing:.06em;padding:1.2cqw 2.5cqw;border-radius:1cqw}
-.lb-foot{font-size:3.2cqw;border-top:0.4cqw solid #ccc;padding-top:2.5cqw;display:flex;flex-direction:column;gap:1.5cqw;overflow-wrap:anywhere}
-.lb-meta{display:flex;flex-wrap:wrap;gap:1cqw 4cqw;color:#444;font-variant-numeric:tabular-nums}
+.lb-cty{font-size:7.2cqw;font-weight:800;letter-spacing:.06em;margin-top:1cqw}
+.lb-date{font-size:3.4cqw;color:#555;text-align:right;font-variant-numeric:tabular-nums}
 #lblPrint{display:none}
 @media print{
   body.print-lbl>*:not(#lblPrint){display:none!important}
@@ -767,18 +761,13 @@ const isAT=c=>/^(österreich|austria|at|a)$/i.test(String(c||'').trim());
 function labelHTML(L){
   const ln=x=>x?`<div>${esc(x)}</div>`:'';
   const toCountry=isAT(L.toCountry)?'':`<div class="lb-cty">${esc(String(L.toCountry).toUpperCase())}</div>`;
-  const flags=[L.fragile&&'ZERBRECHLICH',L.noBend&&'NICHT KNICKEN',L.up&&'↑ OBEN ↑'].filter(Boolean);
   return `<div class="shiplbl">
-   <div class="lb-top"><div class="lb-from"><div class="lb-k">Absender</div><b>${esc(L.fromName)}</b>${ln(L.fromStreet)}${ln([L.fromZip,L.fromCity].filter(Boolean).join(' '))}${isAT(L.fromCountry)?'':ln(L.fromCountry)}</div>
-    <div class="lb-stamp">Porto /<br>Frankierung</div></div>
+   <div class="lb-from"><div class="lb-k">Absender</div><b>${esc(L.fromName)}</b>${ln(L.fromStreet)}${ln([L.fromZip,L.fromCity].filter(Boolean).join(' '))}${isAT(L.fromCountry)?'':ln(L.fromCountry)}</div>
    <div class="lb-to"><div class="lb-k">Empfänger</div>
     <div class="lb-name">${esc(L.toName||'—')}</div>${L.toExtra?`<div class="lb-line">${esc(L.toExtra)}</div>`:''}
     <div class="lb-line">${esc(L.toStreet)}</div>
-    <div class="lb-city"><b>${esc(L.toZip)}</b> ${esc(L.toCity)}</div>${toCountry}
-    ${L.toPhone?`<div class="lb-ph">Tel. ${esc(L.toPhone)}</div>`:''}</div>
-   ${flags.length?`<div class="lb-flags">${flags.map(f=>`<span>${f}</span>`).join('')}</div>`:''}
-   <div class="lb-foot">${L.content?`<div><span class="lb-k">Inhalt</span> ${esc(L.content)}</div>`:''}
-    <div class="lb-meta">${L.ref?`<span>${esc(L.ref)}</span>`:''}${L.weight?`<span>${esc(String(L.weight).replace('.',','))} kg</span>`:''}<span>${fdate(today())}</span></div></div>
+    <div class="lb-city"><b>${esc(L.toZip)}</b> ${esc(L.toCity)}</div>${toCountry}</div>
+   <div class="lb-date">${fdate(today())}</div>
   </div>`;
 }
 function renderLabelForm(){
@@ -796,13 +785,7 @@ function renderLabelForm(){
    ${f('toExtra','Firma / c/o / Zusatz (optional)')}
    ${f('toStreet','Straße und Hausnummer','autocomplete="off"')}
    <div class="grid3" style="grid-template-columns:minmax(0,1fr) minmax(0,2fr)">${f('toZip','PLZ','inputmode="numeric"')}${f('toCity','Ort')}</div>
-   <div class="grid2">${f('toCountry','Land')}${f('toPhone','Telefon (optional)','type="tel"')}</div>
-   <div class="eyebrow" style="margin:6px 0 8px">Sendung</div>
-   ${f('content','Inhalt (optional)')}
-   <div class="grid2">${f('ref','Referenz')}${f('weight','Gewicht kg (optional)','inputmode="decimal"')}</div>
-   <label class="check"><input type="checkbox" id="lb_fragile" ${L.fragile?'checked':''}> Zerbrechlich</label>
-   <label class="check"><input type="checkbox" id="lb_noBend" ${L.noBend?'checked':''}> Nicht knicken</label>
-   <label class="check"><input type="checkbox" id="lb_up" ${L.up?'checked':''}> Diese Seite oben</label>
+   ${f('toCountry','Land')}
    <details style="margin-bottom:14px"><summary class="eyebrow" style="cursor:pointer;padding:6px 0">Absender ändern</summary>
     ${f('fromName','Name / Firma')}${f('fromStreet','Straße und Hausnummer')}
     <div class="grid3" style="grid-template-columns:minmax(0,1fr) minmax(0,2fr)">${f('fromZip','PLZ')}${f('fromCity','Ort')}</div>${f('fromCountry','Land')}
@@ -813,7 +796,7 @@ function renderLabelForm(){
      <label class="check" style="align-self:end;margin-bottom:12px"><input type="checkbox" id="lb_bookPorto" ${L.bookPorto?'checked':''}> als Ausgabe buchen</label></div>
     <button class="btn" data-act="lb-ship">${e.delivered===false?'Als versendet markieren':'Versand speichern'}</button>
     ${e.delivered===false?'<p class="hint" style="margin-top:8px">Die Bestellung wird dabei als geliefert gebucht und vom Lager abgezogen.</p>':''}</div>`:''}
-   <p class="hint">Das ist ein Adressetikett, keine Frankierung. Porto kaufst du bei der Post (Online-Frankierung oder Filiale) und klebst es ins Feld oben rechts.</p>`;
+`;
   const body=$('#sheetBody');
   if(body&&$('.sheet-head h3')?.textContent==='Versandlabel'){const sc=$('.sheet').scrollTop;body.innerHTML=html;$('.sheet').scrollTop=sc}else openSheet('Versandlabel',html);
 }
@@ -821,47 +804,35 @@ function refreshLabel(){lbFields();const p=$('#lbPrev');if(p)p.innerHTML=labelHT
 function loadPdfLib(){if(window.jspdf)return Promise.resolve(true);return new Promise(res=>{const s=document.createElement('script');s.src='jspdf.umd.min.js';s.onload=()=>res(!!window.jspdf);s.onerror=()=>res(false);document.head.appendChild(s)})}
 const pdfTxt=t=>String(t??'').replace(/[↑↓]/g,'').replace(/[–—]/g,'-').replace(/[„“”]/g,'"').replace(/[‚‘’]/g,"'").replace(/[^\x20-\x7E\xA0-\xFF€]/g,'');
 function drawLabel(doc,L,ox,oy){
-  const W=100,H=150,M=5,PT=0.3528;
+  const W=100,H=150,M=6,PT=0.3528;
   const T=(str,x,y,size,style='normal',color=17,opt={})=>{doc.setFont('helvetica',style);doc.setFontSize(size);doc.setTextColor(color);doc.text(pdfTxt(str),ox+x,oy+y,opt)};
   const fit=(str,maxW,size,min,style)=>{doc.setFont('helvetica',style);let s=size;doc.setFontSize(s);while(s>min&&doc.getTextWidth(pdfTxt(str))>maxW){s-=0.5;doc.setFontSize(s)}return s};
   const wrap=(str,maxW,size,style)=>{doc.setFont('helvetica',style);doc.setFontSize(size);return doc.splitTextToSize(pdfTxt(str),maxW)};
   // Absender
-  T('ABSENDER',M,M+2,6,'bold',110);
-  let y=M+6;const fw=58;
-  [[L.fromName,8.5,'bold'],[L.fromStreet,8,'normal'],[[L.fromZip,L.fromCity].filter(Boolean).join(' '),8,'normal'],[isAT(L.fromCountry)?'':L.fromCountry,8,'normal']].forEach(([t,sz,st])=>{
-    if(!t)return;wrap(t,fw,sz,st).slice(0,2).forEach(l=>{T(l,M,y,sz,st);y+=sz*PT*1.2})});
-  // Frankierfeld
-  doc.setDrawColor(150);doc.setLineWidth(0.3);doc.setLineDashPattern([1.2,1],0);doc.roundedRect(ox+W-M-26,oy+M,26,20,1.5,1.5,'S');doc.setLineDashPattern([],0);
-  T('PORTO /',W-M-13,oy?M+9.3:M+9.3,6,'bold',150,{align:'center'});T('FRANKIERUNG',W-M-13,M+12.3,6,'bold',150,{align:'center'});
-  // Hinweise + Fuß
-  const flags=[L.fragile&&'ZERBRECHLICH',L.noBend&&'NICHT KNICKEN',L.up&&'DIESE SEITE OBEN'].filter(Boolean);
-  const footTop=H-M-17;let boxBottom=footTop-3;
-  if(flags.length){let fx=M;const fy=footTop-10;doc.setFont('helvetica','bold');doc.setFontSize(8.5);
-    flags.forEach(f=>{const w=doc.getTextWidth(f)+5;doc.setFillColor(17);doc.roundedRect(ox+fx,oy+fy,w,6.5,1,1,'F');T(f,fx+2.5,fy+4.6,8.5,'bold',255);fx+=w+2.5});boxBottom=fy-3}
+  T('ABSENDER',M,M+2.5,6.5,'bold',110);
+  let y=M+7.5;const fw=W-2*M;
+  [[L.fromName,9.5,'bold'],[L.fromStreet,9,'normal'],[[L.fromZip,L.fromCity].filter(Boolean).join(' '),9,'normal'],[isAT(L.fromCountry)?'':L.fromCountry,9,'normal']].forEach(([t,sz,st])=>{
+    if(!t)return;wrap(t,fw,sz,st).slice(0,2).forEach(l=>{T(l,M,y,sz,st);y+=sz*PT*1.25})});
   // Empfänger-Box
-  const bx=M,by=M+25,bw=W-2*M,bh=boxBottom-by;
+  const bx=M,by=Math.max(y+4,34),bw=W-2*M,bh=H-M-9-by;
   doc.setDrawColor(17);doc.setLineWidth(0.6);doc.roundedRect(ox+bx,oy+by,bw,bh,2,2,'S');
-  const iw=bw-10,lines=[];
-  let nameSz=fit(L.toName||'-',iw,19,14,'bold');if(doc.getTextWidth(pdfTxt(L.toName||'-'))>iw){nameSz=16;while(nameSz>10&&wrap(L.toName,iw,nameSz,'bold').length>2)nameSz-=0.5}wrap(L.toName||'-',iw,nameSz,'bold').slice(0,2).forEach(t=>lines.push([t,nameSz,'bold',0]));
-  if(L.toExtra)wrap(L.toExtra,iw,12.5,'normal').slice(0,2).forEach(t=>lines.push([t,12.5,'normal',0]));
-  if(L.toStreet)wrap(L.toStreet,iw,13.5,'normal').slice(0,2).forEach(t=>lines.push([t,13.5,'normal',0]));
-  const citySz=fit((L.toZip||'')+'  '+(L.toCity||''),iw,16,10,'bold');lines.push(['__city',citySz,'bold',1]);
-  if(!isAT(L.toCountry)&&L.toCountry)lines.push([String(L.toCountry).toUpperCase(),fit(String(L.toCountry).toUpperCase(),iw,16,10,'bold'),'bold',1]);
-  if(L.toPhone)lines.push(['Tel. '+L.toPhone,9,'normal',2]);
-  const lh=l=>l[1]*PT*1.25+(l[3]===1?1:l[3]===2?2:0);
+  const iw=bw-12,lines=[];
+  let nameSz=fit(L.toName||'-',iw,21,15,'bold');if(doc.getTextWidth(pdfTxt(L.toName||'-'))>iw){nameSz=17;while(nameSz>11&&wrap(L.toName,iw,nameSz,'bold').length>2)nameSz-=0.5}
+  wrap(L.toName||'-',iw,nameSz,'bold').slice(0,2).forEach(t=>lines.push([t,nameSz,'bold',0]));
+  if(L.toExtra)wrap(L.toExtra,iw,14,'normal').slice(0,2).forEach(t=>lines.push([t,14,'normal',0]));
+  if(L.toStreet)wrap(L.toStreet,iw,15,'normal').slice(0,2).forEach(t=>lines.push([t,15,'normal',0]));
+  const citySz=fit((L.toZip||'')+'  '+(L.toCity||''),iw,18,11,'bold');lines.push(['__city',citySz,'bold',1]);
+  if(!isAT(L.toCountry)&&L.toCountry){const c=String(L.toCountry).toUpperCase();lines.push([c,fit(c,iw,18,11,'bold'),'bold',1])}
+  const lh=l=>l[1]*PT*1.3+(l[3]?1.2:0);
   const blockH=6+lines.reduce((s,l)=>s+lh(l),0);
-  let cy=by+Math.max(8,(bh-blockH)/2+3);
-  T('EMPFÄNGER',bx+5,cy,6,'bold',110);cy+=5;
-  lines.forEach(l=>{cy+=l[1]*PT*(l[3]?1.25:1)+(l[3]===1?1:l[3]===2?2:0);
-    if(l[0]==='__city'){doc.setFont('helvetica','bold');doc.setFontSize(l[1]);T(L.toZip||'',bx+5,cy,l[1],'bold');const zw=doc.getTextWidth(pdfTxt((L.toZip||'')+'  '));T(L.toCity||'',bx+5+zw,cy,l[1],'normal')}
-    else T(l[0],bx+5,cy,l[1],l[2],l[3]===2?60:17);
-    if(!l[3])cy+=l[1]*PT*0.25});
-  // Fußzeile
-  doc.setDrawColor(200);doc.setLineWidth(0.3);doc.line(ox+M,oy+footTop,ox+W-M,oy+footTop);
-  let fy2=footTop+4;
-  if(L.content){T('INHALT',M,fy2,6,'bold',110);wrap(L.content,W-2*M-12,7.5,'normal').slice(0,2).forEach((t,i)=>T(t,M+11,fy2+i*3.3,7.5,'normal',40));fy2+=L.content&&wrap(L.content,W-2*M-12,7.5,'normal').length>1?7:3.6}
-  const meta=[L.ref,L.weight?String(L.weight).replace('.',',')+' kg':'',fdate(today())].filter(Boolean).join('   ·   ');
-  T(meta,M,H-M-1.5,7.5,'normal',70);
+  let cy=by+Math.max(9,(bh-blockH)/2+2);
+  T('EMPFÄNGER',bx+6,cy,6.5,'bold',110);cy+=4.5;
+  lines.forEach(l=>{cy+=l[1]*PT*1.05+(l[3]?1.2:0);
+    if(l[0]==='__city'){doc.setFont('helvetica','bold');doc.setFontSize(l[1]);T(L.toZip||'',bx+6,cy,l[1],'bold');const zw=doc.getTextWidth(pdfTxt((L.toZip||'')+'  '));T(L.toCity||'',bx+6+zw,cy,l[1],'normal')}
+    else T(l[0],bx+6,cy,l[1],l[2]);
+    cy+=l[1]*PT*0.25});
+  // Datum
+  T(fdate(today()),W-M,H-M-1,8.5,'normal',90,{align:'right'});
 }
 async function labelPDF(){
   lbFields();
