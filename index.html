@@ -246,7 +246,33 @@ tfoot td{font-weight:700;border-top:2px solid var(--ink)}
 .toast{position:fixed;left:50%;bottom:86px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:13px;font-weight:600;z-index:80;max-width:calc(100% - 32px)}
 .banner{background:var(--warn-soft);color:var(--warn);border-radius:10px;padding:10px 12px;font-size:13px;font-weight:600;margin-bottom:12px}
 @media (prefers-reduced-motion:no-preference){.sheet{animation:up .18s ease-out}@keyframes up{from{transform:translateY(16px);opacity:.6}to{transform:none;opacity:1}}}
+.label-prev{background:#e9ece8;border-radius:12px;padding:14px;display:flex;justify-content:center}
+.label-prev .lbl{width:min(100%,300px);box-shadow:0 2px 10px rgba(0,0,0,.15)}
+.lbl{container-type:inline-size;aspect-ratio:2/3;background:#fff;color:#111;font-family:-apple-system,'Helvetica Neue',Arial,sans-serif;display:flex;flex-direction:column;padding:5cqw;gap:4cqw;overflow:hidden;line-height:1.25}
+.lb-k{font-size:2.6cqw;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#666;margin-bottom:1cqw}
+.lb-top{display:flex;justify-content:space-between;gap:4cqw}
+.lb-from{font-size:3.4cqw;min-width:0;overflow-wrap:anywhere}
+.lb-from b{font-size:3.8cqw}
+.lb-stamp{flex-shrink:0;width:26cqw;height:20cqw;border:0.5cqw dashed #999;border-radius:1.5cqw;display:grid;place-items:center;text-align:center;font-size:2.6cqw;color:#999;text-transform:uppercase;letter-spacing:.06em}
+.lb-to{flex:1;border:0.7cqw solid #111;border-radius:2cqw;padding:5cqw;display:flex;flex-direction:column;justify-content:center;overflow-wrap:anywhere}
+.lb-name{font-size:7cqw;font-weight:800;line-height:1.15;margin-bottom:1.5cqw}
+.lb-line{font-size:5.6cqw}
+.lb-city{font-size:6.6cqw;margin-top:1cqw}
+.lb-city b{font-weight:800;letter-spacing:.04em}
+.lb-cty{font-size:6.6cqw;font-weight:800;letter-spacing:.06em;margin-top:1cqw}
+.lb-ph{font-size:3.6cqw;margin-top:2.5cqw;color:#333}
+.lb-flags{display:flex;flex-wrap:wrap;gap:2cqw}
+.lb-flags span{background:#111;color:#fff;font-weight:800;font-size:3.6cqw;letter-spacing:.06em;padding:1.2cqw 2.5cqw;border-radius:1cqw}
+.lb-foot{font-size:3.2cqw;border-top:0.4cqw solid #ccc;padding-top:2.5cqw;display:flex;flex-direction:column;gap:1.5cqw;overflow-wrap:anywhere}
+.lb-meta{display:flex;flex-wrap:wrap;gap:1cqw 4cqw;color:#444;font-variant-numeric:tabular-nums}
+#lblPrint{display:none}
 @media print{
+  body.print-lbl>*:not(#lblPrint){display:none!important}
+  body.print-lbl{background:#fff!important;padding:0!important}
+  body.print-lbl #lblPrint{display:block}
+  #lblPrint.fmt-a6 .lbl{width:100mm;height:150mm;aspect-ratio:auto}
+  #lblPrint.fmt-a4 .lbl{width:100mm;height:150mm;aspect-ratio:auto;outline:0.3mm dashed #999;outline-offset:3mm}
+  .lbl{-webkit-print-color-adjust:exact;print-color-adjust:exact}
   body.print-inv>*:not(#sheetRoot){display:none!important}
   body.print-inv .overlay{position:static;background:none;display:block}
   body.print-inv .sheet{max-height:none;overflow:visible;padding:0;background:#fff}
@@ -292,7 +318,7 @@ const DEF={owner:'',company:'',address:'',email:'',phone:'',uidNr:'',iban:'',
   invoiceYear:new Date().getFullYear(),nextInvoice:1,payDays:14,payTerms:'Zahlbar innerhalb von 14 Tagen ohne Abzug.'};
 
 const S={settings:{...DEF},products:[],entries:[],customers:[],suppliers:[],recurring:[]};
-const UI={ktab:'kunde',cart:[],kq:'',kcat:'alle',kpay:'bar',kparty:'',remTone:(()=>{try{return localStorage.getItem('kb_tone')||'du'}catch{return'du'}})(),cq:'',pq:'',pcat:'alle',psort:(()=>{try{return localStorage.getItem('kb_psort')||'kat'}catch{return'kat'}})(),screen:'start',period:'monat',filter:'alle',q:'',lagerCat:'alle',year:new Date().getFullYear(),ready:false};
+const UI={lblFmt:(()=>{try{return localStorage.getItem('kb_lblfmt')||'a6'}catch{return'a6'}})(),ktab:'kunde',cart:[],kq:'',kcat:'alle',kpay:'bar',kparty:'',remTone:(()=>{try{return localStorage.getItem('kb_tone')||'du'}catch{return'du'}})(),cq:'',pq:'',pcat:'alle',psort:(()=>{try{return localStorage.getItem('kb_psort')||'kat'}catch{return'kat'}})(),screen:'start',period:'monat',filter:'alle',q:'',lagerCat:'alle',year:new Date().getFullYear(),ready:false};
 const LKEY='kassabuch_v1';
 
 /* ---------- storage: cloud (db) with local fallback ---------- */
@@ -674,7 +700,7 @@ function openParty(kind,name){
     <div class="kpi"><div class="lbl">${kd?'Offen zu zahlen':'Du schuldest noch'}</div><div class="val ${c.offen>0.005?'warn':''}">${eur(c.offen)}</div></div>
     <div class="kpi"><div class="lbl">${kd?'Bestellt, nicht geliefert':'Bestellt, unterwegs'}</div><div class="val ${c.bestellt?'pos':''}">${c.bestellt}</div></div>
    </div>
-   <div class="btn-row" style="margin-bottom:14px"><button class="btn" data-act="party-order" data-kind="${kind}" data-name="${esc(c.name)}" data-v="0">+ Neue Bestellung</button><button class="btn ghost" data-act="party-order" data-kind="${kind}" data-name="${esc(c.name)}" data-v="1">${kd?'+ Sofort-Verkauf':'+ Wareneingang'}</button></div>
+   ${kd?`<button class="btn ghost" style="margin-bottom:8px" data-act="label" data-name="${esc(c.name)}">Versandlabel erstellen</button>`:''}<div class="btn-row" style="margin-bottom:14px"><button class="btn" data-act="party-order" data-kind="${kind}" data-name="${esc(c.name)}" data-v="0">+ Neue Bestellung</button><button class="btn ghost" data-act="party-order" data-kind="${kind}" data-name="${esc(c.name)}" data-v="1">${kd?'+ Sofort-Verkauf':'+ Wareneingang'}</button></div>
    ${kd?'':detail}
    <div class="card" style="margin-bottom:14px">
     ${r.address?`<p>${esc(r.address).replace(/\n/g,'<br>')}</p>`:'<p class="muted">Keine Adresse hinterlegt</p>'}
@@ -710,6 +736,111 @@ async function saveParty(){
   closeSheet();toast(K.one+' gespeichert');openParty(PF.kind,name);
 }
 let PF=null;
+/* ---------- Versandlabel ---------- */
+function splitAddr(t){
+  const parts=String(t||'').split(/\n|,/).map(x=>x.trim()).filter(Boolean);
+  let zip='',city='',country='';const rest=[];
+  parts.forEach(x=>{const m=x.match(/^(?:([A-Z]{1,2})[-\s])?(\d{4,5})\s+(.+)$/);if(m&&!zip){zip=m[2];city=m[3];if(m[1])country={A:'Österreich',D:'Deutschland',CH:'Schweiz'}[m[1]]||''}
+    else if(/^(österreich|austria|deutschland|germany|schweiz|switzerland|italien|italy|slowenien|ungarn|tschechien|liechtenstein)$/i.test(x))country=x;else rest.push(x)});
+  return{street:rest.pop()||'',extra:rest.join(', '),zip,city,country};
+}
+let LB=null;
+function openLabel(o={}){
+  const st=S.settings,e=o.entryId?S.entries.find(x=>x.id===o.entryId):null;
+  const name=o.name||e?.party||'';const c=name?custByName(name):null;
+  const a=splitAddr(e?.partyAddress||c?.address||''),s=splitAddr(st.address);
+  const prev=e?.ship||{};
+  LB={entryId:e?.id||null,custName:c?.name||null,
+    toName:name,toExtra:a.extra,toStreet:a.street,toZip:a.zip,toCity:a.city,toCountry:a.country||'Österreich',toPhone:c?.phone||'',
+    fromName:st.company||st.owner||'',fromStreet:s.street+(s.extra?', '+s.extra:''),fromZip:s.zip,fromCity:s.city,fromCountry:s.country||'Österreich',
+    content:e?(e.items||[]).map(i=>`${i.qty}× ${i.name}`).join(', '):'',ref:e?(e.invoiceNo?'Rechnung '+e.invoiceNo:'Bestellung '+fdate(e.orderDate||e.date)):'',
+    weight:prev.weight||'',fragile:false,noBend:false,up:false,fmt:UI.lblFmt||'a6',
+    tracking:prev.tracking||'',porto:'',bookPorto:true};
+  renderLabelForm();
+}
+function lbFields(){
+  const v=k=>{const el=$('#lb_'+k);return el?(el.type==='checkbox'?el.checked:el.value):LB[k]};
+  Object.keys(LB).forEach(k=>{if($('#lb_'+k))LB[k]=v(k)});
+}
+const isAT=c=>/^(österreich|austria|at|a)$/i.test(String(c||'').trim());
+function labelHTML(L){
+  const ln=x=>x?`<div>${esc(x)}</div>`:'';
+  const toCountry=isAT(L.toCountry)?'':`<div class="lb-cty">${esc(String(L.toCountry).toUpperCase())}</div>`;
+  const flags=[L.fragile&&'ZERBRECHLICH',L.noBend&&'NICHT KNICKEN',L.up&&'↑ OBEN ↑'].filter(Boolean);
+  return `<div class="lbl">
+   <div class="lb-top"><div class="lb-from"><div class="lb-k">Absender</div><b>${esc(L.fromName)}</b>${ln(L.fromStreet)}${ln([L.fromZip,L.fromCity].filter(Boolean).join(' '))}${isAT(L.fromCountry)?'':ln(L.fromCountry)}</div>
+    <div class="lb-stamp">Porto /<br>Frankierung</div></div>
+   <div class="lb-to"><div class="lb-k">Empfänger</div>
+    <div class="lb-name">${esc(L.toName||'—')}</div>${L.toExtra?`<div class="lb-line">${esc(L.toExtra)}</div>`:''}
+    <div class="lb-line">${esc(L.toStreet)}</div>
+    <div class="lb-city"><b>${esc(L.toZip)}</b> ${esc(L.toCity)}</div>${toCountry}
+    ${L.toPhone?`<div class="lb-ph">Tel. ${esc(L.toPhone)}</div>`:''}</div>
+   ${flags.length?`<div class="lb-flags">${flags.map(f=>`<span>${f}</span>`).join('')}</div>`:''}
+   <div class="lb-foot">${L.content?`<div><span class="lb-k">Inhalt</span> ${esc(L.content)}</div>`:''}
+    <div class="lb-meta">${L.ref?`<span>${esc(L.ref)}</span>`:''}${L.weight?`<span>${esc(String(L.weight).replace('.',','))} kg</span>`:''}<span>${fdate(today())}</span></div></div>
+  </div>`;
+}
+function renderLabelForm(){
+  const L=LB,e=L.entryId?S.entries.find(x=>x.id===L.entryId):null;
+  const f=(k,label,attrs='')=>`<label class="field"><span>${label}</span><input class="inp" id="lb_${k}" value="${esc(L[k])}" ${attrs}></label>`;
+  const custs=[...new Set([...S.customers.map(c=>c.name),...S.entries.filter(x=>x.type==='verkauf'&&x.party).map(x=>x.party)])].sort((a,b)=>a.localeCompare(b,'de'));
+  const html=`
+   <div class="label-prev" id="lbPrev">${labelHTML(L)}</div>
+   <div class="seg" style="margin:12px 0">${[['a6','A6 · Etikettendrucker'],['a4','A4 · zum Ausschneiden']].map(([k,v])=>`<button class="${L.fmt===k?'on':''}" data-act="lb-fmt" data-v="${k}">${v}</button>`).join('')}</div>
+   <div class="btn-row" style="margin-bottom:16px"><button class="btn" data-act="lb-print">Drucken / als PDF sichern</button></div>
+   <div class="eyebrow" style="margin-bottom:8px">Empfänger</div>
+   <label class="field"><span>Name</span><input class="inp" id="lb_toName" list="lbCust" value="${esc(L.toName)}" placeholder="Vor- und Nachname"></label>
+   <datalist id="lbCust">${custs.map(p=>`<option value="${esc(p)}">`).join('')}</datalist>
+   ${f('toExtra','Firma / c/o / Zusatz (optional)')}
+   ${f('toStreet','Straße und Hausnummer','autocomplete="off"')}
+   <div class="grid3" style="grid-template-columns:minmax(0,1fr) minmax(0,2fr)">${f('toZip','PLZ','inputmode="numeric"')}${f('toCity','Ort')}</div>
+   <div class="grid2">${f('toCountry','Land')}${f('toPhone','Telefon (optional)','type="tel"')}</div>
+   <div class="eyebrow" style="margin:6px 0 8px">Sendung</div>
+   ${f('content','Inhalt (optional)')}
+   <div class="grid2">${f('ref','Referenz')}${f('weight','Gewicht kg (optional)','inputmode="decimal"')}</div>
+   <label class="check"><input type="checkbox" id="lb_fragile" ${L.fragile?'checked':''}> Zerbrechlich</label>
+   <label class="check"><input type="checkbox" id="lb_noBend" ${L.noBend?'checked':''}> Nicht knicken</label>
+   <label class="check"><input type="checkbox" id="lb_up" ${L.up?'checked':''}> Diese Seite oben</label>
+   <details style="margin-bottom:14px"><summary class="eyebrow" style="cursor:pointer;padding:6px 0">Absender ändern</summary>
+    ${f('fromName','Name / Firma')}${f('fromStreet','Straße und Hausnummer')}
+    <div class="grid3" style="grid-template-columns:minmax(0,1fr) minmax(0,2fr)">${f('fromZip','PLZ')}${f('fromCity','Ort')}</div>${f('fromCountry','Land')}
+    <p class="hint">Standard-Absender sind deine Firmendaten unter Mehr.</p></details>
+   ${e?`<div class="card" style="margin-bottom:8px"><div class="eyebrow" style="margin-bottom:8px">Nach dem Aufgeben</div>
+    ${f('tracking','Sendungsnummer (optional)')}
+    <div class="grid2"><label class="field"><span>Porto €</span><input class="inp num" id="lb_porto" type="number" inputmode="decimal" step="0.01" min="0" value="${esc(L.porto)}" placeholder="z. B. 5,20"></label>
+     <label class="check" style="align-self:end;margin-bottom:12px"><input type="checkbox" id="lb_bookPorto" ${L.bookPorto?'checked':''}> als Ausgabe buchen</label></div>
+    <button class="btn" data-act="lb-ship">${e.delivered===false?'Als versendet markieren':'Versand speichern'}</button>
+    ${e.delivered===false?'<p class="hint" style="margin-top:8px">Die Bestellung wird dabei als geliefert gebucht und vom Lager abgezogen.</p>':''}</div>`:''}
+   <p class="hint">Das ist ein Adressetikett, keine Frankierung. Porto kaufst du bei der Post (Online-Frankierung oder Filiale) und klebst es ins Feld oben rechts.</p>`;
+  const body=$('#sheetBody');
+  if(body&&$('.sheet-head h3')?.textContent==='Versandlabel'){const sc=$('.sheet').scrollTop;body.innerHTML=html;$('.sheet').scrollTop=sc}else openSheet('Versandlabel',html);
+}
+function refreshLabel(){lbFields();const p=$('#lbPrev');if(p)p.innerHTML=labelHTML(LB)}
+function printLabel(){
+  lbFields();
+  if(!LB.toName||!LB.toStreet||!LB.toZip||!LB.toCity){toast('Bitte Name, Straße, PLZ und Ort des Empfängers ausfüllen.');return}
+  let pr=$('#lblPrint');if(!pr){pr=document.createElement('div');pr.id='lblPrint';document.body.appendChild(pr)}
+  pr.className='fmt-'+LB.fmt;pr.innerHTML=labelHTML(LB);
+  let ps=$('#lblPage');if(!ps){ps=document.createElement('style');ps.id='lblPage';document.head.appendChild(ps)}
+  ps.textContent=LB.fmt==='a6'?'@page{size:100mm 150mm;margin:0}':'@page{size:A4;margin:12mm}';
+  document.body.classList.add('print-lbl');
+  setTimeout(()=>{window.print();setTimeout(()=>{document.body.classList.remove('print-lbl');ps.textContent=''},500)},60);
+  if(LB.custName){const c=custByName(LB.custName);if(c&&!c.address){Store.put('customers',{...c,address:[LB.toExtra,LB.toStreet,[LB.toZip,LB.toCity].join(' '),isAT(LB.toCountry)?'':LB.toCountry].filter(Boolean).join('\n')}).catch(()=>{})}}
+}
+async function saveShipment(){
+  lbFields();const e=S.entries.find(x=>x.id===LB.entryId);if(!e)return;
+  const porto=r2(num(LB.porto));
+  if(e.delivered===false){const sm=stockMap();const short=(e.items||[]).filter(i=>i.pid in sm&&sm[i.pid]<num(i.qty)).map(i=>i.name);
+    if(short.length&&!await ask(`Laut Lager ist nicht genug da: ${short.join(', ')}. Trotzdem versenden?`,'Trotzdem versenden'))return}
+  const ne={...e,ship:{date:today(),tracking:LB.tracking.trim(),weight:LB.weight,porto:porto||null}};
+  if(e.delivered===false)Object.assign(ne,{delivered:true,orderDate:e.orderDate||e.date,date:today()});
+  await Store.bulk(async()=>{
+    await Store.put('entries',ne);
+    if(porto>0&&LB.bookPorto)await Store.put('entries',{id:'porto-'+e.id+'-'+Date.now().toString(36),created:new Date().toISOString(),type:'ausgabe',date:today(),party:'Porto · '+(e.party||'Versand'),expenseCat:S.settings.expenseCats.includes('Versand')?'Versand':(S.settings.expenseCats[0]||'Sonstiges'),
+      method:'karte',note:LB.tracking?'Sendung '+LB.tracking.trim():'',total:porto,payments:[{date:today(),amount:porto,method:'karte'}],paid:true,att:[],shipFor:e.id});
+  });
+  toast(porto>0&&LB.bookPorto?'Versand gespeichert · Porto gebucht':'Versand gespeichert');openEntry(e.id);
+}
 /* ---------- Kasse ---------- */
 const cartTotal=()=>r2(UI.cart.reduce((s,c)=>s+num(c.qty)*num(c.price),0));
 function cartAdd(pid,n=1){const p=prodById(pid);if(!p)return;const c=UI.cart.find(x=>x.pid===pid);if(c)c.qty+=n;else UI.cart.push({pid,qty:n,price:num(p.vk)});UI.cart=UI.cart.filter(x=>x.qty>0)}
@@ -816,7 +947,8 @@ function vMehr(){
   else plist=prods.map(prow).join('');
   const hasSample=S.entries.some(e=>e.sample)||S.products.some(p=>p.sample);
   return header('Mehr')+`
-  <div class="sec-head" style="margin-top:0"><h2>Produkte (${S.products.length})</h2><button class="add-btn" data-act="new-product">+ Produkt</button></div>
+  <button class="kasse-btn" style="margin:0 0 6px" data-act="label"><span>Versandlabel erstellen<br><small>Adresse eingeben, drucken, aufkleben</small></span><span>→</span></button>
+  <div class="sec-head"><h2>Produkte (${S.products.length})</h2><button class="add-btn" data-act="new-product">+ Produkt</button></div>
   ${S.products.length>3?`<input class="search" id="pq" type="search" placeholder="Produkt suchen …" value="${esc(UI.pq)}">`:''}
   ${S.products.length?`<div class="sortbar"><label for="psort">Sortieren</label><select class="inp" id="psort">${Object.entries(SORTS).map(([k,v])=>`<option value="${k}" ${UI.psort===k?'selected':''}>${v}</option>`).join('')}</select></div>`:''}
   ${pcats.length>1?`<div class="chips"><button class="chip ${UI.pcat==='alle'?'on':''}" data-act="pcat" data-v="alle">Alle (${S.products.length})</button>${pcats.map(c=>`<button class="chip ${UI.pcat===c?'on':''}" data-act="pcat" data-v="${esc(c)}">${esc(c)}</button>`).join('')}</div>`:''}
@@ -1000,6 +1132,8 @@ function openEntry(id){
    <div class="eyebrow" style="margin-bottom:6px">Belege</div>
    <div class="thumbs" style="margin-bottom:14px">${attThumbs(e.att)}<label class="thumb add">+ Beleg<input type="file" accept="image/*,application/pdf" multiple hidden data-att-entry="${e.id}"></label></div>
    ${e.delivered===false&&live(e)?`<button class="btn" style="margin-bottom:8px" data-act="deliver" data-id="${e.id}">${e.type==='verkauf'?'Als geliefert markieren':'Ware erhalten – ins Lager buchen'}</button>`:''}
+   ${e.ship?`<p class="muted" style="margin:0 0 10px;font-size:13px;user-select:text">Versendet am ${fdate(e.ship.date)}${e.ship.tracking?' · Sendungsnr. <b style="color:var(--ink)">'+esc(e.ship.tracking)+'</b>':''}${e.ship.porto?' · Porto '+eur(e.ship.porto):''}</p>`:''}
+   ${e.type==='verkauf'&&live(e)?`<button class="btn ghost" style="margin-bottom:8px" data-act="label" data-id="${e.id}">${e.ship?'Versandlabel erneut':'Versandlabel erstellen'}</button>`:''}
    ${e.type==='verkauf'&&(e.invoiceNo||!e.cancelled)?`<button class="btn ghost" style="margin-bottom:8px" data-act="invoice" data-id="${e.id}">${e.invoiceNo?(e.storno?'Stornorechnung ansehen':'Rechnung ansehen'):'Rechnung erstellen'}</button>`:''}
    ${locked?(e.storno||e.cancelled?'':`<p class="hint" style="margin:4px 0 10px">Für diese Buchung gibt es eine Rechnung. Ändern geht nur per Storno – so bleibt die Rechnungsnummern-Folge lückenlos.</p><button class="btn danger" data-act="storno" data-id="${e.id}">Stornieren</button>`)
      :`<div class="btn-row"><button class="btn ghost" data-act="edit-entry" data-id="${e.id}">Bearbeiten</button><button class="btn danger" data-act="del-entry" data-id="${e.id}">Löschen</button></div>`}`);
@@ -1298,9 +1432,9 @@ async function saveSettings(){
 /* ---------- data ---------- */
 function exportCSV(){
   const q=s=>`"${String(s??'').replace(/"/g,'""')}"`;const d=n=>r2(n).toFixed(2).replace('.',',');
-  const head=['Datum','Art','Rechnungsnr.','Kunde/Lieferant/Beschreibung','Positionen','Kategorie','Betrag','Bezahlt','Wareneinsatz','Zahlungsart','Status','Lieferung','Belege','Notiz'];
+  const head=['Datum','Art','Rechnungsnr.','Kunde/Lieferant/Beschreibung','Positionen','Kategorie','Betrag','Bezahlt','Wareneinsatz','Zahlungsart','Status','Lieferung','Sendungsnr.','Belege','Notiz'];
   const rows=sorted(S.entries).reverse().map(e=>[fdate(e.date),TYPES[e.type],e.invoiceNo||'',e.party||'',(e.items||[]).map(i=>`${i.qty}x ${i.name} à ${d(i.price)}`).join(' | '),e.expenseCat||(e.type==='einkauf'?'Wareneinkauf':''),
-    (e.type==='verkauf'?'':'-')+d(e.total),(e.type==='verkauf'?'':'-')+d(paidSum(e)),e.type==='verkauf'?d(e.cogs):'',METHODS[e.method]||'',e.cancelled?'storniert':e.storno?'Storno':isPaid(e)?'bezahlt':isPartial(e)?'teilweise':'offen',e.type==='ausgabe'?'':e.delivered===false?'bestellt':'geliefert',(e.att||[]).length,e.note||''].map(q).join(';'));
+    (e.type==='verkauf'?'':'-')+d(e.total),(e.type==='verkauf'?'':'-')+d(paidSum(e)),e.type==='verkauf'?d(e.cogs):'',METHODS[e.method]||'',e.cancelled?'storniert':e.storno?'Storno':isPaid(e)?'bezahlt':isPartial(e)?'teilweise':'offen',e.type==='ausgabe'?'':e.delivered===false?'bestellt':'geliefert',e.ship?.tracking||'',(e.att||[]).length,e.note||''].map(q).join(';'));
   return Store.save(`Buchungen_${today()}.csv`,'﻿'+[head.map(q).join(';'),...rows].join('\r\n'));
 }
 async function exportJSON(){
@@ -1423,6 +1557,10 @@ document.addEventListener('click',async ev=>{
     case'del-rec':if(await ask('Wiederkehrende Ausgabe löschen? Bereits gebuchte Ausgaben bleiben erhalten.')){await Store.del('recurring',RC.id);closeSheet();toast('Gelöscht')}break;
     case'invoice':invoice(id);break;
     case'save-invoice':saveInvoice(id);break;
+    case'label':openLabel({entryId:id,name:b.dataset.name});break;
+    case'lb-fmt':lbFields();LB.fmt=v;UI.lblFmt=v;try{localStorage.setItem('kb_lblfmt',v)}catch{}renderLabelForm();break;
+    case'lb-print':printLabel();break;
+    case'lb-ship':saveShipment();break;
     case'print-invoice':document.body.classList.add('print-inv');setTimeout(()=>{window.print();setTimeout(()=>document.body.classList.remove('print-inv'),500)},50);break;
     case'new-product':openProduct();break;
     case'edit-product':closeSheet();openProduct(id);break;
@@ -1448,6 +1586,7 @@ document.addEventListener('input',ev=>{
   const t=ev.target;
   if(t.dataset.cartPrice!==undefined){const c=UI.cart[+t.dataset.cartPrice];if(c)c.price=num(t.value);coRefresh();return}
   if(t.id==='coGiven'){coRefresh();return}
+  if(t.id&&t.id.startsWith('lb_')&&LB){refreshLabel();return}
   if(t.id==='q'||t.id==='cq'||t.id==='pq'||t.id==='kq'){UI[t.id]=t.value;const pos=t.selectionStart;render();const n=$('#'+t.id);n.focus();n.setSelectionRange(pos,pos);return}
   if(!F)return;
   if(t.dataset.row!==undefined&&t.dataset.k!=='pid'){F.items[+t.dataset.row][t.dataset.k]=t.value;updateSummary();return}
@@ -1458,6 +1597,8 @@ document.addEventListener('change',async ev=>{
   if(t.dataset.attEntry&&t.files.length){const id=t.dataset.attEntry;const metas=await storeFiles([...t.files],id);t.value='';
     if(metas.length){const e=S.entries.find(x=>x.id===id);await Store.put('entries',{...e,att:[...(e.att||[]),...metas]}).catch(()=>{});toast(metas.length===1?'Beleg gespeichert':metas.length+' Belege gespeichert');openEntry(id)}return}
   if(t.dataset.attForm&&F&&t.files.length){const metas=await storeFiles([...t.files],F.id||F.newId);t.value='';F.att=[...(F.att||[]),...metas];renderEntryForm();return}
+  if(t.id==='lb_toName'&&LB){const c=custByName(t.value);if(c&&c.name!==LB.custName){LB.custName=c.name;const a=splitAddr(c.address);lbFields();Object.assign(LB,{custName:c.name,toName:c.name,toExtra:a.extra,toStreet:a.street,toZip:a.zip,toCity:a.city,toCountry:a.country||'Österreich',toPhone:c.phone||''});setTimeout(renderLabelForm,0)}else refreshLabel();return}
+  if(t.id&&t.id.startsWith('lb_')&&LB){refreshLabel();return}
   if(t.id==='psort'){UI.psort=t.value;try{localStorage.setItem('kb_psort',t.value)}catch{}render();return}
   if(t.id==='importFile'&&t.files[0]){importJSON(t.files[0]);t.value='';return}
   if(!F)return;
