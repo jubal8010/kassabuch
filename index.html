@@ -788,7 +788,8 @@ function renderLabelForm(){
   const html=`
    <div class="label-prev" id="lbPrev">${labelHTML(L)}</div>
    <div class="seg" style="margin:12px 0">${[['a6','A6 · Etikettendrucker'],['a4','A4 · zum Ausschneiden']].map(([k,v])=>`<button class="${L.fmt===k?'on':''}" data-act="lb-fmt" data-v="${k}">${v}</button>`).join('')}</div>
-   <div class="btn-row" style="margin-bottom:16px"><button class="btn" data-act="lb-print">Drucken / als PDF sichern</button></div>
+   <div class="btn-row" style="margin-bottom:6px"><button class="btn" data-act="lb-pdf">PDF erstellen</button><button class="btn ghost" data-act="lb-print">Direkt drucken</button></div>
+   <p class="hint" style="margin:0 0 16px">„PDF erstellen“ ist am zuverlässigsten: Am iPhone öffnet sich das Teilen-Menü – dort „Drucken“, „In Dateien sichern“ oder AirDrop an den Mac.</p>
    <div class="eyebrow" style="margin-bottom:8px">Empfänger</div>
    <label class="field"><span>Name</span><input class="inp" id="lb_toName" list="lbCust" value="${esc(L.toName)}" placeholder="Vor- und Nachname"></label>
    <datalist id="lbCust">${custs.map(p=>`<option value="${esc(p)}">`).join('')}</datalist>
@@ -817,6 +818,70 @@ function renderLabelForm(){
   if(body&&$('.sheet-head h3')?.textContent==='Versandlabel'){const sc=$('.sheet').scrollTop;body.innerHTML=html;$('.sheet').scrollTop=sc}else openSheet('Versandlabel',html);
 }
 function refreshLabel(){lbFields();const p=$('#lbPrev');if(p)p.innerHTML=labelHTML(LB)}
+function loadPdfLib(){if(window.jspdf)return Promise.resolve(true);return new Promise(res=>{const s=document.createElement('script');s.src='jspdf.umd.min.js';s.onload=()=>res(!!window.jspdf);s.onerror=()=>res(false);document.head.appendChild(s)})}
+const pdfTxt=t=>String(t??'').replace(/[↑↓]/g,'').replace(/[–—]/g,'-').replace(/[„“”]/g,'"').replace(/[‚‘’]/g,"'").replace(/[^\x20-\x7E\xA0-\xFF€]/g,'');
+function drawLabel(doc,L,ox,oy){
+  const W=100,H=150,M=5,PT=0.3528;
+  const T=(str,x,y,size,style='normal',color=17,opt={})=>{doc.setFont('helvetica',style);doc.setFontSize(size);doc.setTextColor(color);doc.text(pdfTxt(str),ox+x,oy+y,opt)};
+  const fit=(str,maxW,size,min,style)=>{doc.setFont('helvetica',style);let s=size;doc.setFontSize(s);while(s>min&&doc.getTextWidth(pdfTxt(str))>maxW){s-=0.5;doc.setFontSize(s)}return s};
+  const wrap=(str,maxW,size,style)=>{doc.setFont('helvetica',style);doc.setFontSize(size);return doc.splitTextToSize(pdfTxt(str),maxW)};
+  // Absender
+  T('ABSENDER',M,M+2,6,'bold',110);
+  let y=M+6;const fw=58;
+  [[L.fromName,8.5,'bold'],[L.fromStreet,8,'normal'],[[L.fromZip,L.fromCity].filter(Boolean).join(' '),8,'normal'],[isAT(L.fromCountry)?'':L.fromCountry,8,'normal']].forEach(([t,sz,st])=>{
+    if(!t)return;wrap(t,fw,sz,st).slice(0,2).forEach(l=>{T(l,M,y,sz,st);y+=sz*PT*1.2})});
+  // Frankierfeld
+  doc.setDrawColor(150);doc.setLineWidth(0.3);doc.setLineDashPattern([1.2,1],0);doc.roundedRect(ox+W-M-26,oy+M,26,20,1.5,1.5,'S');doc.setLineDashPattern([],0);
+  T('PORTO /',W-M-13,oy?M+9.3:M+9.3,6,'bold',150,{align:'center'});T('FRANKIERUNG',W-M-13,M+12.3,6,'bold',150,{align:'center'});
+  // Hinweise + Fuß
+  const flags=[L.fragile&&'ZERBRECHLICH',L.noBend&&'NICHT KNICKEN',L.up&&'DIESE SEITE OBEN'].filter(Boolean);
+  const footTop=H-M-17;let boxBottom=footTop-3;
+  if(flags.length){let fx=M;const fy=footTop-10;doc.setFont('helvetica','bold');doc.setFontSize(8.5);
+    flags.forEach(f=>{const w=doc.getTextWidth(f)+5;doc.setFillColor(17);doc.roundedRect(ox+fx,oy+fy,w,6.5,1,1,'F');T(f,fx+2.5,fy+4.6,8.5,'bold',255);fx+=w+2.5});boxBottom=fy-3}
+  // Empfänger-Box
+  const bx=M,by=M+25,bw=W-2*M,bh=boxBottom-by;
+  doc.setDrawColor(17);doc.setLineWidth(0.6);doc.roundedRect(ox+bx,oy+by,bw,bh,2,2,'S');
+  const iw=bw-10,lines=[];
+  let nameSz=fit(L.toName||'-',iw,19,14,'bold');if(doc.getTextWidth(pdfTxt(L.toName||'-'))>iw){nameSz=16;while(nameSz>10&&wrap(L.toName,iw,nameSz,'bold').length>2)nameSz-=0.5}wrap(L.toName||'-',iw,nameSz,'bold').slice(0,2).forEach(t=>lines.push([t,nameSz,'bold',0]));
+  if(L.toExtra)wrap(L.toExtra,iw,12.5,'normal').slice(0,2).forEach(t=>lines.push([t,12.5,'normal',0]));
+  if(L.toStreet)wrap(L.toStreet,iw,13.5,'normal').slice(0,2).forEach(t=>lines.push([t,13.5,'normal',0]));
+  const citySz=fit((L.toZip||'')+'  '+(L.toCity||''),iw,16,10,'bold');lines.push(['__city',citySz,'bold',1]);
+  if(!isAT(L.toCountry)&&L.toCountry)lines.push([String(L.toCountry).toUpperCase(),fit(String(L.toCountry).toUpperCase(),iw,16,10,'bold'),'bold',1]);
+  if(L.toPhone)lines.push(['Tel. '+L.toPhone,9,'normal',2]);
+  const lh=l=>l[1]*PT*1.25+(l[3]===1?1:l[3]===2?2:0);
+  const blockH=6+lines.reduce((s,l)=>s+lh(l),0);
+  let cy=by+Math.max(8,(bh-blockH)/2+3);
+  T('EMPFÄNGER',bx+5,cy,6,'bold',110);cy+=5;
+  lines.forEach(l=>{cy+=l[1]*PT*(l[3]?1.25:1)+(l[3]===1?1:l[3]===2?2:0);
+    if(l[0]==='__city'){doc.setFont('helvetica','bold');doc.setFontSize(l[1]);T(L.toZip||'',bx+5,cy,l[1],'bold');const zw=doc.getTextWidth(pdfTxt((L.toZip||'')+'  '));T(L.toCity||'',bx+5+zw,cy,l[1],'normal')}
+    else T(l[0],bx+5,cy,l[1],l[2],l[3]===2?60:17);
+    if(!l[3])cy+=l[1]*PT*0.25});
+  // Fußzeile
+  doc.setDrawColor(200);doc.setLineWidth(0.3);doc.line(ox+M,oy+footTop,ox+W-M,oy+footTop);
+  let fy2=footTop+4;
+  if(L.content){T('INHALT',M,fy2,6,'bold',110);wrap(L.content,W-2*M-12,7.5,'normal').slice(0,2).forEach((t,i)=>T(t,M+11,fy2+i*3.3,7.5,'normal',40));fy2+=L.content&&wrap(L.content,W-2*M-12,7.5,'normal').length>1?7:3.6}
+  const meta=[L.ref,L.weight?String(L.weight).replace('.',',')+' kg':'',fdate(today())].filter(Boolean).join('   ·   ');
+  T(meta,M,H-M-1.5,7.5,'normal',70);
+}
+async function labelPDF(){
+  lbFields();
+  if(!LB.toName||!LB.toStreet||!LB.toZip||!LB.toCity){toast('Bitte Name, Straße, PLZ und Ort des Empfängers ausfüllen.');return}
+  if(!await loadPdfLib()){toast('PDF-Funktion konnte nicht geladen werden. Einmal mit Internet öffnen.');return}
+  const {jsPDF}=window.jspdf;let doc;
+  if(LB.fmt==='a6'){doc=new jsPDF({unit:'mm',format:[100,150],orientation:'portrait'});drawLabel(doc,LB,0,0)}
+  else{doc=new jsPDF({unit:'mm',format:'a4'});const ox=15,oy=15;drawLabel(doc,LB,ox,oy);
+    doc.setDrawColor(130);doc.setLineWidth(0.2);doc.setLineDashPattern([2,1.5],0);doc.rect(ox-3,oy-3,106,156,'S');doc.setLineDashPattern([],0);
+    doc.setFont('helvetica','normal');doc.setFontSize(7);doc.setTextColor(130);doc.text('Entlang der gestrichelten Linie ausschneiden',ox-3,oy+158)}
+  doc.setProperties({title:'Versandlabel '+pdfTxt(LB.toName)});
+  const fn=('Versandlabel_'+LB.toName).replace(/[^\wäöüÄÖÜß-]+/g,'_').slice(0,60)+'.pdf';
+  await Store.save(fn,doc.output('blob'));
+  if(LB.custName){const c=custByName(LB.custName);if(c&&!c.address){Store.put('customers',{...c,address:[LB.toExtra,LB.toStreet,[LB.toZip,LB.toCity].join(' '),isAT(LB.toCountry)?'':LB.toCountry].filter(Boolean).join('\n')}).catch(()=>{})}}
+}
+function printNow(cls){
+  const done=()=>{document.body.classList.remove(cls);const ps=$('#lblPage');if(ps)ps.textContent='';window.removeEventListener('afterprint',done)};
+  document.body.classList.add(cls);window.addEventListener('afterprint',done);
+  setTimeout(()=>{try{window.print()}catch{}setTimeout(()=>{if(!matchMedia('print').matches)done()},60000)},80);
+}
 function printLabel(){
   lbFields();
   if(!LB.toName||!LB.toStreet||!LB.toZip||!LB.toCity){toast('Bitte Name, Straße, PLZ und Ort des Empfängers ausfüllen.');return}
@@ -824,8 +889,7 @@ function printLabel(){
   pr.className='fmt-'+LB.fmt;pr.innerHTML=labelHTML(LB);
   let ps=$('#lblPage');if(!ps){ps=document.createElement('style');ps.id='lblPage';document.head.appendChild(ps)}
   ps.textContent=LB.fmt==='a6'?'@page{size:100mm 150mm;margin:0}':'@page{size:A4;margin:12mm}';
-  document.body.classList.add('print-lbl');
-  setTimeout(()=>{window.print();setTimeout(()=>{document.body.classList.remove('print-lbl');ps.textContent=''},500)},60);
+  printNow('print-lbl');
   if(LB.custName){const c=custByName(LB.custName);if(c&&!c.address){Store.put('customers',{...c,address:[LB.toExtra,LB.toStreet,[LB.toZip,LB.toCity].join(' '),isAT(LB.toCountry)?'':LB.toCountry].filter(Boolean).join('\n')}).catch(()=>{})}}
 }
 async function saveShipment(){
@@ -1561,8 +1625,9 @@ document.addEventListener('click',async ev=>{
     case'label':openLabel({entryId:id,name:b.dataset.name});break;
     case'lb-fmt':lbFields();LB.fmt=v;UI.lblFmt=v;try{localStorage.setItem('kb_lblfmt',v)}catch{}renderLabelForm();break;
     case'lb-print':printLabel();break;
+    case'lb-pdf':labelPDF();break;
     case'lb-ship':saveShipment();break;
-    case'print-invoice':document.body.classList.add('print-inv');setTimeout(()=>{window.print();setTimeout(()=>document.body.classList.remove('print-inv'),500)},50);break;
+    case'print-invoice':printNow('print-inv');break;
     case'new-product':openProduct();break;
     case'edit-product':closeSheet();openProduct(id);break;
     case'save-product':saveProduct();break;
