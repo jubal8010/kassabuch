@@ -253,6 +253,7 @@ tfoot td{font-weight:700;border-top:2px solid var(--ink)}
 .lb-k{font-size:2.8cqw;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#666;margin-bottom:1cqw}
 .lb-from{font-size:3.8cqw;overflow-wrap:anywhere}
 .lb-from b{font-size:4.2cqw}
+.lb-from.lb-x{align-self:flex-start;padding:0 2cqw;margin-left:-2cqw;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'%3E%3Cpath d='M0 0L100 100M100 0L0 100' stroke='%23b4b4b4' stroke-width='1.2' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") no-repeat center/100% 100%}
 .lb-to{flex:1;border:0.7cqw solid #111;border-radius:2cqw;padding:6cqw;display:flex;flex-direction:column;justify-content:center;overflow-wrap:anywhere}
 .lb-name{font-size:7.6cqw;font-weight:800;line-height:1.15;margin-bottom:1.5cqw}
 .lb-line{font-size:6cqw}
@@ -749,7 +750,7 @@ function openLabel(o={}){
     toName:name,toExtra:a.extra,toStreet:a.street,toZip:a.zip,toCity:a.city,toCountry:a.country||'Österreich',toPhone:c?.phone||'',
     fromName:st.company||st.owner||'',fromStreet:s.street+(s.extra?', '+s.extra:''),fromZip:s.zip,fromCity:s.city,fromCountry:s.country||'Österreich',
     content:e?(e.items||[]).map(i=>`${i.qty}× ${i.name}`).join(', '):'',ref:e?(e.invoiceNo?'Rechnung '+e.invoiceNo:'Bestellung '+fdate(e.orderDate||e.date)):'',
-    weight:prev.weight||'',fragile:false,noBend:false,up:false,fmt:UI.lblFmt||'a6',
+    xFrom:(()=>{try{return localStorage.getItem('kb_xfrom')!=='0'}catch{return true}})(),weight:prev.weight||'',fragile:false,noBend:false,up:false,fmt:UI.lblFmt||'a6',
     tracking:prev.tracking||'',porto:'',bookPorto:true};
   renderLabelForm();
 }
@@ -762,7 +763,7 @@ function labelHTML(L){
   const ln=x=>x?`<div>${esc(x)}</div>`:'';
   const toCountry=isAT(L.toCountry)?'':`<div class="lb-cty">${esc(String(L.toCountry).toUpperCase())}</div>`;
   return `<div class="shiplbl">
-   <div class="lb-from"><div class="lb-k">Absender</div><b>${esc(L.fromName)}</b>${ln(L.fromStreet)}${ln([L.fromZip,L.fromCity].filter(Boolean).join(' '))}${isAT(L.fromCountry)?'':ln(L.fromCountry)}</div>
+   <div class="lb-from${L.xFrom?' lb-x':''}"><div class="lb-k">Absender</div><b>${esc(L.fromName)}</b>${ln(L.fromStreet)}${ln([L.fromZip,L.fromCity].filter(Boolean).join(' '))}${isAT(L.fromCountry)?'':ln(L.fromCountry)}</div>
    <div class="lb-to"><div class="lb-k">Empfänger</div>
     <div class="lb-name">${esc(L.toName||'—')}</div>${L.toExtra?`<div class="lb-line">${esc(L.toExtra)}</div>`:''}
     <div class="lb-line">${esc(L.toStreet)}</div>
@@ -786,6 +787,7 @@ function renderLabelForm(){
    ${f('toStreet','Straße und Hausnummer','autocomplete="off"')}
    <div class="grid3" style="grid-template-columns:minmax(0,1fr) minmax(0,2fr)">${f('toZip','PLZ','inputmode="numeric"')}${f('toCity','Ort')}</div>
    ${f('toCountry','Land')}
+   <label class="check"><input type="checkbox" id="lb_xFrom" ${L.xFrom?'checked':''}> Absender leicht mit X überdecken</label>
    <details style="margin-bottom:14px"><summary class="eyebrow" style="cursor:pointer;padding:6px 0">Absender ändern</summary>
     ${f('fromName','Name / Firma')}${f('fromStreet','Straße und Hausnummer')}
     <div class="grid3" style="grid-template-columns:minmax(0,1fr) minmax(0,2fr)">${f('fromZip','PLZ')}${f('fromCity','Ort')}</div>${f('fromCountry','Land')}
@@ -810,9 +812,10 @@ function drawLabel(doc,L,ox,oy){
   const wrap=(str,maxW,size,style)=>{doc.setFont('helvetica',style);doc.setFontSize(size);return doc.splitTextToSize(pdfTxt(str),maxW)};
   // Absender
   T('ABSENDER',M,M+2.5,6.5,'bold',110);
-  let y=M+7.5;const fw=W-2*M;
+  let y=M+7.5;const fw=W-2*M;let maxW=doc.getTextWidth('ABSENDER');
   [[L.fromName,9.5,'bold'],[L.fromStreet,9,'normal'],[[L.fromZip,L.fromCity].filter(Boolean).join(' '),9,'normal'],[isAT(L.fromCountry)?'':L.fromCountry,9,'normal']].forEach(([t,sz,st])=>{
-    if(!t)return;wrap(t,fw,sz,st).slice(0,2).forEach(l=>{T(l,M,y,sz,st);y+=sz*PT*1.25})});
+    if(!t)return;wrap(t,fw,sz,st).slice(0,2).forEach(l=>{T(l,M,y,sz,st);maxW=Math.max(maxW,doc.getTextWidth(l));y+=sz*PT*1.25})});
+  if(L.xFrom){const x1=ox+M-1.5,y1=oy+M-0.5,x2=ox+M+maxW+1.5,y2=oy+y-2.2;doc.setDrawColor(180);doc.setLineWidth(0.3);doc.line(x1,y1,x2,y2);doc.line(x2,y1,x1,y2)}
   // Empfänger-Box
   const bx=M,by=Math.max(y+4,34),bw=W-2*M,bh=H-M-9-by;
   doc.setDrawColor(17);doc.setLineWidth(0.6);doc.roundedRect(ox+bx,oy+by,bw,bh,2,2,'S');
@@ -1635,6 +1638,7 @@ document.addEventListener('change',async ev=>{
     if(metas.length){const e=S.entries.find(x=>x.id===id);await Store.put('entries',{...e,att:[...(e.att||[]),...metas]}).catch(()=>{});toast(metas.length===1?'Beleg gespeichert':metas.length+' Belege gespeichert');openEntry(id)}return}
   if(t.dataset.attForm&&F&&t.files.length){const metas=await storeFiles([...t.files],F.id||F.newId);t.value='';F.att=[...(F.att||[]),...metas];renderEntryForm();return}
   if(t.id==='lb_toName'&&LB){const c=custByName(t.value);if(c&&c.name!==LB.custName){LB.custName=c.name;const a=splitAddr(c.address);lbFields();Object.assign(LB,{custName:c.name,toName:c.name,toExtra:a.extra,toStreet:a.street,toZip:a.zip,toCity:a.city,toCountry:a.country||'Österreich',toPhone:c.phone||''});setTimeout(renderLabelForm,0)}else refreshLabel();return}
+  if(t.id==='lb_xFrom'){try{localStorage.setItem('kb_xfrom',t.checked?'1':'0')}catch{}}
   if(t.id&&t.id.startsWith('lb_')&&LB){refreshLabel();return}
   if(t.id==='psort'){UI.psort=t.value;try{localStorage.setItem('kb_psort',t.value)}catch{}render();return}
   if(t.id==='importFile'&&t.files[0]){importJSON(t.files[0]);t.value='';return}
