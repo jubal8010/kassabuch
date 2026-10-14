@@ -132,6 +132,7 @@ button.row:hover{background:var(--surface-2)}
 .qty{display:flex;align-items:center;gap:10px}
 .qty button{width:34px;height:34px;border-radius:99px;border:1px solid var(--line);background:var(--surface-2);font-size:18px;font-weight:700;color:var(--ink)}
 .kasse-btn{display:flex;align-items:center;justify-content:space-between;width:100%;margin-top:14px;border:0;border-radius:14px;padding:14px 16px;background:var(--ink);color:var(--bg);font-weight:800;font-size:16px}
+.kasse-btn>span:first-child{text-align:left}
 .kasse-btn small{font-weight:500;opacity:.7;font-size:12px}
 .rep h4{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#666;margin:18px 0 4px}
 .rep td:first-child{white-space:normal}
@@ -247,8 +248,8 @@ tfoot td{font-weight:700;border-top:2px solid var(--ink)}
 .banner{background:var(--warn-soft);color:var(--warn);border-radius:10px;padding:10px 12px;font-size:13px;font-weight:600;margin-bottom:12px}
 @media (prefers-reduced-motion:no-preference){.sheet{animation:up .18s ease-out}@keyframes up{from{transform:translateY(16px);opacity:.6}to{transform:none;opacity:1}}}
 .label-prev{background:#e9ece8;border-radius:12px;padding:14px;display:flex;justify-content:center}
-.label-prev .lbl{width:min(100%,300px);box-shadow:0 2px 10px rgba(0,0,0,.15)}
-.lbl{container-type:inline-size;aspect-ratio:2/3;background:#fff;color:#111;font-family:-apple-system,'Helvetica Neue',Arial,sans-serif;display:flex;flex-direction:column;padding:5cqw;gap:4cqw;overflow:hidden;line-height:1.25}
+.label-prev .shiplbl{width:min(100%,300px);box-shadow:0 2px 10px rgba(0,0,0,.15)}
+.shiplbl{container-type:inline-size;aspect-ratio:2/3;background:#fff;color:#111;font-family:-apple-system,'Helvetica Neue',Arial,sans-serif;display:flex;flex-direction:column;padding:5cqw;gap:4cqw;overflow:hidden;line-height:1.25}
 .lb-k{font-size:2.6cqw;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#666;margin-bottom:1cqw}
 .lb-top{display:flex;justify-content:space-between;gap:4cqw}
 .lb-from{font-size:3.4cqw;min-width:0;overflow-wrap:anywhere}
@@ -270,9 +271,9 @@ tfoot td{font-weight:700;border-top:2px solid var(--ink)}
   body.print-lbl>*:not(#lblPrint){display:none!important}
   body.print-lbl{background:#fff!important;padding:0!important}
   body.print-lbl #lblPrint{display:block}
-  #lblPrint.fmt-a6 .lbl{width:100mm;height:150mm;aspect-ratio:auto}
-  #lblPrint.fmt-a4 .lbl{width:100mm;height:150mm;aspect-ratio:auto;outline:0.3mm dashed #999;outline-offset:3mm}
-  .lbl{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  #lblPrint.fmt-a6 .shiplbl{width:100mm;height:150mm;aspect-ratio:auto}
+  #lblPrint.fmt-a4 .shiplbl{width:100mm;height:150mm;aspect-ratio:auto;outline:0.3mm dashed #999;outline-offset:3mm}
+  .shiplbl{-webkit-print-color-adjust:exact;print-color-adjust:exact}
   body.print-inv>*:not(#sheetRoot){display:none!important}
   body.print-inv .overlay{position:static;background:none;display:block}
   body.print-inv .sheet{max-height:none;overflow:visible;padding:0;background:#fff}
@@ -767,7 +768,7 @@ function labelHTML(L){
   const ln=x=>x?`<div>${esc(x)}</div>`:'';
   const toCountry=isAT(L.toCountry)?'':`<div class="lb-cty">${esc(String(L.toCountry).toUpperCase())}</div>`;
   const flags=[L.fragile&&'ZERBRECHLICH',L.noBend&&'NICHT KNICKEN',L.up&&'↑ OBEN ↑'].filter(Boolean);
-  return `<div class="lbl">
+  return `<div class="shiplbl">
    <div class="lb-top"><div class="lb-from"><div class="lb-k">Absender</div><b>${esc(L.fromName)}</b>${ln(L.fromStreet)}${ln([L.fromZip,L.fromCity].filter(Boolean).join(' '))}${isAT(L.fromCountry)?'':ln(L.fromCountry)}</div>
     <div class="lb-stamp">Porto /<br>Frankierung</div></div>
    <div class="lb-to"><div class="lb-k">Empfänger</div>
