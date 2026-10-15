@@ -907,7 +907,8 @@ function openCheckout(){
    <div class="list" style="margin-bottom:12px">${UI.cart.map((c,i)=>{const p=prodById(c.pid);return `<div class="row" style="grid-template-columns:minmax(0,1fr) auto"><span style="min-width:0"><span class="row-title" style="display:block">${esc(p?.name||'?')}</span>
      <span class="row-sub" style="display:flex;align-items:center;gap:6px">à <input class="inp num" style="width:86px;padding:4px 6px" type="number" step="0.01" inputmode="decimal" data-cart-price="${i}" value="${c.price}"> €</span></span>
      <span class="qty"><button data-act="cart-dec" data-i="${i}" aria-label="weniger">−</button><b class="num">${c.qty}</b><button data-act="cart-inc" data-i="${i}" aria-label="mehr">+</button></span></div>`}).join('')}</div>
-   <div class="summary"><div class="l big" style="border:0;margin:0;padding:0"><span>Gesamt</span><span class="num" id="coTotal">${eur(cartTotal())}</span></div></div>
+   <div class="summary" id="coSum"></div>
+   <label class="field"><span>Tatsächlich erhalten €</span><input class="inp num" id="coRecv" type="number" inputmode="decimal" step="0.01" min="0" value="${UI.krecv??''}" placeholder="leer = ${eur(cartTotal())}"></label>
    <label class="field"><span>Kunde (optional)</span><input class="inp" id="coParty" list="coList" value="${esc(UI.kparty||'')}" placeholder="Laufkunde"></label>
    <datalist id="coList">${custs.map(p=>`<option value="${esc(p)}">`).join('')}</datalist>
    <div class="field"><span>Zahlung</span></div>
@@ -915,19 +916,27 @@ function openCheckout(){
    ${UI.kpay==='bar'?`<div class="grid2"><label class="field"><span>Gegeben €</span><input class="inp num" id="coGiven" type="number" inputmode="decimal" step="0.01" placeholder="optional"></label><div class="field"><span>Rückgeld</span><div class="inp num" id="coChange" style="background:var(--surface-2)">–</div></div></div>`:''}
    <label class="check"><input type="checkbox" id="coOpen"> Noch nicht bezahlt (offen buchen)</label>
    <button class="btn" data-act="co-save">Verkauf buchen · <span id="coBtn">${eur(cartTotal())}</span></button>`);
+  coRefresh();
 }
-function coRefresh(){const t=cartTotal();if($('#coTotal'))$('#coTotal').textContent=eur(t);if($('#coBtn'))$('#coBtn').textContent=eur(t);
+const coFinal=()=>{const r=$('#coRecv');return r&&String(r.value).trim()!==''?r2(num(r.value)):cartTotal()};
+function coRefresh(){
+  const reg=cartTotal(),t=coFinal(),d=r2(reg-t),cogs=r2(UI.cart.reduce((s,c)=>s+c.qty*num(prodById(c.pid)?.ek),0));
+  const el=$('#coSum');if(el)el.innerHTML=`<div class="l"><span>Regulär</span><span class="num">${eur(reg)}</span></div>
+    ${d?`<div class="l"><span>${d>0?'Rabatt':'Aufschlag'}${reg>0?' ('+Math.round(Math.abs(d)/reg*100)+' %)':''}</span><span class="num ${d>0?'neg':'pos'}">${d>0?'−':'+'}${eur(Math.abs(d))}</span></div>`:''}
+    <div class="l big"><span>Gesamt</span><span class="num">${eur(t)}</span></div>
+    <div class="l"><span>Rohertrag</span><span class="num ${t-cogs>=0?'pos':'neg'}">${eur(t-cogs)}</span></div>`;
+  if($('#coBtn'))$('#coBtn').textContent=eur(t);
   const g=$('#coGiven');if(g&&$('#coChange'))$('#coChange').textContent=g.value?eur(num(g.value)-t):'–'}
 async function doCheckout(){
   const party=$('#coParty').value.trim(),open=$('#coOpen').checked,method=UI.kpay;
   const items=UI.cart.map(c=>{const p=prodById(c.pid);return{pid:c.pid,name:p?.name||'?',qty:c.qty,price:r2(num(c.price)),ek:r2(num(p?.ek)),tax:S.settings.kleinunternehmer?0:num(p?.tax??S.settings.defaultTax),unit:p?.unit||'Stk'}});
-  const total=r2(items.reduce((s,i)=>s+i.qty*i.price,0)),cogs=r2(items.reduce((s,i)=>s+i.qty*i.ek,0));
-  const e={id:newId(),created:new Date().toISOString(),type:'verkauf',date:today(),party,partyAddress:custByName(party)?.address||'',method,note:'Kasse',total,regular:total,discount:0,extra:0,cogs,items,delivered:true,att:[],
+  const regular=r2(items.reduce((s,i)=>s+i.qty*i.price,0)),cogs=r2(items.reduce((s,i)=>s+i.qty*i.ek,0)),total=coFinal(),discount=r2(regular-total);
+  const e={id:newId(),created:new Date().toISOString(),type:'verkauf',date:today(),party,partyAddress:custByName(party)?.address||'',method,note:'Kasse',total,regular,discount,extra:0,cogs,items,delivered:true,att:[],
     payments:open?[]:[{date:today(),amount:total,method}]};
   e.paid=isPaid(e);
   try{await Store.put('entries',e)}catch{return}
   if(party&&!custByName(party))await Store.put('customers',{id:newId(),name:party,address:'',phone:'',email:'',note:''}).catch(()=>{});
-  UI.cart=[];UI.kparty='';closeSheet();render();toast('Verkauf gebucht · '+eur(total));
+  UI.cart=[];UI.kparty='';UI.krecv='';closeSheet();render();toast('Verkauf gebucht · '+eur(total)+(discount>0?' (Rabatt '+eur(discount)+')':''));
 }
 /* ---------- Barcode ---------- */
 const canScan=()=>!!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia);
@@ -1584,8 +1593,8 @@ document.addEventListener('click',async ev=>{
     case'cart-add':cartAdd(id);render();break;
     case'cart-clear':if(await ask('Warenkorb leeren?','Leeren')){UI.cart=[];render()}break;
     case'checkout':openCheckout();break;
-    case'cart-inc':case'cart-dec':{UI.kparty=$('#coParty')?.value||'';const c=UI.cart[+b.dataset.i];if(c)c.qty+=a==='cart-inc'?1:-1;UI.cart=UI.cart.filter(x=>x.qty>0);render();openCheckout();break}
-    case'kpay':UI.kparty=$('#coParty')?.value||'';UI.kpay=v;openCheckout();break;
+    case'cart-inc':case'cart-dec':{UI.kparty=$('#coParty')?.value||'';UI.krecv=$('#coRecv')?.value??'';const c=UI.cart[+b.dataset.i];if(c)c.qty+=a==='cart-inc'?1:-1;UI.cart=UI.cart.filter(x=>x.qty>0);render();openCheckout();break}
+    case'kpay':UI.kparty=$('#coParty')?.value||'';UI.krecv=$('#coRecv')?.value??'';UI.kpay=v;openCheckout();break;
     case'co-save':doCheckout();break;
     case'scan':startScan(code=>handleScan(v,code));break;
     case'annual':openAnnual(v);break;
@@ -1625,7 +1634,7 @@ document.addEventListener('click',async ev=>{
 document.addEventListener('input',ev=>{
   const t=ev.target;
   if(t.dataset.cartPrice!==undefined){const c=UI.cart[+t.dataset.cartPrice];if(c)c.price=num(t.value);coRefresh();return}
-  if(t.id==='coGiven'){coRefresh();return}
+  if(t.id==='coGiven'||t.id==='coRecv'){coRefresh();return}
   if(t.id&&t.id.startsWith('lb_')&&LB){refreshLabel();return}
   if(t.id==='q'||t.id==='cq'||t.id==='pq'||t.id==='kq'){UI[t.id]=t.value;const pos=t.selectionStart;render();const n=$('#'+t.id);n.focus();n.setSelectionRange(pos,pos);return}
   if(!F)return;
