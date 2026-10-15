@@ -69,6 +69,8 @@ h2{font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
 .kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:8px}
 .kpi{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:11px 13px}
 .kpi .lbl{font-size:11px;font-weight:600;color:var(--muted)}
+.kpi .sub2{font-size:11.5px;color:var(--muted);margin-top:3px;line-height:1.35}
+.kpi .sub2 b{font-weight:700}
 .kpi .val{font-family:var(--f-num);font-size:17px;font-weight:600;margin-top:2px}
 .pos{color:var(--accent)} .neg{color:var(--neg)} .warn{color:var(--warn)}
 
@@ -543,6 +545,19 @@ function vStart(){
   const lagerwert=S.products.reduce((s,p)=>s+Math.max(0,sm[p.id])*num(p.ek),0);
   const pl={monat:'diesen Monat',jahr:'dieses Jahr',alle:'gesamt'}[UI.period];
   const recent=sorted(S.entries).slice(0,6);
+  const now=new Date(),ty=now.getFullYear(),tm=now.getMonth();
+  const prevKey=UI.period==='monat'?(tm===0?`${ty-1}-12`:`${ty}-${pad(tm)}`):UI.period==='jahr'?String(ty-1):null;
+  const pt=prevKey?totals(d=>String(d).startsWith(prevKey)):null;
+  const cmp=(cur,prev)=>{if(!pt)return'';if(!prev)return cur?'':'';const c=(cur-prev)/Math.abs(prev);return `<b class="${c>=0?'pos':'neg'}">${c>=0?'▲':'▼'} ${Math.abs(Math.round(c*100))} %</b> vs. ${UI.period==='monat'?'Vormonat':'Vorjahr'}`};
+  const sales=S.entries.filter(e=>e.type==='verkauf'&&e.delivered!==false&&live(e)&&inPeriod(e.date,UI.period));
+  const avg=t.n?t.umsatz/t.n:0,marge=t.umsatz>0?Math.round(t.roh/t.umsatz*100):null;
+  const pc={},cc={};sales.forEach(e=>{(e.items||[]).forEach(i=>{const k=i.pid||i.name;pc[k]=pc[k]||{n:i.name,q:0,r:0};pc[k].q+=num(i.qty);pc[k].r+=num(i.qty)*num(i.price)});if(e.party){cc[e.party]=(cc[e.party]||0)+num(e.total)}});
+  const topP=Object.values(pc).sort((a,b)=>b.q-a.q||b.r-a.r)[0],topC=Object.entries(cc).sort((a,b)=>b[1]-a[1])[0];
+  const dim=new Date(ty,tm+1,0).getDate(),day=now.getDate();
+  const proj=UI.period==='monat'&&day>=5&&day<dim&&t.umsatz>0?t.umsatz/day*dim:null;
+  const openN=S.entries.filter(e=>e.type==='verkauf'&&live(e)&&e.delivered!==false&&openAmt(e)>0.005).length;
+  const hasEK=S.entries.some(e=>e.type==='einkauf'&&!e.sample);
+  const stockHint=!hasEK&&lagerwert>0&&S.entries.some(e=>e.type==='verkauf'&&!e.sample)&&!S.settings.hideStockHint;
   const orders=sorted(S.entries.filter(e=>e.delivered===false&&live(e))).reverse();
   const isEmpty=!S.products.length&&!S.entries.length;
   const lb=S.settings.lastBackup;const stale=S.entries.some(e=>!e.sample)&&(!lb||(Date.now()-new Date(lb))/864e5>7);
@@ -550,13 +565,20 @@ function vStart(){
   ${od.length?`<div class="banner" style="display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--neg-soft);color:var(--neg)"><span>${od.length} Zahlung${od.length>1?'en':''} überfällig · ${eur(od.reduce((s,e)=>s+openAmt(e),0))}</span><button class="btn sm" data-act="show-overdue">Anzeigen</button></div>`:''}
   <div class="seg" role="tablist">${['monat','jahr','alle'].map(p=>`<button class="${UI.period===p?'on':''}" data-act="period" data-v="${p}">${{monat:'Monat',jahr:'Jahr',alle:'Gesamt'}[p]}</button>`).join('')}</div>
   <div class="kpi-main"><div class="lbl">Überschuss ${pl} (Einnahmen − Ausgaben)</div><div class="val">${eur(t.ueber)}</div>
-   <div class="sub">Einnahmen ${eur(t.ein)} · Ausgaben ${eur(t.aus)}</div></div>
+   <div class="sub">Einnahmen ${eur(t.ein)} · Ausgaben ${eur(t.aus)}${pt?` · ${UI.period==='monat'?'Vormonat':'Vorjahr'} ${eur(pt.ueber)}`:''}</div></div>
   <div class="kpis">
-   <div class="kpi"><div class="lbl">Umsatz ${pl}</div><div class="val">${eur(t.umsatz)}</div></div>
-   <div class="kpi"><div class="lbl">Rohertrag (Umsatz − Wareneinsatz)</div><div class="val ${t.roh>=0?'pos':'neg'}">${eur(t.roh)}</div></div>
-   <div class="kpi"><div class="lbl">Offene Forderungen</div><div class="val ${all.offenFord?'warn':''}">${eur(all.offenFord)}</div></div>
-   <div class="kpi"><div class="lbl">Lagerwert (EK)${low?` · <span class="neg">${low} knapp</span>`:''}</div><div class="val">${eur(lagerwert)}</div></div>
+   <div class="kpi"><div class="lbl">Umsatz ${pl}</div><div class="val">${eur(t.umsatz)}</div><div class="sub2">${t.n} Verkäuf${t.n===1?'':'e'}${t.n?` · Ø ${eur(avg)}`:''}${pt&&pt.umsatz?'<br>'+cmp(t.umsatz,pt.umsatz):''}</div></div>
+   <div class="kpi"><div class="lbl">Rohertrag</div><div class="val ${t.roh>=0?'pos':'neg'}">${eur(t.roh)}</div><div class="sub2">${marge!==null?`Marge <b>${marge} %</b> · `:''}Ware ${eur(t.cogs)}</div></div>
+   <div class="kpi"><div class="lbl">Offen zu kassieren</div><div class="val ${all.offenFord>0.005?'warn':''}">${eur(all.offenFord)}</div><div class="sub2">${openN?`${openN} Verkäuf${openN===1?'':'e'}${od.length?` · <b class="neg">${od.length} überfällig</b>`:''}`:'alles bezahlt'} · gesamt</div></div>
+   <div class="kpi"><div class="lbl">Lagerwert (EK)</div><div class="val">${eur(lagerwert)}</div><div class="sub2">${low?`<b class="neg">${low} nachbestellen</b>`:'Bestand ok'}</div></div>
   </div>
+  ${topP||topC||proj?`<div class="card" style="margin-top:8px;padding:6px 14px">
+   ${topP?`<div class="kv"><span>Bestseller ${pl}</span><b style="font-family:var(--f-ui)">${esc(topP.n)} · ${topP.q}×</b></div>`:''}
+   ${topC?`<div class="kv"><span>Top-Kunde ${pl}</span><b style="font-family:var(--f-ui)">${esc(topC[0])} · <span class="num">${eur(topC[1])}</span></b></div>`:''}
+   ${proj?`<div class="kv"><span>Hochrechnung Umsatz Monatsende</span><b>${eur(proj)}</b></div>`:''}
+  </div>`:''}
+  ${stockHint?`<div class="banner" style="margin-top:10px"><b>Keine Einkäufe gebucht.</b> Dein Lager (${eur(lagerwert)}) ist nur als Anfangsbestand erfasst. Hast du die Ware gekauft, buche sie als Einkauf – sonst fehlen die Ausgaben im Überschuss und in der Steuer-Übersicht.
+   <div class="btn-row" style="margin-top:8px"><button class="btn sm" data-act="new-entry" data-v="einkauf">Einkauf buchen</button><button class="btn ghost sm" data-act="hide-stock-hint">Passt so</button></div></div>`:''}
   ${S.products.length?`<button class="kasse-btn" data-go="kasse"><span>Schnellkasse<br><small>Produkte antippen, kassieren, fertig</small></span><span>→</span></button>`:''}
   <div class="actions">
    <button class="act primary" data-act="new-entry" data-v="verkauf">+ Verkauf<small>Kunde zahlt</small></button>
@@ -1583,6 +1605,7 @@ document.addEventListener('click',async ev=>{
       const ne={...e,delivered:true,orderDate:e.orderDate||e.date,date:today()};delete ne.ready;await Store.put('entries',ne).catch(()=>{});
       toast(e.type==='verkauf'?'Als übergeben markiert':'Ware ist im Lager');setTimeout(()=>openEntry(id),0);break}
     case'pcat':UI.pcat=v;render();break;
+    case'hide-stock-hint':await Store.setSettings({...S.settings,hideStockHint:true});break;
     case'fstage':F.stage=v;F.delivered=v==='uebergeben';if(!F.id)F.payStatus=v==='uebergeben'?'1':'0';renderEntryForm();break;
     case'mark-ready':{const e=S.entries.find(x=>x.id===id);await Store.put('entries',{...e,ready:true}).catch(()=>{});toast('Als fertig markiert');openEntry(id);break}
     case'save-note':{const e=S.entries.find(x=>x.id===id);await Store.put('entries',{...e,note:$('#noteEdit').value.trim()}).catch(()=>{});toast('Notiz gespeichert');openEntry(id);break}
