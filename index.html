@@ -544,7 +544,7 @@ function vStart(){
   const sm=stockMap();const pmS=pendingMap();const low=S.products.filter(p=>productStats(p,sm,pmS).need).length;
   const lagerwert=S.products.reduce((s,p)=>s+Math.max(0,sm[p.id])*num(p.ek),0);
   const pl={monat:'diesen Monat',jahr:'dieses Jahr',alle:'gesamt'}[UI.period];
-  const recent=sorted(S.entries).slice(0,6);
+  const recentAll=sorted(S.entries.filter(e=>!(e.delivered===false&&live(e))));const recent=recentAll.slice(0,6);
   const now=new Date(),ty=now.getFullYear(),tm=now.getMonth();
   const prevKey=UI.period==='monat'?(tm===0?`${ty-1}-12`:`${ty}-${pad(tm)}`):UI.period==='jahr'?String(ty-1):null;
   const pt=prevKey?totals(d=>String(d).startsWith(prevKey)):null;
@@ -589,7 +589,7 @@ function vStart(){
   <h2>Letzte Buchungen</h2>
   ${isEmpty?`<div class="list"><div class="empty"><b>Noch nichts gebucht</b>Leg unter „Mehr → Produkte“ dein Sortiment an und buche dann deinen ersten Einkauf oder Verkauf.<div class="btn-row" style="margin-top:14px;justify-content:center"><button class="btn sm" data-act="new-product">Erstes Produkt anlegen</button><button class="btn ghost sm" data-act="load-sample">Beispieldaten ansehen</button></div></div></div>`
    :`<div class="list">${recent.length?recent.map(entryRow).join(''):'<div class="empty">Noch keine Buchungen.</div>'}</div>
-   ${S.entries.length>6?'<button class="btn ghost" style="margin-top:10px" data-go="buchungen">Alle Buchungen</button>':''}`}`;
+   ${recentAll.length>6?'<button class="btn ghost" style="margin-top:10px" data-go="buchungen">Alle Buchungen</button>':''}`}`;
 }
 
 function vBuchungen(){
