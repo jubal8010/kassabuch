@@ -375,6 +375,8 @@ function pendingMap(){
 }
 const KIND={kunde:{col:'customers',type:'verkauf',one:'Kunde',many:'Kunden'},lieferant:{col:'suppliers',type:'einkauf',one:'Lieferant',many:'Lieferanten'}};
 const live=e=>!e.cancelled&&!e.storno;
+const stage=e=>e.delivered===false?(e.ready?'fertig':'geplant'):'uebergeben';
+const STAGE_PILL=e=>e.type==='verkauf'?(e.ready?'<span class="pill top">Fertig</span>':'<span class="pill ord">Geplant</span>'):'<span class="pill ord">Bestellt</span>';
 const norm=n=>String(n||'').trim().toLowerCase();
 const recByName=(kind,n)=>S[KIND[kind].col].find(c=>norm(c.name)===norm(n));
 const custByName=n=>recByName('kunde',n);
@@ -522,14 +524,14 @@ function entryRow(e){
   let status;
   if(e.cancelled)status='<span class="pill slow">Storniert</span>';
   else if(e.storno)status='<span class="pill slow">Storno</span>';
-  else if(e.delivered===false)status=`<span class="pill ord">Bestellt</span>${isPaid(e)?' <span class="pill ok">bezahlt</span>':isPartial(e)?' <span class="pill ok">angezahlt</span>':''}`;
+  else if(e.delivered===false)status=`${STAGE_PILL(e)}${isPaid(e)?' <span class="pill ok">bezahlt</span>':isPartial(e)?' <span class="pill ok">angezahlt</span>':''}`;
   else if(isPaid(e))status=`<span class="pill ok">${METHODS[(paysOf(e).slice(-1)[0]||{}).method||e.method]||'Bezahlt'}</span>`;
   else if(isOverdue(e))status='<span class="pill low">Überfällig</span>';
   else if(isPartial(e))status=`<span class="pill open">Offen ${eur(openAmt(e))}</span>`;
   else status='<span class="pill open">Offen</span>';
   return `<button class="row" data-act="open-entry" data-id="${e.id}"><span class="tag ${tagCls}">${tagTxt}</span>
    <span style="min-width:0"><span class="row-title" style="display:block">${esc(title)}${e.sample?'<span class="pill ex">Beispiel</span>':''}</span>
-   <span class="row-sub" style="display:block">${fdate(e.date)}${e.invoiceNo?' · Nr. '+esc(e.invoiceNo):''}${(e.att||[]).length?' · Beleg':''}${what?' · '+esc(what):''}</span></span>
+   <span class="row-sub" style="display:block">${fdate(e.date)}${e.invoiceNo?' · Nr. '+esc(e.invoiceNo):''}${(e.att||[]).length?' · Beleg':''}${what?' · '+esc(what):''}</span>${e.note&&e.note!=='Kasse'&&!e.recurringId?`<span class="row-sub" style="display:block;color:var(--ink);opacity:.75">✎ ${esc(e.note)}</span>`:''}</span>
    <span class="row-amt"><span class="num ${cls}">${sign}${eur(e.total)}</span>${status}</span></button>`;
 }
 const sorted=l=>[...l].sort((a,b)=>(b.date+(b.created||'')).localeCompare(a.date+(a.created||'')));
@@ -561,7 +563,7 @@ function vStart(){
    <button class="act" data-act="new-entry" data-v="einkauf">+ Einkauf<small>Ware rein</small></button>
    <button class="act" data-act="new-entry" data-v="ausgabe">+ Ausgabe<small>Versand, Gebühren</small></button>
   </div>
-  ${orders.length?`<h2>Offene Bestellungen (${orders.length})</h2><div class="list">${orders.map(entryRow).join('')}</div>`:''}
+  ${orders.length?`<h2>Offene Bestellungen (${orders.length})${orders.some(e=>e.ready)?` · ${orders.filter(e=>e.ready).length} fertig`:''}</h2><div class="list">${orders.map(entryRow).join('')}</div>`:''}
   <h2>Letzte Buchungen</h2>
   ${isEmpty?`<div class="list"><div class="empty"><b>Noch nichts gebucht</b>Leg unter „Mehr → Produkte“ dein Sortiment an und buche dann deinen ersten Einkauf oder Verkauf.<div class="btn-row" style="margin-top:14px;justify-content:center"><button class="btn sm" data-act="new-product">Erstes Produkt anlegen</button><button class="btn ghost sm" data-act="load-sample">Beispieldaten ansehen</button></div></div></div>`
    :`<div class="list">${recent.length?recent.map(entryRow).join(''):'<div class="empty">Noch keine Buchungen.</div>'}</div>
@@ -574,7 +576,7 @@ function vBuchungen(){
   if(f==='offen')l=l.filter(e=>live(e)&&e.delivered!==false&&!isPaid(e));else if(f==='ueberfaellig')l=l.filter(isOverdue);else if(f==='bestellt')l=l.filter(e=>e.delivered===false&&live(e));else if(f==='belege')l=l.filter(e=>(e.att||[]).length);else if(f!=='alle')l=l.filter(e=>e.type===f);
   const q=UI.q.trim().toLowerCase();
   if(q)l=l.filter(e=>[e.party,e.note,e.invoiceNo,e.expenseCat,...(e.items||[]).map(i=>i.name)].join(' ').toLowerCase().includes(q));
-  const chips=[['alle','Alle'],['verkauf','Verkäufe'],['einkauf','Einkäufe'],['ausgabe','Ausgaben'],['bestellt','Bestellt'],['offen','Offen'],['ueberfaellig','Überfällig'],['belege','Mit Beleg']];
+  const chips=[['alle','Alle'],['verkauf','Verkäufe'],['einkauf','Einkäufe'],['ausgabe','Ausgaben'],['bestellt','Bestellungen'],['offen','Offen'],['ueberfaellig','Überfällig'],['belege','Mit Beleg']];
   return header('Buchungen','<button class="add-btn" data-act="new-entry" data-v="verkauf">+ Buchung</button>')+`
   <input class="search" id="q" type="search" placeholder="Suchen: Kunde, Produkt, Rechnungsnr. …" value="${esc(UI.q)}">
   <div class="chips">${chips.map(([k,v])=>`<button class="chip ${f===k?'on':''}" data-act="filter" data-v="${k}">${v}</button>`).join('')}</div>
@@ -872,7 +874,7 @@ async function saveShipment(){
   if(e.delivered===false){const sm=stockMap();const short=(e.items||[]).filter(i=>i.pid in sm&&sm[i.pid]<num(i.qty)).map(i=>i.name);
     if(short.length&&!await ask(`Laut Lager ist nicht genug da: ${short.join(', ')}. Trotzdem versenden?`,'Trotzdem versenden'))return}
   const ne={...e,ship:{date:today(),tracking:LB.tracking.trim(),weight:LB.weight,porto:porto||null}};
-  if(e.delivered===false)Object.assign(ne,{delivered:true,orderDate:e.orderDate||e.date,date:today()});
+  if(e.delivered===false){Object.assign(ne,{delivered:true,orderDate:e.orderDate||e.date,date:today()});delete ne.ready}
   await Store.bulk(async()=>{
     await Store.put('entries',ne);
     if(porto>0&&LB.bookPorto)await Store.put('entries',{id:'porto-'+e.id+'-'+Date.now().toString(36),created:new Date().toISOString(),type:'ausgabe',date:today(),party:'Porto · '+(e.party||'Versand'),expenseCat:S.settings.expenseCats.includes('Versand')?'Versand':(S.settings.expenseCats[0]||'Sonstiges'),
@@ -914,8 +916,11 @@ function openCheckout(){
    <div class="field"><span>Zahlung</span></div>
    <div class="seg" style="margin-bottom:12px">${['bar','karte','ueb','paypal'].map(k=>`<button class="${UI.kpay===k?'on':''}" data-act="kpay" data-v="${k}">${k==='ueb'?'Überw.':METHODS[k]}</button>`).join('')}</div>
    ${UI.kpay==='bar'?`<div class="grid2"><label class="field"><span>Gegeben €</span><input class="inp num" id="coGiven" type="number" inputmode="decimal" step="0.01" placeholder="optional"></label><div class="field"><span>Rückgeld</span><div class="inp num" id="coChange" style="background:var(--surface-2)">–</div></div></div>`:''}
-   <label class="check"><input type="checkbox" id="coOpen"> Noch nicht bezahlt (offen buchen)</label>
-   <button class="btn" data-act="co-save">Verkauf buchen · <span id="coBtn">${eur(cartTotal())}</span></button>`);
+   <div class="field"><span>Übergabe</span></div>
+   <div class="seg" style="margin-bottom:12px">${[['uebergeben','Jetzt übergeben'],['geplant','Bestellung aufnehmen']].map(([k,l])=>`<button class="${(UI.kstage||'uebergeben')===k?'on':''}" data-act="kstage" data-v="${k}">${l}</button>`).join('')}</div>
+   <label class="check"><input type="checkbox" id="coOpen" ${UI.kstage==='geplant'?'checked':''}> Noch nicht bezahlt (offen buchen)</label>
+   <label class="field"><span>Notiz (optional)</span><textarea class="inp" id="coNote" rows="2" placeholder="z. B. Abholung Freitag, Geschenkverpackung …">${esc(UI.knote||'')}</textarea></label>
+   <button class="btn" data-act="co-save">${UI.kstage==='geplant'?'Bestellung speichern':'Verkauf buchen'} · <span id="coBtn">${eur(cartTotal())}</span></button>`);
   coRefresh();
 }
 const coFinal=()=>{const r=$('#coRecv');return r&&String(r.value).trim()!==''?r2(num(r.value)):cartTotal()};
@@ -928,15 +933,15 @@ function coRefresh(){
   if($('#coBtn'))$('#coBtn').textContent=eur(t);
   const g=$('#coGiven');if(g&&$('#coChange'))$('#coChange').textContent=g.value?eur(num(g.value)-t):'–'}
 async function doCheckout(){
-  const party=$('#coParty').value.trim(),open=$('#coOpen').checked,method=UI.kpay;
+  const party=$('#coParty').value.trim(),open=$('#coOpen').checked,method=UI.kpay,planned=UI.kstage==='geplant',note=($('#coNote')?.value||'').trim();
   const items=UI.cart.map(c=>{const p=prodById(c.pid);return{pid:c.pid,name:p?.name||'?',qty:c.qty,price:r2(num(c.price)),ek:r2(num(p?.ek)),tax:S.settings.kleinunternehmer?0:num(p?.tax??S.settings.defaultTax),unit:p?.unit||'Stk'}});
   const regular=r2(items.reduce((s,i)=>s+i.qty*i.price,0)),cogs=r2(items.reduce((s,i)=>s+i.qty*i.ek,0)),total=coFinal(),discount=r2(regular-total);
-  const e={id:newId(),created:new Date().toISOString(),type:'verkauf',date:today(),party,partyAddress:custByName(party)?.address||'',method,note:'Kasse',total,regular,discount,extra:0,cogs,items,delivered:true,att:[],
+  const e={id:newId(),created:new Date().toISOString(),type:'verkauf',date:today(),party,partyAddress:custByName(party)?.address||'',method,note,total,regular,discount,extra:0,cogs,items,delivered:!planned,att:[],viaKasse:true,
     payments:open?[]:[{date:today(),amount:total,method}]};
   e.paid=isPaid(e);
   try{await Store.put('entries',e)}catch{return}
   if(party&&!custByName(party))await Store.put('customers',{id:newId(),name:party,address:'',phone:'',email:'',note:''}).catch(()=>{});
-  UI.cart=[];UI.kparty='';UI.krecv='';closeSheet();render();toast('Verkauf gebucht · '+eur(total)+(discount>0?' (Rabatt '+eur(discount)+')':''));
+  UI.cart=[];UI.kparty='';UI.krecv='';UI.knote='';UI.kstage='uebergeben';closeSheet();render();toast((planned?'Bestellung aufgenommen · ':'Verkauf gebucht · ')+eur(total)+(discount>0?' (Rabatt '+eur(discount)+')':''));
 }
 /* ---------- Barcode ---------- */
 const canScan=()=>!!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia);
@@ -1057,6 +1062,7 @@ function openEntryForm(type,e,preset){
   if(preset)Object.assign(F,preset);
   ['party','partyAddress','note'].forEach(k=>F[k]=F[k]||'');F.items=F.items||[];F.att=F.att||[];F.delivered=F.type==='ausgabe'||F.delivered!==false;
   F.payStatus=e?(isPaid(e)?'1':isPartial(e)?'p':'0'):(F.paid===false?'0':'1');
+  F.stage=F.delivered?'uebergeben':(F.ready?'fertig':'geplant');
   if(e){F.override=e.type==='verkauf'&&e.discount?String(e.total):'';F.amount=e.type==='ausgabe'?e.total:'';F.updateEk=false}
   if(F.type!=='ausgabe'&&!F.items.length)F.items.push({pid:'',qty:1,price:0});
   renderEntryForm();
@@ -1092,8 +1098,11 @@ function renderEntryForm(){
      <label class="field"><span>Tatsächlich erhalten €</span><input class="inp num" type="number" inputmode="decimal" min="0" step="0.01" data-f="override" value="${F.override}" placeholder="leer = regulär"></label></div>`:''}
    ${t==='einkauf'&&!F.id?`<label class="check"><input type="checkbox" data-f="updateEk" ${F.updateEk?'checked':''}> Einkaufspreise im Produkt aktualisieren</label>`:''}
    <div class="summary" id="fsum"></div>
-   ${t!=='ausgabe'?`<label class="field"><span>Lieferung</span><select class="inp" data-f="delivered"><option value="1" ${F.delivered?'selected':''}>${t==='verkauf'?'Geliefert / übergeben':'Ware erhalten'}</option><option value="0" ${!F.delivered?'selected':''}>Bestellt – ${t==='verkauf'?'noch nicht geliefert':'noch nicht da'}</option></select></label>
-   ${!F.delivered?`<p class="hint">Zählt erst im Lager${t==='verkauf'?' und Umsatz':''}, wenn du die Bestellung als ${t==='verkauf'?'geliefert':'erhalten'} markierst.</p>`:''}`:''}
+   ${t==='verkauf'?`<div class="field"><span>Übergabe</span></div>
+   <div class="seg" style="margin-bottom:8px">${[['geplant','Geplant'],['fertig','Fertig'],['uebergeben','Übergeben']].map(([k,l])=>`<button class="${F.stage===k?'on':''}" data-act="fstage" data-v="${k}">${l}</button>`).join('')}</div>
+   <p class="hint" style="margin:0 0 12px">${{geplant:'Bestellung aufgenommen, muss noch vorbereitet werden.',fertig:'Vorbereitet, wartet auf Übergabe oder Versand.',uebergeben:'Kunde hat die Ware.'}[F.stage]}${F.stage!=='uebergeben'?' Zählt erst im Lager und Umsatz, wenn übergeben.':''}</p>`
+   :t==='einkauf'?`<label class="field"><span>Lieferung</span><select class="inp" data-f="delivered"><option value="1" ${F.delivered?'selected':''}>Ware erhalten</option><option value="0" ${!F.delivered?'selected':''}>Bestellt – noch nicht da</option></select></label>
+   ${!F.delivered?'<p class="hint">Zählt erst im Lager, wenn du die Ware als erhalten markierst.</p>':''}`:''}
    <div class="grid2">
     <label class="field"><span>Zahlungsart</span><select class="inp" data-f="method">${Object.entries(METHODS).map(([k,v])=>`<option value="${k}" ${F.method===k?'selected':''}>${v}</option>`).join('')}</select></label>
     <label class="field"><span>Status</span><select class="inp" data-f="paid"><option value="1" ${F.payStatus==='1'?'selected':''}>Bezahlt</option><option value="0" ${F.payStatus==='0'?'selected':''}>Offen</option>${ps&&isPartial(ps)?`<option value="p" ${F.payStatus==='p'?'selected':''}>Teilweise (${eur(paidSum(ps))})</option>`:''}</select></label>
@@ -1101,7 +1110,7 @@ function renderEntryForm(){
    ${ps&&paysOf(ps).length>1?'<p class="hint">Einzelne Zahlungen verwaltest du in der Buchung selbst.</p>':''}
    <div class="field"><span>Belege</span></div>
    <div class="thumbs" style="margin-bottom:12px">${attThumbs(F.att)}<label class="thumb add">+ Foto / PDF<input type="file" accept="image/*,application/pdf" multiple hidden data-att-form="1"></label></div>
-   <label class="field"><span>Notiz</span><input class="inp" data-f="note" value="${esc(F.note)}" placeholder="optional"></label>
+   <label class="field"><span>Notiz</span><textarea class="inp" data-f="note" rows="2" placeholder="z. B. Wunsch, Abholtermin, Größe …">${esc(F.note)}</textarea></label>
    <button class="btn" data-act="save-entry">${F.id?'Änderungen speichern':!F.delivered?'Bestellung speichern':TYPES[t]+' buchen'}</button>`;
   if($('#sheetBody'))$('#sheetBody').innerHTML=body;else openSheet(F.id?TYPES[t]+' bearbeiten':'Neue Buchung',body);
   if($('.sheet-head h3'))$('.sheet-head h3').textContent=F.id?TYPES[t]+' bearbeiten':'Neue Buchung';
@@ -1136,7 +1145,8 @@ async function saveEntry(){
   const old=F.id?S.entries.find(e=>e.id===F.id):null;
   const e={...(old||{}),id:F.id||F.newId,created:old?.created||new Date().toISOString(),type:F.type,date:F.date,party:F.party.trim(),
     method:F.method,note:F.note.trim(),total:c.total,sample:old?.sample||false,att:F.att||[]};
-  if(F.type!=='ausgabe'){e.delivered=!!F.delivered}
+  if(F.type==='verkauf'){e.delivered=F.stage==='uebergeben';e.ready=F.stage==='fertig';if(!e.ready)delete e.ready}
+  else if(F.type==='einkauf'){e.delivered=!!F.delivered;delete e.ready}
   if(F.type==='ausgabe'){e.expenseCat=F.expenseCat;delete e.items}
   else{
     e.items=F.items.map(i=>{const p=prodById(i.pid);return{pid:i.pid,name:i.name||p?.name||'?',qty:num(i.qty),price:r2(num(i.price)),ek:r2(F.type==='verkauf'?num(i.ek??p?.ek):num(i.price)),tax:i.tax??(S.settings.kleinunternehmer?0:num(p?.tax??S.settings.defaultTax)),unit:i.unit||p?.unit||'Stk'}});
@@ -1152,7 +1162,7 @@ async function saveEntry(){
     if(!r)await Store.put(KIND[kind].col,{id:newId(),name:e.party,address:addr,phone:'',email:'',note:''}).catch(()=>{});
     else if(addr&&!r.address)await Store.put(KIND[kind].col,{...r,address:addr}).catch(()=>{});}
   if(F.type==='einkauf'&&F.updateEk){for(const i of e.items){const p=prodById(i.pid);if(p&&num(p.ek)!==i.price){try{await Store.put('products',{...p,ek:i.price})}catch{}}}}
-  closeSheet();toast(old?'Gespeichert':e.delivered===false?'Bestellung gespeichert':TYPES[e.type]+' gebucht');
+  closeSheet();toast(old?'Gespeichert':e.delivered===false?'Bestellung aufgenommen':TYPES[e.type]+' gebucht');
 }
 
 /* entry detail */
@@ -1173,13 +1183,16 @@ function openEntry(id){
    ${ov?`<div class="banner" style="display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--neg-soft);color:var(--neg)"><span>Seit ${daysBetween(dueDate(e),today())} Tag${daysBetween(dueDate(e),today())===1?'':'en'} überfällig${rem?' · erinnert am '+fdate(rem):''}</span><button class="btn sm" data-act="remind" data-id="${e.id}">Erinnern</button></div>`:''}
    <div class="summary">${lines}<div class="l big"><span>Gesamt</span><span class="num">${eur(e.total)}</span></div>
    ${e.type==='verkauf'?`<div class="l"><span>Rohertrag</span><span class="num">${eur(e.total-num(e.cogs))}</span></div>`:''}</div>
-   <p class="muted" style="margin:0 0 14px;font-size:13px">${e.delivered===false?'<b class="pos">Bestellt, noch nicht '+(e.type==='verkauf'?'geliefert':'erhalten')+'</b> · ':''}${e.orderDate?'bestellt am '+fdate(e.orderDate)+' · ':''}${e.invoiceNo?'Rechnung '+esc(e.invoiceNo)+(e.type==='verkauf'&&live(e)&&e.delivered!==false&&open>0.005?' · fällig '+fdate(dueDate(e)):'')+' · ':''}${rem&&!ov?'erinnert am '+fdate(rem)+' · ':''}${e.note?esc(e.note):''}</p>
+   <p class="muted" style="margin:0 0 14px;font-size:13px">${e.delivered===false?'<b class="pos">'+(e.type==='verkauf'?(e.ready?'Fertig – wartet auf Übergabe':'Geplant – noch vorzubereiten'):'Bestellt, noch nicht erhalten')+'</b> · ':''}${e.orderDate?'bestellt am '+fdate(e.orderDate)+' · ':''}${e.invoiceNo?'Rechnung '+esc(e.invoiceNo)+(e.type==='verkauf'&&live(e)&&e.delivered!==false&&open>0.005?' · fällig '+fdate(dueDate(e)):'')+' · ':''}${rem&&!ov?'erinnert am '+fdate(rem):''}</p>
+   <label class="field"><span>Notiz</span><textarea class="inp" id="noteEdit" rows="2" placeholder="Notiz hinzufügen …">${esc(e.note&&e.note!=='Kasse'?e.note:'')}</textarea></label>
+   <button class="btn ghost sm" style="margin:-4px 0 14px" data-act="save-note" data-id="${e.id}" id="noteBtn" hidden>Notiz speichern</button>
    <div class="eyebrow" style="margin-bottom:6px">Zahlungen</div>
    <div class="card" style="margin-bottom:10px;padding:8px 14px">${payList}<div class="kv"><span>${open>0.005?'Noch offen':open<-0.005?'Zu viel bezahlt':'Vollständig bezahlt'}</span><b class="${open>0.005?'warn':''}">${eur(Math.abs(open))}</b></div></div>
    ${!e.cancelled&&!e.storno&&Math.abs(open)>0.005?`<div class="btn-row" style="margin-bottom:14px"><button class="btn" data-act="pay-rest" data-id="${e.id}">${open>0?'Rest als bezahlt':'Rückzahlung buchen'}</button><button class="btn ghost" data-act="pay-part" data-id="${e.id}">Teilzahlung</button></div>`:''}
    <div class="eyebrow" style="margin-bottom:6px">Belege</div>
    <div class="thumbs" style="margin-bottom:14px">${attThumbs(e.att)}<label class="thumb add">+ Beleg<input type="file" accept="image/*,application/pdf" multiple hidden data-att-entry="${e.id}"></label></div>
-   ${e.delivered===false&&live(e)?`<button class="btn" style="margin-bottom:8px" data-act="deliver" data-id="${e.id}">${e.type==='verkauf'?'Als geliefert markieren':'Ware erhalten – ins Lager buchen'}</button>`:''}
+   ${e.delivered===false&&live(e)?(e.type==='verkauf'?`<div class="btn-row" style="margin-bottom:8px">${e.ready?'':`<button class="btn ghost" data-act="mark-ready" data-id="${e.id}">Als fertig markieren</button>`}<button class="btn" data-act="deliver" data-id="${e.id}">Als übergeben markieren</button></div>`
+     :`<button class="btn" style="margin-bottom:8px" data-act="deliver" data-id="${e.id}">Ware erhalten – ins Lager buchen</button>`):''}
    ${e.ship?`<p class="muted" style="margin:0 0 10px;font-size:13px;user-select:text">Versendet am ${fdate(e.ship.date)}${e.ship.tracking?' · Sendungsnr. <b style="color:var(--ink)">'+esc(e.ship.tracking)+'</b>':''}${e.ship.porto?' · Porto '+eur(e.ship.porto):''}</p>`:''}
    ${e.type==='verkauf'&&live(e)?`<button class="btn ghost" style="margin-bottom:8px" data-act="label" data-id="${e.id}">${e.ship?'Versandlabel erneut':'Versandlabel erstellen'}</button>`:''}
    ${e.type==='verkauf'&&(e.invoiceNo||!e.cancelled)?`<button class="btn ghost" style="margin-bottom:8px" data-act="invoice" data-id="${e.id}">${e.invoiceNo?(e.storno?'Stornorechnung ansehen':'Rechnung ansehen'):'Rechnung erstellen'}</button>`:''}
@@ -1567,9 +1580,13 @@ document.addEventListener('click',async ev=>{
     case'deliver':{const e=S.entries.find(x=>x.id===id);
       if(e.type==='verkauf'){const sm=stockMap();const short=(e.items||[]).filter(i=>i.pid in sm&&sm[i.pid]<num(i.qty)).map(i=>i.name);
         if(short.length&&!await ask(`Laut Lager ist nicht genug da: ${short.join(', ')}. Trotzdem als geliefert markieren?`,'Trotzdem liefern'))break}
-      await Store.put('entries',{...e,delivered:true,orderDate:e.orderDate||e.date,date:today()}).catch(()=>{});
-      toast(e.type==='verkauf'?'Als geliefert markiert':'Ware ist im Lager');setTimeout(()=>openEntry(id),0);break}
+      const ne={...e,delivered:true,orderDate:e.orderDate||e.date,date:today()};delete ne.ready;await Store.put('entries',ne).catch(()=>{});
+      toast(e.type==='verkauf'?'Als übergeben markiert':'Ware ist im Lager');setTimeout(()=>openEntry(id),0);break}
     case'pcat':UI.pcat=v;render();break;
+    case'fstage':F.stage=v;F.delivered=v==='uebergeben';if(!F.id)F.payStatus=v==='uebergeben'?'1':'0';renderEntryForm();break;
+    case'mark-ready':{const e=S.entries.find(x=>x.id===id);await Store.put('entries',{...e,ready:true}).catch(()=>{});toast('Als fertig markiert');openEntry(id);break}
+    case'save-note':{const e=S.entries.find(x=>x.id===id);await Store.put('entries',{...e,note:$('#noteEdit').value.trim()}).catch(()=>{});toast('Notiz gespeichert');openEntry(id);break}
+    case'kstage':UI.kparty=$('#coParty')?.value||'';UI.krecv=$('#coRecv')?.value??'';UI.knote=$('#coNote')?.value||'';UI.kstage=v;openCheckout();break;
     case'party':openParty(b.dataset.kind,b.dataset.name);break;
     case'ktab':UI.ktab=v;UI.cq='';render();break;
     case'new-party':openPartyForm(b.dataset.kind);break;
@@ -1593,8 +1610,8 @@ document.addEventListener('click',async ev=>{
     case'cart-add':cartAdd(id);render();break;
     case'cart-clear':if(await ask('Warenkorb leeren?','Leeren')){UI.cart=[];render()}break;
     case'checkout':openCheckout();break;
-    case'cart-inc':case'cart-dec':{UI.kparty=$('#coParty')?.value||'';UI.krecv=$('#coRecv')?.value??'';const c=UI.cart[+b.dataset.i];if(c)c.qty+=a==='cart-inc'?1:-1;UI.cart=UI.cart.filter(x=>x.qty>0);render();openCheckout();break}
-    case'kpay':UI.kparty=$('#coParty')?.value||'';UI.krecv=$('#coRecv')?.value??'';UI.kpay=v;openCheckout();break;
+    case'cart-inc':case'cart-dec':{UI.kparty=$('#coParty')?.value||'';UI.krecv=$('#coRecv')?.value??'';UI.knote=$('#coNote')?.value||'';const c=UI.cart[+b.dataset.i];if(c)c.qty+=a==='cart-inc'?1:-1;UI.cart=UI.cart.filter(x=>x.qty>0);render();openCheckout();break}
+    case'kpay':UI.kparty=$('#coParty')?.value||'';UI.krecv=$('#coRecv')?.value??'';UI.knote=$('#coNote')?.value||'';UI.kpay=v;openCheckout();break;
     case'co-save':doCheckout();break;
     case'scan':startScan(code=>handleScan(v,code));break;
     case'annual':openAnnual(v);break;
@@ -1634,6 +1651,7 @@ document.addEventListener('click',async ev=>{
 document.addEventListener('input',ev=>{
   const t=ev.target;
   if(t.dataset.cartPrice!==undefined){const c=UI.cart[+t.dataset.cartPrice];if(c)c.price=num(t.value);coRefresh();return}
+  if(t.id==='noteEdit'){const b=$('#noteBtn');if(b)b.hidden=false;return}
   if(t.id==='coGiven'||t.id==='coRecv'){coRefresh();return}
   if(t.id&&t.id.startsWith('lb_')&&LB){refreshLabel();return}
   if(t.id==='q'||t.id==='cq'||t.id==='pq'||t.id==='kq'){UI[t.id]=t.value;const pos=t.selectionStart;render();const n=$('#'+t.id);n.focus();n.setSelectionRange(pos,pos);return}
