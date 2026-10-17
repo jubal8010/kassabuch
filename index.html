@@ -1641,15 +1641,15 @@ document.addEventListener('click',async ev=>{
     case'edit-entry':{const e=S.entries.find(x=>x.id===id);closeSheet();openEntryForm(e.type,e);break}
     case'del-entry':if(await ask('Diese Buchung löschen? Der Lagerbestand wird automatisch angepasst.')){const e=S.entries.find(x=>x.id===id);for(const at of (e?.att||[]))await IDB.del(at.id).catch(()=>{});await Store.del('entries',id);closeSheet();toast('Buchung gelöscht')}break;
     case'deliver':{const e=S.entries.find(x=>x.id===id);if(!await deliverEntry(id))break;
-      toast(e.type==='verkauf'?'Als übergeben markiert':'Ware ist im Lager');setTimeout(()=>openEntry(id),0);break}
+      closeSheet();toast(e.type==='verkauf'?'Als übergeben markiert':'Ware ist im Lager');break}
     case'complete':{const e=S.entries.find(x=>x.id===id);if(!await deliverEntry(id))break;
       const ne=S.entries.find(x=>x.id===id);const o=openAmt(ne);if(o>0.005)await addPayment(id,o,today(),UI.pm||e.method||'bar');
-      toast('Abgeschlossen ✓');setTimeout(()=>openEntry(id),0);break}
+      closeSheet();toast('Abgeschlossen ✓');break}
     case'pm':UI.pm=v;b.parentElement.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));break;
     case'pcat':UI.pcat=v;render();break;
     case'hide-stock-hint':await Store.setSettings({...S.settings,hideStockHint:true});break;
     case'fstage':F.stage=v;F.delivered=v==='uebergeben';if(!F.id)F.payStatus=v==='uebergeben'?'1':'0';renderEntryForm();break;
-    case'mark-ready':{const e=S.entries.find(x=>x.id===id);await Store.put('entries',{...e,ready:true}).catch(()=>{});toast('Als fertig markiert');openEntry(id);break}
+    case'mark-ready':{const e=S.entries.find(x=>x.id===id);await Store.put('entries',{...e,ready:true}).catch(()=>{});closeSheet();toast('Als fertig markiert');break}
     case'save-note':{const e=S.entries.find(x=>x.id===id);await Store.put('entries',{...e,note:$('#noteEdit').value.trim()}).catch(()=>{});toast('Notiz gespeichert');openEntry(id);break}
     case'kstage':UI.kparty=$('#coParty')?.value||'';UI.krecv=$('#coRecv')?.value??'';UI.knote=$('#coNote')?.value||'';UI.kstage=v;openCheckout();break;
     case'party':openParty(b.dataset.kind,b.dataset.name);break;
@@ -1660,7 +1660,7 @@ document.addEventListener('click',async ev=>{
     case'party-order':{const k=b.dataset.kind,r=recByName(k,b.dataset.name);closeSheet();const now=v==='1';
       openEntryForm(KIND[k].type,null,{party:r?.name||b.dataset.name,partyAddress:k==='kunde'?(r?.address||''):'',delivered:now,paid:now});break}
     case'storno':stornoEntry(id);break;
-    case'pay-rest':{const e=S.entries.find(x=>x.id===id);await addPayment(id,openAmt(e),today(),openAmt(e)>0?(UI.pm||e.method):e.method);toast('Zahlung erfasst');openEntry(id);break}
+    case'pay-rest':{const e=S.entries.find(x=>x.id===id);await addPayment(id,openAmt(e),today(),openAmt(e)>0?(UI.pm||e.method):e.method);closeSheet();toast('Als bezahlt markiert');break}
     case'pay-part':openPay(id);break;
     case'save-pay':{const amt=r2(num($('#payAmt').value));if(!amt){toast('Bitte einen Betrag eingeben.');break}await addPayment(id,amt,$('#payDate').value||today(),$('#payMethod').value);toast('Zahlung erfasst');openEntry(id);break}
     case'del-pay':{const e=S.entries.find(x=>x.id===id);if(!await ask('Diese Zahlung entfernen?','Entfernen'))break;const pays=[...paysOf(e)];pays.splice(+b.dataset.i,1);const ne={...e,payments:pays};ne.paid=isPaid(ne);await Store.put('entries',ne).catch(()=>{});openEntry(id);break}
