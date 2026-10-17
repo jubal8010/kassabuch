@@ -184,6 +184,19 @@ textarea.inp{resize:vertical;min-height:60px}
 .btn.danger{background:var(--neg-soft);color:var(--neg)}
 .btn.sm{padding:9px 12px;font-size:13px;width:auto}
 .btn-row{display:flex;gap:8px;flex-wrap:wrap}
+.steps{display:flex;align-items:flex-start;margin:4px 0 10px}
+.steps .st{flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;font-size:12px;font-weight:600;color:var(--muted);position:relative;text-align:center}
+.steps .st i{font-style:normal;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:var(--surface-2);border:2px solid var(--line);font-size:12px;font-weight:700;position:relative;z-index:1}
+.steps .st:not(:first-child)::before{content:'';position:absolute;top:12px;right:50%;width:100%;height:2px;background:var(--line)}
+.steps .st.done{color:var(--ink)}
+.steps .st.done i{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.steps .st.done:not(:first-child)::before{background:var(--accent)}
+.btn.big{padding:15px 13px;font-size:17px}
+.btn .sub{display:block;font-size:12px;font-weight:600;opacity:.75;margin-top:2px}
+.done-banner{background:var(--accent-soft);color:var(--accent);border-radius:12px;padding:14px;font-weight:700;text-align:center;margin-bottom:14px}
+.linkrow{display:flex;justify-content:center;gap:22px;margin:2px 0 12px}
+.linkrow:empty{display:none}
+.link{background:none;border:0;color:var(--accent);font-weight:600;font-size:14px;padding:8px 2px}
 .btn-row .btn{flex:1;min-width:120px}
 
 /* sheet */
@@ -1190,6 +1203,7 @@ async function saveEntry(){
 /* entry detail */
 function openEntry(id){
   const e=S.entries.find(x=>x.id===id);if(!e)return;
+  if(UI.pmId!==id){UI.pm=null;UI.pmId=id}
   const lines=e.type==='ausgabe'?`<div class="l"><span>${esc(e.expenseCat||'')}</span><span class="num">${eur(e.total)}</span></div>`
    :(e.items||[]).map(i=>`<div class="l"><span>${i.qty}× ${esc(i.name)} à ${eur(i.price)}</span><span class="num">${eur(i.qty*i.price)}</span></div>`).join('')
     +(e.extra?`<div class="l"><span>Versand / Service</span><span class="num">${eur(e.extra)}</span></div>`:'')
@@ -1205,19 +1219,39 @@ function openEntry(id){
    ${ov?`<div class="banner" style="display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--neg-soft);color:var(--neg)"><span>Seit ${daysBetween(dueDate(e),today())} Tag${daysBetween(dueDate(e),today())===1?'':'en'} überfällig${rem?' · erinnert am '+fdate(rem):''}</span><button class="btn sm" data-act="remind" data-id="${e.id}">Erinnern</button></div>`:''}
    <div class="summary">${lines}<div class="l big"><span>Gesamt</span><span class="num">${eur(e.total)}</span></div>
    ${e.type==='verkauf'?`<div class="l"><span>Rohertrag</span><span class="num">${eur(e.total-num(e.cogs))}</span></div>`:''}</div>
-   <p class="muted" style="margin:0 0 14px;font-size:13px">${e.delivered===false?'<b class="pos">'+(e.type==='verkauf'?(e.ready?'Fertig – wartet auf Übergabe':'Geplant – noch vorzubereiten'):'Bestellt, noch nicht erhalten')+'</b> · ':''}${e.orderDate?'bestellt am '+fdate(e.orderDate)+' · ':''}${e.invoiceNo?'Rechnung '+esc(e.invoiceNo)+(e.type==='verkauf'&&live(e)&&e.delivered!==false&&open>0.005?' · fällig '+fdate(dueDate(e)):'')+' · ':''}${rem&&!ov?'erinnert am '+fdate(rem):''}</p>
+   ${(()=>{const meta=[e.orderDate?'bestellt am '+fdate(e.orderDate):'',e.invoiceNo?'Rechnung '+esc(e.invoiceNo)+(e.type==='verkauf'&&live(e)&&e.delivered!==false&&open>0.005?' · fällig '+fdate(dueDate(e)):''):'',rem&&!ov?'erinnert am '+fdate(rem):''].filter(Boolean).join(' · ');return meta?`<p class="muted" style="margin:0 0 12px;font-size:13px">${meta}</p>`:''})()}
+   ${(()=>{if(!live(e))return'';
+     const isV=e.type==='verkauf',hasFlow=e.type!=='ausgabe',pending=e.delivered===false,due=open>0.005,over=open<-0.005;
+     const steps=isV?['Geplant','Fertig','Übergeben']:['Bestellt','Erhalten'];
+     const cur=isV?(pending?(e.ready?1:0):2):(pending?0:1);
+     const stepper=hasFlow?`<div class="steps">${steps.map((s,i)=>`<div class="st${i<=cur?' done':''}"><i>${i<=cur?'✓':i+1}</i><span>${s}</span></div>`).join('')}</div>`:'';
+     const payRow=`<div class="kv"><span>Zahlung</span><b class="${due?'warn':'pos'}">${due?'offen · '+eur(open):over?'zu viel · '+eur(-open):'bezahlt ✓'}</b></div>`;
+     const pm=UI.pm||e.method||'bar';
+     const mseg=`<div class="eyebrow" style="margin:2px 0 6px">Bezahlt per</div><div class="seg" style="margin-bottom:10px">${Object.entries(METHODS).filter(([k])=>k!=='sonst').map(([k,v])=>`<button class="${pm===k?'on':''}" data-act="pm" data-v="${k}">${k==='ueb'?'Überw.':v}</button>`).join('')}</div>`;
+     let acts='';
+     if(pending&&due){
+       acts=`${mseg}<button class="btn big" style="margin-bottom:8px" data-act="complete" data-id="${e.id}">✓ Abschließen<span class="sub">${isV?'übergeben':'erhalten'} + ${eur(open)} bezahlt</span></button>
+       <div class="btn-row" style="margin-bottom:4px"><button class="btn ghost" data-act="deliver" data-id="${e.id}">Nur ${isV?'übergeben':'erhalten'}</button><button class="btn ghost" data-act="pay-rest" data-id="${e.id}">Nur bezahlt</button></div>
+       <div class="linkrow">${isV&&!e.ready?`<button class="link" data-act="mark-ready" data-id="${e.id}">Als fertig markieren</button>`:''}<button class="link" data-act="pay-part" data-id="${e.id}">Teilzahlung</button></div>`;
+     }else if(pending){
+       acts=`<button class="btn big" style="margin-bottom:8px" data-act="deliver" data-id="${e.id}">✓ ${isV?'Als übergeben markieren':'Ware erhalten – ins Lager'}<span class="sub">bereits bezahlt</span></button>
+       ${isV&&!e.ready?`<div class="linkrow"><button class="link" data-act="mark-ready" data-id="${e.id}">Als fertig markieren</button></div>`:'<div style="height:6px"></div>'}`;
+     }else if(due){
+       acts=`${mseg}<button class="btn big" style="margin-bottom:4px" data-act="pay-rest" data-id="${e.id}">✓ Als bezahlt markieren<span class="sub">${eur(open)}</span></button>
+       <div class="linkrow"><button class="link" data-act="pay-part" data-id="${e.id}">Teilzahlung</button></div>`;
+     }else if(over){
+       acts=`<button class="btn ghost" style="margin-bottom:14px" data-act="pay-rest" data-id="${e.id}">Rückzahlung buchen (${eur(-open)})</button>`;
+     }else{
+       acts=`<div class="done-banner">✓ Abgeschlossen${hasFlow?' – '+(isV?'übergeben':'erhalten')+' und bezahlt':''}</div>`;
+     }
+     return `<div class="card" style="margin-bottom:12px;padding:12px 14px 4px">${stepper}${payRow}</div>${acts}`;})()}
+   ${pays.length?`<div class="eyebrow" style="margin-bottom:6px">Zahlungen</div><div class="card" style="margin-bottom:14px;padding:4px 14px">${payList}</div>`:''}
+   ${e.ship?`<p class="muted" style="margin:0 0 10px;font-size:13px;user-select:text">Versendet am ${fdate(e.ship.date)}${e.ship.tracking?' · Sendungsnr. <b style="color:var(--ink)">'+esc(e.ship.tracking)+'</b>':''}${e.ship.porto?' · Porto '+eur(e.ship.porto):''}</p>`:''}
+   ${e.type==='verkauf'?`<div class="btn-row" style="margin-bottom:14px">${live(e)?`<button class="btn ghost" data-act="label" data-id="${e.id}">${e.ship?'Label erneut':'Versandlabel'}</button>`:''}${e.invoiceNo||!e.cancelled?`<button class="btn ghost" data-act="invoice" data-id="${e.id}">${e.invoiceNo?(e.storno?'Stornorechnung':'Rechnung ansehen'):'Rechnung'}</button>`:''}</div>`:''}
    <label class="field"><span>Notiz</span><textarea class="inp" id="noteEdit" rows="2" placeholder="Notiz hinzufügen …">${esc(e.note&&e.note!=='Kasse'?e.note:'')}</textarea></label>
    <button class="btn ghost sm" style="margin:-4px 0 14px" data-act="save-note" data-id="${e.id}" id="noteBtn" hidden>Notiz speichern</button>
-   <div class="eyebrow" style="margin-bottom:6px">Zahlungen</div>
-   <div class="card" style="margin-bottom:10px;padding:8px 14px">${payList}<div class="kv"><span>${open>0.005?'Noch offen':open<-0.005?'Zu viel bezahlt':'Vollständig bezahlt'}</span><b class="${open>0.005?'warn':''}">${eur(Math.abs(open))}</b></div></div>
-   ${!e.cancelled&&!e.storno&&Math.abs(open)>0.005?`<div class="btn-row" style="margin-bottom:14px"><button class="btn" data-act="pay-rest" data-id="${e.id}">${open>0?'Rest als bezahlt':'Rückzahlung buchen'}</button><button class="btn ghost" data-act="pay-part" data-id="${e.id}">Teilzahlung</button></div>`:''}
    <div class="eyebrow" style="margin-bottom:6px">Belege</div>
    <div class="thumbs" style="margin-bottom:14px">${attThumbs(e.att)}<label class="thumb add">+ Beleg<input type="file" accept="image/*,application/pdf" multiple hidden data-att-entry="${e.id}"></label></div>
-   ${e.delivered===false&&live(e)?(e.type==='verkauf'?`<div class="btn-row" style="margin-bottom:8px">${e.ready?'':`<button class="btn ghost" data-act="mark-ready" data-id="${e.id}">Als fertig markieren</button>`}<button class="btn" data-act="deliver" data-id="${e.id}">Als übergeben markieren</button></div>`
-     :`<button class="btn" style="margin-bottom:8px" data-act="deliver" data-id="${e.id}">Ware erhalten – ins Lager buchen</button>`):''}
-   ${e.ship?`<p class="muted" style="margin:0 0 10px;font-size:13px;user-select:text">Versendet am ${fdate(e.ship.date)}${e.ship.tracking?' · Sendungsnr. <b style="color:var(--ink)">'+esc(e.ship.tracking)+'</b>':''}${e.ship.porto?' · Porto '+eur(e.ship.porto):''}</p>`:''}
-   ${e.type==='verkauf'&&live(e)?`<button class="btn ghost" style="margin-bottom:8px" data-act="label" data-id="${e.id}">${e.ship?'Versandlabel erneut':'Versandlabel erstellen'}</button>`:''}
-   ${e.type==='verkauf'&&(e.invoiceNo||!e.cancelled)?`<button class="btn ghost" style="margin-bottom:8px" data-act="invoice" data-id="${e.id}">${e.invoiceNo?(e.storno?'Stornorechnung ansehen':'Rechnung ansehen'):'Rechnung erstellen'}</button>`:''}
    ${locked?(e.storno||e.cancelled?'':`<p class="hint" style="margin:4px 0 10px">Für diese Buchung gibt es eine Rechnung. Ändern geht nur per Storno – so bleibt die Rechnungsnummern-Folge lückenlos.</p><button class="btn danger" data-act="storno" data-id="${e.id}">Stornieren</button>`)
      :`<div class="btn-row"><button class="btn ghost" data-act="edit-entry" data-id="${e.id}">Bearbeiten</button><button class="btn danger" data-act="del-entry" data-id="${e.id}">Löschen</button></div>`}`);
   fillThumbs();
@@ -1243,6 +1277,13 @@ function openPay(id){
    <label class="field"><span>Zahlungsart</span><select class="inp" id="payMethod">${Object.entries(METHODS).map(([k,v])=>`<option value="${k}" ${e.method===k?'selected':''}>${v}</option>`).join('')}</select></label>
    <p class="hint">Gezählt wird die Zahlung im Monat ihres Datums – so wie bei der Einnahmen-Ausgaben-Rechnung.</p>
    <button class="btn" data-act="save-pay" data-id="${e.id}">Zahlung speichern</button>`);
+}
+async function deliverEntry(id){
+  const e=S.entries.find(x=>x.id===id);if(!e)return false;
+  if(e.type==='verkauf'){const sm=stockMap();const short=(e.items||[]).filter(i=>i.pid in sm&&sm[i.pid]<num(i.qty)).map(i=>i.name);
+    if(short.length&&!await ask(`Laut Lager ist nicht genug da: ${short.join(', ')}. Trotzdem als geliefert markieren?`,'Trotzdem liefern'))return false}
+  const ne={...e,delivered:true,orderDate:e.orderDate||e.date,date:today()};delete ne.ready;await Store.put('entries',ne).catch(()=>{});
+  return true;
 }
 async function addPayment(id,amount,date,method){
   const e=S.entries.find(x=>x.id===id);if(!e)return;
@@ -1599,11 +1640,12 @@ document.addEventListener('click',async ev=>{
     case'open-entry':openEntry(id);break;
     case'edit-entry':{const e=S.entries.find(x=>x.id===id);closeSheet();openEntryForm(e.type,e);break}
     case'del-entry':if(await ask('Diese Buchung löschen? Der Lagerbestand wird automatisch angepasst.')){const e=S.entries.find(x=>x.id===id);for(const at of (e?.att||[]))await IDB.del(at.id).catch(()=>{});await Store.del('entries',id);closeSheet();toast('Buchung gelöscht')}break;
-    case'deliver':{const e=S.entries.find(x=>x.id===id);
-      if(e.type==='verkauf'){const sm=stockMap();const short=(e.items||[]).filter(i=>i.pid in sm&&sm[i.pid]<num(i.qty)).map(i=>i.name);
-        if(short.length&&!await ask(`Laut Lager ist nicht genug da: ${short.join(', ')}. Trotzdem als geliefert markieren?`,'Trotzdem liefern'))break}
-      const ne={...e,delivered:true,orderDate:e.orderDate||e.date,date:today()};delete ne.ready;await Store.put('entries',ne).catch(()=>{});
+    case'deliver':{const e=S.entries.find(x=>x.id===id);if(!await deliverEntry(id))break;
       toast(e.type==='verkauf'?'Als übergeben markiert':'Ware ist im Lager');setTimeout(()=>openEntry(id),0);break}
+    case'complete':{const e=S.entries.find(x=>x.id===id);if(!await deliverEntry(id))break;
+      const ne=S.entries.find(x=>x.id===id);const o=openAmt(ne);if(o>0.005)await addPayment(id,o,today(),UI.pm||e.method||'bar');
+      toast('Abgeschlossen ✓');setTimeout(()=>openEntry(id),0);break}
+    case'pm':UI.pm=v;b.parentElement.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));break;
     case'pcat':UI.pcat=v;render();break;
     case'hide-stock-hint':await Store.setSettings({...S.settings,hideStockHint:true});break;
     case'fstage':F.stage=v;F.delivered=v==='uebergeben';if(!F.id)F.payStatus=v==='uebergeben'?'1':'0';renderEntryForm();break;
@@ -1618,7 +1660,7 @@ document.addEventListener('click',async ev=>{
     case'party-order':{const k=b.dataset.kind,r=recByName(k,b.dataset.name);closeSheet();const now=v==='1';
       openEntryForm(KIND[k].type,null,{party:r?.name||b.dataset.name,partyAddress:k==='kunde'?(r?.address||''):'',delivered:now,paid:now});break}
     case'storno':stornoEntry(id);break;
-    case'pay-rest':{const e=S.entries.find(x=>x.id===id);await addPayment(id,openAmt(e),today(),e.method);toast('Zahlung erfasst');openEntry(id);break}
+    case'pay-rest':{const e=S.entries.find(x=>x.id===id);await addPayment(id,openAmt(e),today(),openAmt(e)>0?(UI.pm||e.method):e.method);toast('Zahlung erfasst');openEntry(id);break}
     case'pay-part':openPay(id);break;
     case'save-pay':{const amt=r2(num($('#payAmt').value));if(!amt){toast('Bitte einen Betrag eingeben.');break}await addPayment(id,amt,$('#payDate').value||today(),$('#payMethod').value);toast('Zahlung erfasst');openEntry(id);break}
     case'del-pay':{const e=S.entries.find(x=>x.id===id);if(!await ask('Diese Zahlung entfernen?','Entfernen'))break;const pays=[...paysOf(e)];pays.splice(+b.dataset.i,1);const ne={...e,payments:pays};ne.paid=isPaid(ne);await Store.put('entries',ne).catch(()=>{});openEntry(id);break}
