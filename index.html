@@ -649,9 +649,9 @@ function vLager(){
    <div class="kpi"><div class="lbl">Möglicher Rohertrag</div><div class="val pos">${eur(v.vk-v.ek)}</div></div>
   </div>
   ${UI.lagerCat==='alle'&&Object.keys(byCat).length>1?`<div class="tbl-wrap" style="margin-bottom:14px"><table><thead><tr><th>Kategorie</th><th>Warenwert (EK)</th></tr></thead><tbody>${Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([k,x])=>`<tr><td>${esc(k)}</td><td>${eur(x)}</td></tr>`).join('')}</tbody></table></div>`:''}`:''}
-  ${(()=>{const need=S.products.map(p=>({p,ps:productStats(p,sm,pm)})).filter(x=>x.ps.need);return need.length?`<div class="sec-head" style="margin-top:0"><h2>Nachbestellen empfohlen (${need.length})</h2></div>
+  ${(()=>{const need=l.map(p=>({p,ps:productStats(p,sm,pm)})).filter(x=>x.ps.need);return need.length?`<div class="sec-head" style="margin-top:0"><h2>Nachbestellen empfohlen${UI.lagerCat!=='alle'?' · '+esc(UI.lagerCat):''} (${need.length})</h2></div>
    <div class="list" style="margin-bottom:14px">${need.map(({p,ps})=>`<button class="row" data-act="prod" data-id="${p.id}"><span class="tag aus">!</span><span style="min-width:0"><span class="row-title" style="display:block">${esc(p.name)}</span><span class="row-sub" style="display:block">frei ${ps.avail}${ps.inc?' · +'+ps.inc+' bestellt':''} · reicht ${fmtReach(ps.reach)}</span></span><span class="row-amt"><span class="num">${ps.suggest}</span><span class="row-sub">empfohlen</span></span></button>`).join('')}</div>
-   <div class="sec-head" style="margin-top:0"><h2>Alle Produkte</h2></div>`:''})()}
+   <div class="sec-head" style="margin-top:0"><h2>${UI.lagerCat!=='alle'?esc(UI.lagerCat):'Alle Produkte'}</h2></div>`:''})()}
   <div class="list">${l.length?l.map(p=>{const s=sm[p.id],inc=pm.inc[p.id]||0,res=pm.res[p.id]||0;const ps=productStats(p,sm,pm);const low=ps.need;
     return `<button class="row" data-act="prod" data-id="${p.id}"><span class="tag ${low?'aus':'vk'}">${esc((p.unit||'Stk').slice(0,3))}</span>
     <span style="min-width:0"><span class="row-title" style="display:block">${esc(p.name)}${p.sample?'<span class="pill ex">Beispiel</span>':''}</span>
