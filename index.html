@@ -272,6 +272,8 @@ button.bar-col{border:0;background:none;padding:0;border-radius:4px}
 #saveWarn{position:fixed;left:12px;right:12px;top:calc(10px + env(safe-area-inset-top,0px));z-index:90;background:#a8261b;color:#fff;border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;font-size:13px;box-shadow:0 4px 18px rgba(0,0,0,.35)}
 #saveWarn b{font-size:15px}
 #saveWarn .btn{background:#fff;color:#a8261b;align-self:flex-start}
+#updBar{position:fixed;left:12px;right:12px;top:calc(10px + env(safe-area-inset-top,0px));z-index:89;border:0;text-align:left;background:var(--accent);color:var(--accent-ink);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:2px;font-size:13px;box-shadow:0 4px 18px rgba(0,0,0,.3)}
+#updBar b{font-size:15px}
 .toast{position:fixed;left:50%;bottom:86px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:13px;font-weight:600;z-index:80;max-width:calc(100% - 32px)}
 .banner{background:var(--warn-soft);color:var(--warn);border-radius:10px;padding:10px 12px;font-size:13px;font-weight:600;margin-bottom:12px}
 @media (prefers-reduced-motion:no-preference){.sheet{animation:up .18s ease-out}@keyframes up{from{transform:translateY(16px);opacity:.6}to{transform:none;opacity:1}}}
@@ -1836,6 +1838,12 @@ document.addEventListener('change',async ev=>{
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#sheetRoot').innerHTML)closeSheet()});
 
 render();Store.connect();
+const APP_VER='25';
+async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
+  const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
+  const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
+  w.onclick=()=>location.reload();document.body.appendChild(w)}catch{}}
+setTimeout(checkUpdate,2500);document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')checkUpdate()});
 if('serviceWorker' in navigator&&location.protocol==='https:'){navigator.serviceWorker.register('sw.js').catch(()=>{})}
 </script>
 </body></html>
