@@ -691,7 +691,7 @@ function vAuswertung(){
   <p class="hint" style="margin:0 0 4px">Tippe ein Produkt an für Wochenverlauf, Prognose und Bestellempfehlung.</p>
   <div class="sec-head"><h2>Jahresauswertung</h2></div>`:''}
   <div class="chips">${years.map(v=>`<button class="chip ${+y===v?'on':''}" data-act="year" data-v="${v}">${v}</button>`).join('')}</div>
-  <button class="btn ghost" style="margin-bottom:12px" data-act="annual" data-v="${y}">Jahresübersicht ${y} für die Steuer</button>
+  <button class="btn" style="margin-bottom:12px" data-act="fin-export" data-v="${y}">Finanzen ${y} exportieren</button>
   <div class="chart" id="monthChart">
    <div class="seg" style="margin-bottom:12px">${Object.entries(CM).map(([k,l])=>`<button class="${cm===k?'on':''}" data-act="cm" data-v="${k}">${l}</button>`).join('')}</div>
    <div class="chart-head"><div><div class="eyebrow">${CM[cm]} · ${sm.n} ${y}</div><div class="chart-val num ${val(sm)<0?'neg':''}">${eur(val(sm))}</div></div>
@@ -1462,6 +1462,54 @@ function annualHTML(y){
     <tfoot><tr class="tot"><td style="text-align:left;font-family:inherit">Summe</td><td>${eur(t.ein)}</td><td>${eur(t.aus)}</td><td>${eur(t.ueber)}</td></tr></tfoot></table>
    <div class="inv-foot">Erstellt mit Kassabuch. Einnahmen und Ausgaben nach Zahlungsdatum (Zufluss-/Abflussprinzip). Diese Übersicht ist eine Arbeitsgrundlage für die Einnahmen-Ausgaben-Rechnung und ersetzt keine Steuerberatung.${a.ku?'':' Umsatz- und Vorsteuer sind aus den hinterlegten Steuersätzen berechnet; Vorsteuer aus sonstigen Ausgaben ist nicht enthalten.'}</div></div>`;
 }
+function finRows(y){
+  const a=annualData(y),t=a.t,ex=Object.entries(t.exp).sort((x,z)=>z[1]-x[1]);
+  return{a,t,ex,months:a.months.map(m=>[m.n,m.t.umsatz,m.t.ein,m.t.aus,m.t.ueber,m.t.roh])};
+}
+function finCSV(y){
+  const {a,t,ex,months}=finRows(y);const d=n=>r2(n).toFixed(2).replace('.',',');const q=v=>`"${String(v).replace(/"/g,'""')}"`;
+  const L=[];const row=(...c)=>L.push(c.map(x=>typeof x==='number'?d(x):q(x)).join(';'));
+  row(`Finanzübersicht ${a.ys}`);row(`Stand ${fdate(today())}`);row('');
+  row('Monat','Umsatz','Einnahmen','Ausgaben','Überschuss','Rohertrag');months.forEach(m=>row(...m));
+  row('Summe',t.umsatz,t.ein,t.aus,t.ueber,t.roh);row('');
+  row('Einnahmen gesamt',t.ein);row('Ausgaben gesamt',t.aus);row('  davon Wareneinkauf',t.warenAus);ex.forEach(([k,v])=>row('  davon '+k,v));
+  row(t.ueber>=0?'Überschuss':'Verlust',t.ueber);row('');
+  row('Umsatz',t.umsatz);row('Wareneinsatz',t.cogs);row('Rohertrag',t.roh);row('Marge %',t.umsatz>0?t.roh/t.umsatz*100:0);
+  row(`Lagerwert (EK) am ${fdate(a.asOf)}`,a.stockVal);row(`Offene Forderungen am ${fdate(a.asOf)}`,a.ford);
+  if(!a.ku){row('Umsatzsteuer (berechnet)',a.ust);row('Vorsteuer Wareneinkauf (berechnet)',a.vst)}
+  return Store.save(`Finanzen_${a.ys}.csv`,'﻿'+L.join('\r\n'));
+}
+async function finPDF(y){
+  if(!await loadPdfLib()){toast('PDF konnte nicht geladen werden.');return}
+  const {a,t,ex,months}=finRows(y),st=S.settings;const {jsPDF}=window.jspdf;const doc=new jsPDF({unit:'mm',format:'a4'});
+  const E=n=>eur(n).replace(/ | /g,' ');const W=210,M=18;let Y=20;
+  const ink=[22,32,27],mut=[102,116,108],acc=[28,106,88],line=[212,219,211];
+  doc.setTextColor(...ink);doc.setFont('helvetica','bold');doc.setFontSize(18);doc.text(`Finanzübersicht ${a.ys}`,M,Y);
+  doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(...mut);
+  doc.text([st.company||st.owner||'Kassabuch',`Stand ${fdate(today())} · Einnahmen/Ausgaben nach Zahlungsdatum`],W-M,Y-4,{align:'right'});Y+=12;
+  // KPI boxes
+  const k=[['Einnahmen',t.ein],['Ausgaben',t.aus],[t.ueber>=0?'Überschuss':'Verlust',t.ueber],['Rohertrag',t.roh]];const bw=(W-2*M-9)/4;
+  k.forEach(([l,v],i)=>{const x=M+i*(bw+3);doc.setFillColor(...(i===2?acc:[243,245,242]));doc.roundedRect(x,Y,bw,20,2,2,'F');
+    doc.setTextColor(...(i===2?[255,255,255]:mut));doc.setFontSize(8);doc.text(l,x+4,Y+6);doc.setFont('helvetica','bold');doc.setFontSize(12);
+    doc.setTextColor(...(i===2?[255,255,255]:ink));doc.text(E(v),x+4,Y+14.5);doc.setFont('helvetica','normal')});Y+=30;
+  // month table
+  const cols=['Monat','Umsatz','Einnahmen','Ausgaben','Überschuss','Rohertrag'];const cx=[M,M+48,M+76,M+104,M+132,W-M];
+  const tr=(c,bold,head)=>{doc.setFont('helvetica',bold?'bold':'normal');doc.setFontSize(head?8:9.5);doc.setTextColor(...(head?mut:ink));
+    c.forEach((v,i)=>{const txt=typeof v==='number'?E(v):String(v);if(i===0)doc.text(txt,cx[0],Y);else doc.text(txt,cx[i]+(i<5?22:0),Y,{align:'right'})});Y+=6.2};
+  doc.setFont('helvetica','bold');doc.setFontSize(11);doc.setTextColor(...ink);doc.text('Monate',M,Y);Y+=7;
+  tr(cols,true,true);doc.setDrawColor(...line);doc.line(M,Y-4.2,W-M,Y-4.2);
+  months.forEach(m=>tr(m,false,false));doc.line(M,Y-4.2,W-M,Y-4.2);tr(['Summe',t.umsatz,t.ein,t.aus,t.ueber,t.roh],true,false);Y+=6;
+  // details
+  const kv=(l,v,b)=>{doc.setFont('helvetica',b?'bold':'normal');doc.setFontSize(9.5);doc.setTextColor(...ink);doc.text(l,M,Y);doc.text(E(v),W-M,Y,{align:'right'});Y+=6};
+  const h=l=>{doc.setFont('helvetica','bold');doc.setFontSize(11);doc.setTextColor(...ink);doc.text(l,M,Y);Y+=7};
+  h('Ausgaben nach Art');kv('Wareneinkauf',t.warenAus);ex.forEach(([l,v])=>kv(l,v));kv('Summe Ausgaben',t.aus,true);Y+=4;
+  h('Ergänzend');kv('Umsatz (gelieferte Verkäufe)',t.umsatz);kv('Wareneinsatz (EK)',t.cogs);kv('Rohertrag',t.roh);
+  doc.setFont('helvetica','normal');doc.text('Marge',M,Y);doc.text(t.umsatz>0?Math.round(t.roh/t.umsatz*100)+' %':'–',W-M,Y,{align:'right'});Y+=6;
+  kv(`Lagerwert (EK) am ${fdate(a.asOf)}`,a.stockVal);kv(`Offene Forderungen am ${fdate(a.asOf)}`,a.ford);
+  if(!a.ku){kv('Umsatzsteuer (berechnet)',a.ust);kv('Vorsteuer Wareneinkauf (berechnet)',a.vst)}
+  doc.setFontSize(7.5);doc.setTextColor(...mut);doc.text('Erstellt mit Kassabuch. Arbeitsgrundlage, ersetzt keine Steuerberatung.',M,287);
+  await Store.save(`Finanzen_${a.ys}.pdf`,doc.output('blob'));
+}
 function openAnnual(y){
   openSheet('Jahresübersicht '+y,`<div class="inv-frame">${annualHTML(y)}</div>
    <div class="btn-row"><button class="btn" data-act="print-invoice">Drucken / als PDF sichern</button><button class="btn ghost" data-act="save-annual" data-v="${y}">Als HTML-Datei</button></div>
@@ -1714,6 +1762,8 @@ document.addEventListener('click',async ev=>{
     case'co-save':doCheckout();break;
     case'scan':startScan(code=>handleScan(v,code));break;
     case'annual':openAnnual(v);break;
+    case'fin-export':{const k=await choose(`Finanzübersicht ${v} – nur Zahlen, ohne Produkte und Kunden.`,[['pdf','PDF','Monate, Einnahmen, Ausgaben, Überschuss, Rohertrag – zum Weitergeben'],['csv','Excel / Numbers (CSV)','Dieselben Zahlen als Tabelle zum Weiterrechnen'],['view','Jahresübersicht ansehen','Ausführliche Steuer-Übersicht mit Drucken']]);
+      if(k==='pdf')finPDF(v);else if(k==='csv')finCSV(v);else if(k==='view')openAnnual(v);break}
     case'save-annual':saveAnnual(v);break;
     case'new-rec':openRec();break;
     case'edit-rec':openRec(id);break;
