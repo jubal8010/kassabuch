@@ -404,6 +404,7 @@ function pendingMap(){
 }
 const KIND={kunde:{col:'customers',type:'verkauf',one:'Kunde',many:'Kunden'},lieferant:{col:'suppliers',type:'einkauf',one:'Lieferant',many:'Lieferanten'}};
 const live=e=>!e.cancelled&&!e.storno;
+const pf=e=>{const sub=(e.items||[]).reduce((s,i)=>s+num(i.qty)*num(i.price),0);const it=num(e.total)-num(e.extra);return sub>0.005&&it>=0?it/sub:1};
 const stage=e=>e.delivered===false?(e.ready?'fertig':'geplant'):'uebergeben';
 const STAGE_PILL=e=>e.type==='verkauf'?(e.ready?'<span class="pill top">Fertig</span>':'<span class="pill ord">Geplant</span>'):'<span class="pill ord">Bestellt</span>';
 const norm=n=>String(n||'').trim().toLowerCase();
@@ -443,7 +444,7 @@ function productStats(p,sm,pm){
   sm=sm||stockMap();pm=pm||pendingMap();
   const sales=[];let firstMove=Infinity;
   S.entries.forEach(e=>{(e.items||[]).forEach(i=>{if(i.pid!==p.id)return;const t=dayT(e.date);if(t<firstMove)firstMove=t;
-    if(e.type==='verkauf'&&e.delivered!==false)sales.push({t,qty:num(i.qty),rev:num(i.qty)*num(i.price),cogs:num(i.qty)*num(i.ek),party:e.party||'Laufkunde'})})});
+    if(e.type==='verkauf'&&e.delivered!==false)sales.push({t,qty:num(i.qty),rev:num(i.qty)*num(i.price)*pf(e),cogs:num(i.qty)*num(i.ek),party:e.party||'Laufkunde'})})});
   const age=isFinite(firstMove)?Math.max(1,Math.round((now-firstMove)/DAY)):0;
   const win=Math.min(90,Math.max(14,age));
   const sumQ=(from,to)=>sales.filter(x=>x.t>now-from*DAY&&x.t<=now-to*DAY).reduce((a,x)=>a+x.qty,0);
@@ -578,7 +579,7 @@ function vStart(){
   const cmp=(cur,prev)=>{if(!pt)return'';if(!prev)return cur?'':'';const c=(cur-prev)/Math.abs(prev);return `<b class="${c>=0?'pos':'neg'}">${c>=0?'▲':'▼'} ${Math.abs(Math.round(c*100))} %</b> vs. ${UI.period==='monat'?'Vormonat':'Vorjahr'}`};
   const sales=S.entries.filter(e=>e.type==='verkauf'&&e.delivered!==false&&live(e)&&inPeriod(e.date,UI.period));
   const avg=t.n?t.umsatz/t.n:0,marge=t.umsatz>0?Math.round(t.roh/t.umsatz*100):null;
-  const pc={},cc={};sales.forEach(e=>{(e.items||[]).forEach(i=>{const k=i.pid||i.name;pc[k]=pc[k]||{n:i.name,q:0,r:0};pc[k].q+=num(i.qty);pc[k].r+=num(i.qty)*num(i.price)});if(e.party){cc[e.party]=(cc[e.party]||0)+num(e.total)}});
+  const pc={},cc={};sales.forEach(e=>{(e.items||[]).forEach(i=>{const k=i.pid||i.name;pc[k]=pc[k]||{n:i.name,q:0,r:0};pc[k].q+=num(i.qty);pc[k].r+=num(i.qty)*num(i.price)*pf(e)});if(e.party){cc[e.party]=(cc[e.party]||0)+num(e.total)}});
   const topP=Object.values(pc).sort((a,b)=>b.q-a.q||b.r-a.r)[0],topC=Object.entries(cc).sort((a,b)=>b[1]-a[1])[0];
   const dim=new Date(ty,tm+1,0).getDate(),day=now.getDate();
   const proj=UI.period==='monat'&&day>=5&&day<dim&&t.umsatz>0?t.umsatz/day*dim:null;
@@ -675,7 +676,7 @@ function vAuswertung(){
   const sm=months[sel]||months[0];
   const avgM=(()=>{const act=months.filter((m,i)=>val(m)&&(!isCur||i<=new Date().getMonth()));return act.length?act.reduce((a,m)=>a+val(m),0)/act.length:0})();
   // products
-  const pr={};ye.filter(e=>e.type==='verkauf'&&e.delivered!==false).forEach(e=>(e.items||[]).forEach(i=>{const k=i.pid||i.name;pr[k]=pr[k]||{name:i.name,q:0,rev:0,roh:0};pr[k].q+=num(i.qty);pr[k].rev+=num(i.qty)*num(i.price);pr[k].roh+=num(i.qty)*(num(i.price)-num(i.ek))}));
+  const pr={};ye.filter(e=>e.type==='verkauf'&&e.delivered!==false).forEach(e=>(e.items||[]).forEach(i=>{const k=i.pid||i.name;pr[k]=pr[k]||{name:i.name,q:0,rev:0,roh:0};const f=pf(e);pr[k].q+=num(i.qty);pr[k].rev+=num(i.qty)*num(i.price)*f;pr[k].roh+=num(i.qty)*(num(i.price)*f-num(i.ek))}));
   const top=Object.values(pr).sort((a,b)=>b.rev-a.rev).slice(0,8);
   const cu={};ye.filter(e=>e.type==='verkauf'&&e.delivered!==false).forEach(e=>{const k=e.party||'Laufkunde';cu[k]=cu[k]||{n:0,s:0};if(live(e))cu[k].n++;cu[k].s+=num(e.total)});
   const topc=Object.entries(cu).sort((a,b)=>b[1].s-a[1].s).slice(0,8);
@@ -1260,13 +1261,13 @@ function openEntry(id){
      if(pending&&due){
        acts=`${mseg}<button class="btn big" style="margin-bottom:8px" data-act="complete" data-id="${e.id}">✓ Abschließen<span class="sub">${isV?'übergeben':'erhalten'} + ${eur(open)} bezahlt</span></button>
        <div class="btn-row" style="margin-bottom:4px"><button class="btn ghost" data-act="deliver" data-id="${e.id}">Nur ${isV?'übergeben':'erhalten'}</button><button class="btn ghost" data-act="pay-rest" data-id="${e.id}">Nur bezahlt</button></div>
-       <div class="linkrow">${isV&&!e.ready?`<button class="link" data-act="mark-ready" data-id="${e.id}">Als fertig markieren</button>`:''}<button class="link" data-act="pay-part" data-id="${e.id}">Teilzahlung</button></div>`;
+       <div class="linkrow">${isV&&!e.ready?`<button class="link" data-act="mark-ready" data-id="${e.id}">Als fertig markieren</button>`:''}<button class="link" data-act="pay-part" data-id="${e.id}">Anderer Betrag / Rabatt</button></div>`;
      }else if(pending){
        acts=`<button class="btn big" style="margin-bottom:8px" data-act="deliver" data-id="${e.id}">✓ ${isV?'Als übergeben markieren':'Ware erhalten – ins Lager'}<span class="sub">bereits bezahlt</span></button>
        ${isV&&!e.ready?`<div class="linkrow"><button class="link" data-act="mark-ready" data-id="${e.id}">Als fertig markieren</button></div>`:'<div style="height:6px"></div>'}`;
      }else if(due){
        acts=`${mseg}<button class="btn big" style="margin-bottom:4px" data-act="pay-rest" data-id="${e.id}">✓ Als bezahlt markieren<span class="sub">${eur(open)}</span></button>
-       <div class="linkrow"><button class="link" data-act="pay-part" data-id="${e.id}">Teilzahlung</button></div>`;
+       <div class="linkrow"><button class="link" data-act="pay-part" data-id="${e.id}">Anderer Betrag / Rabatt</button></div>`;
      }else if(over){
        acts=`<button class="btn ghost" style="margin-bottom:14px" data-act="pay-rest" data-id="${e.id}">Rückzahlung buchen (${eur(-open)})</button>`;
      }else{
@@ -1303,8 +1304,10 @@ function openPay(id){
    <div class="grid2"><label class="field"><span>Betrag €</span><input class="inp num" id="payAmt" type="number" inputmode="decimal" step="0.01" value="${open}"></label>
     <label class="field"><span>Datum</span><input class="inp" id="payDate" type="date" value="${today()}"></label></div>
    <label class="field"><span>Zahlungsart</span><select class="inp" id="payMethod">${Object.entries(METHODS).map(([k,v])=>`<option value="${k}" ${e.method===k?'selected':''}>${v}</option>`).join('')}</select></label>
+   ${e.type==='verkauf'&&open>0&&!e.invoiceNo?`<label class="check" style="display:flex;gap:10px;align-items:flex-start;margin:4px 0 12px;font-size:14px"><input type="checkbox" id="payWO" ${UI.payWO?'checked':''} style="margin-top:3px;width:18px;height:18px"><span><b>Mehr kommt nicht – Rest ist Rabatt</b><br><span class="muted" style="font-size:13px">Für „billiger verkauft“: Der Verkaufspreis wird auf den erhaltenen Betrag gesenkt, Umsatz und Rohertrag stimmen dann.</span></span></label>`:''}
+   ${e.invoiceNo&&open>0?'<p class="hint">Für diese Buchung gibt es schon eine Rechnung – der Preis lässt sich nur per Storno ändern.</p>':''}
    <p class="hint">Gezählt wird die Zahlung im Monat ihres Datums – so wie bei der Einnahmen-Ausgaben-Rechnung.</p>
-   <button class="btn" data-act="save-pay" data-id="${e.id}">Zahlung speichern</button>`);
+   <button class="btn" data-act="save-pay" data-id="${e.id}">Zahlung speichern</button>`);UI.payWO=false;
 }
 async function deliverEntry(id){
   const e=S.entries.find(x=>x.id===id);if(!e)return false;
@@ -1744,7 +1747,11 @@ document.addEventListener('click',async ev=>{
     case'storno':stornoEntry(id);break;
     case'pay-rest':{const e=S.entries.find(x=>x.id===id);await addPayment(id,openAmt(e),today(),openAmt(e)>0?(UI.pm||e.method):e.method);closeSheet();toast('Als bezahlt markiert');break}
     case'pay-part':openPay(id);break;
-    case'save-pay':{const amt=r2(num($('#payAmt').value));if(!amt){toast('Bitte einen Betrag eingeben.');break}await addPayment(id,amt,$('#payDate').value||today(),$('#payMethod').value);toast('Zahlung erfasst');openEntry(id);break}
+    case'save-pay':{const amt=r2(num($('#payAmt').value)),wo=$('#payWO')?.checked;if(!amt&&!wo){toast('Bitte einen Betrag eingeben.');break}
+      if(amt)await addPayment(id,amt,$('#payDate').value||today(),$('#payMethod').value);
+      if(wo){const e=S.entries.find(x=>x.id===id);const paid=r2(paidSum(e)),newTot=paid,disc=r2(num(e.regular||e.total)-newTot);
+        const ne={...e,total:newTot,discount:disc};ne.paid=isPaid(ne);await Store.put('entries',ne).catch(()=>{});closeSheet();toast('Preis auf '+eur(newTot)+' gesenkt');break}
+      toast('Zahlung erfasst');openEntry(id);break}
     case'del-pay':{const e=S.entries.find(x=>x.id===id);if(!await ask('Diese Zahlung entfernen?','Entfernen'))break;const pays=[...paysOf(e)];pays.splice(+b.dataset.i,1);const ne={...e,payments:pays};ne.paid=isPaid(ne);await Store.put('entries',ne).catch(()=>{});openEntry(id);break}
     case'remind':openReminder(id);break;
     case'rem-tone':UI.remTone=v;try{localStorage.setItem('kb_tone',v)}catch{}openReminder(id);break;
