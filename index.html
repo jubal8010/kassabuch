@@ -259,6 +259,9 @@ tfoot td{font-weight:700;border-top:2px solid var(--ink)}
 .inv-note{margin-top:18px;font-size:11.5px;color:#444}
 .inv-foot{margin-top:26px;padding-top:10px;border-top:1px solid #e3e3e3;font-size:10.5px;color:#777}
 
+#saveWarn{position:fixed;left:12px;right:12px;top:calc(10px + env(safe-area-inset-top,0px));z-index:90;background:#a8261b;color:#fff;border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;font-size:13px;box-shadow:0 4px 18px rgba(0,0,0,.35)}
+#saveWarn b{font-size:15px}
+#saveWarn .btn{background:#fff;color:#a8261b;align-self:flex-start}
 .toast{position:fixed;left:50%;bottom:86px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:13px;font-weight:600;z-index:80;max-width:calc(100% - 32px)}
 .banner{background:var(--warn-soft);color:var(--warn);border-radius:10px;padding:10px 12px;font-size:13px;font-weight:600;margin-bottom:12px}
 @media (prefers-reduced-motion:no-preference){.sheet{animation:up .18s ease-out}@keyframes up{from{transform:translateY(16px);opacity:.6}to{transform:none;opacity:1}}}
@@ -336,10 +339,11 @@ const LKEY='kassabuch_v1';
 const Store={
   mode:'local',base:null,downloads:null,got:{s:false,p:false,e:false},
   loadLocal(){try{const v=JSON.parse(localStorage.getItem(LKEY)||'null');if(v){S.settings={...DEF,...v.settings};S.products=v.products||[];S.entries=v.entries||[];S.customers=v.customers||[];S.suppliers=v.suppliers||[];S.recurring=v.recurring||[]}}catch{}},
-  saveLocal(){if(this.mode!=='local')return;try{localStorage.setItem(LKEY,JSON.stringify(S))}catch{}},
+  saveLocal(){if(this.mode!=='local')return;try{localStorage.setItem(LKEY,JSON.stringify(S));saveWarn(false)}catch(e){console.error(e);saveWarn(true)}},
   async connect(){
     this.loadLocal();this.downloads=true;UI.ready=true;
     try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist()}catch{}
+    try{localStorage.setItem('kb_test','1');localStorage.removeItem('kb_test')}catch{saveWarn(true)}
     render();
     try{const n=await runRecurring();if(n)toast(n===1?'1 wiederkehrende Ausgabe gebucht':n+' wiederkehrende Ausgaben gebucht')}catch(e){console.error(e)}
     setTimeout(()=>cleanupFiles().catch(()=>{}),3000);
@@ -1084,6 +1088,11 @@ function ask(msg,ok='Löschen'){return new Promise(res=>{
   root.addEventListener('click',e=>{const b=e.target.closest('[data-r]');if(b||e.target===root){root.remove();res(b?.dataset.r==='1')}});
   document.body.appendChild(root);
 })}
+function saveWarn(on){let w=document.getElementById('saveWarn');
+  if(!on){if(w)w.remove();return}
+  if(w)return;w=document.createElement('div');w.id='saveWarn';w.setAttribute('role','alert');
+  w.innerHTML='<b>⚠ Speichern fehlgeschlagen</b><span>Deine letzten Änderungen sind nicht dauerhaft gesichert und können beim Schließen verloren gehen. Bitte sofort ein Backup speichern.</span><button class="btn sm" data-act="export-json">Backup sichern</button>';
+  document.body.appendChild(w)}
 function toast(m){const t=document.createElement('div');t.className='toast';t.textContent=m;$('#toastRoot').innerHTML='';$('#toastRoot').appendChild(t);setTimeout(()=>t.remove(),2800)}
 
 /* ---------- entry form ---------- */
