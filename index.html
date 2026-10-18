@@ -221,6 +221,16 @@ th:first-child,td:first-child{text-align:left}
 td{padding:9px 10px;border-top:1px solid var(--line);text-align:right;font-family:var(--f-num);font-variant-numeric:tabular-nums;white-space:nowrap}
 td:first-child{font-family:var(--f-ui);font-weight:600}
 tfoot td{font-weight:700;border-top:2px solid var(--ink)}
+.tap{cursor:pointer;position:relative;transition:transform .08s}
+.tap:active{transform:scale(.98)}
+.kpi.tap::after,.kpi-main.tap::after{content:'›';position:absolute;right:12px;top:8px;font-size:20px;font-weight:600;opacity:.45}
+.chart-head{display:flex;justify-content:space-between;align-items:flex-end;gap:10px;margin-bottom:2px}
+.chart-val{font-size:24px;font-weight:700;margin-top:2px}
+.chart-side{display:flex;flex-direction:column;align-items:flex-end;font-size:12px;color:var(--muted);gap:2px;white-space:nowrap}
+.chart-mini{font-size:12px;color:var(--muted);margin-bottom:12px}
+button.bar-col{border:0;background:none;padding:0;border-radius:4px}
+.bar-col.sel{background:var(--accent-soft)}
+.bar-lbl span.on{color:var(--ink);font-weight:700}
 .chart{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 12px 8px}
 .bars{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:4px;height:120px;position:relative}
 .bar-col{position:relative;height:100%}
@@ -581,13 +591,13 @@ function vStart(){
   return header('Übersicht')+`${stale?`<div class="banner" style="display:flex;justify-content:space-between;align-items:center;gap:10px"><span>${lb?'Letztes Backup ist über eine Woche alt.':'Du hast noch kein Backup gespeichert.'}</span><button class="btn sm" data-act="export-json">Jetzt sichern</button></div>`:''}
   ${od.length?`<div class="banner" style="display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--neg-soft);color:var(--neg)"><span>${od.length} Zahlung${od.length>1?'en':''} überfällig · ${eur(od.reduce((s,e)=>s+openAmt(e),0))}</span><button class="btn sm" data-act="show-overdue">Anzeigen</button></div>`:''}
   <div class="seg" role="tablist">${['monat','jahr','alle'].map(p=>`<button class="${UI.period===p?'on':''}" data-act="period" data-v="${p}">${{monat:'Monat',jahr:'Jahr',alle:'Gesamt'}[p]}</button>`).join('')}</div>
-  <div class="kpi-main"><div class="lbl">Überschuss ${pl} (Einnahmen − Ausgaben)</div><div class="val">${eur(t.ueber)}</div>
+  <div class="kpi-main tap" role="button" data-act="kpi" data-v="ueber"><div class="lbl">Überschuss ${pl} (Einnahmen − Ausgaben)</div><div class="val">${eur(t.ueber)}</div>
    <div class="sub">Einnahmen ${eur(t.ein)} · Ausgaben ${eur(t.aus)}${pt?` · ${UI.period==='monat'?'Vormonat':'Vorjahr'} ${eur(pt.ueber)}`:''}</div></div>
   <div class="kpis">
-   <div class="kpi"><div class="lbl">Umsatz ${pl}</div><div class="val">${eur(t.umsatz)}</div><div class="sub2">${t.n} Verkäuf${t.n===1?'':'e'}${t.n?` · Ø ${eur(avg)}`:''}${pt&&pt.umsatz?'<br>'+cmp(t.umsatz,pt.umsatz):''}</div></div>
-   <div class="kpi"><div class="lbl">Rohertrag</div><div class="val ${t.roh>=0?'pos':'neg'}">${eur(t.roh)}</div><div class="sub2">${marge!==null?`Marge <b>${marge} %</b> · `:''}Ware ${eur(t.cogs)}</div></div>
-   <div class="kpi"><div class="lbl">Offen zu kassieren</div><div class="val ${all.offenFord>0.005?'warn':''}">${eur(all.offenFord)}</div><div class="sub2">${openN?`${openN} Verkäuf${openN===1?'':'e'}${od.length?` · <b class="neg">${od.length} überfällig</b>`:''}`:'alles bezahlt'} · gesamt</div></div>
-   <div class="kpi"><div class="lbl">Lagerwert (EK)</div><div class="val">${eur(lagerwert)}</div><div class="sub2">${low?`<b class="neg">${low} nachbestellen</b>`:'Bestand ok'}</div></div>
+   <div class="kpi tap" role="button" data-act="kpi" data-v="umsatz"><div class="lbl">Umsatz ${pl}</div><div class="val">${eur(t.umsatz)}</div><div class="sub2">${t.n} Verkäuf${t.n===1?'':'e'}${t.n?` · Ø ${eur(avg)}`:''}${pt&&pt.umsatz?'<br>'+cmp(t.umsatz,pt.umsatz):''}</div></div>
+   <div class="kpi tap" role="button" data-act="kpi" data-v="roh"><div class="lbl">Rohertrag</div><div class="val ${t.roh>=0?'pos':'neg'}">${eur(t.roh)}</div><div class="sub2">${marge!==null?`Marge <b>${marge} %</b> · `:''}Ware ${eur(t.cogs)}</div></div>
+   <div class="kpi tap" role="button" data-act="kpi" data-v="offen"><div class="lbl">Offen zu kassieren</div><div class="val ${all.offenFord>0.005?'warn':''}">${eur(all.offenFord)}</div><div class="sub2">${openN?`${openN} Verkäuf${openN===1?'':'e'}${od.length?` · <b class="neg">${od.length} überfällig</b>`:''}`:'alles bezahlt'} · gesamt</div></div>
+   <div class="kpi tap" role="button" data-act="kpi" data-v="lager"><div class="lbl">Lagerwert (EK)</div><div class="val">${eur(lagerwert)}</div><div class="sub2">${low?`<b class="neg">${low} nachbestellen</b>`:'Bestand ok'}</div></div>
   </div>
   ${topP||topC||proj?`<div class="card" style="margin-top:8px;padding:6px 14px">
    ${topP?`<div class="kv"><span>Bestseller ${pl}</span><b style="font-family:var(--f-ui)">${esc(topP.n)} · ${topP.q}×</b></div>`:''}
@@ -655,10 +665,15 @@ function vAuswertung(){
   const y=String(UI.year);const ye=S.entries.filter(e=>e.date.startsWith(y));
   const months=MONTHS.map((n,i)=>({n,t:totals(d=>String(d).startsWith(y+'-'+pad(i+1)))}));
   const yt=totals(d=>String(d).startsWith(y));
-  const max=Math.max(1,...months.map(m=>Math.abs(m.t.ueber)));
-  const hasNeg=months.some(m=>m.t.ueber<0);const zero=hasNeg?50:100;
-  const bars=months.map(m=>{const h=Math.abs(m.t.ueber)/max*(hasNeg?50:100);const neg=m.t.ueber<0;
-    return `<div class="bar-col" title="${m.n}: ${eur(m.t.ueber)}"><div class="bar ${neg?'n':''}" style="height:${h}%;${neg?`top:${zero}%`:`bottom:${100-zero}%`}"></div></div>`}).join('');
+  const cm=UI.cm||'umsatz',CM={umsatz:'Umsatz',ueber:'Überschuss',roh:'Rohertrag'};
+  const val=m=>m.t[cm];const isCur=+y===new Date().getFullYear();
+  const sel=UI.barSel??(isCur?new Date().getMonth():months.reduce((bi,m,i)=>val(m)?i:bi,0));
+  const max=Math.max(1,...months.map(m=>Math.abs(val(m))));
+  const hasNeg=months.some(m=>val(m)<0);const zero=hasNeg?50:100;
+  const bars=months.map((m,i)=>{const h=Math.abs(val(m))/max*(hasNeg?50:100);const neg=val(m)<0;
+    return `<button class="bar-col${i===sel?' sel':''}" data-act="bar" data-v="${i}" aria-label="${m.n}: ${eur(val(m))}"><div class="bar ${neg?'n':''}" style="height:${Math.max(h,val(m)?2:0)}%;${neg?`top:${zero}%`:`bottom:${100-zero}%`}"></div></button>`}).join('');
+  const sm=months[sel]||months[0];
+  const avgM=(()=>{const act=months.filter((m,i)=>val(m)&&(!isCur||i<=new Date().getMonth()));return act.length?act.reduce((a,m)=>a+val(m),0)/act.length:0})();
   // products
   const pr={};ye.filter(e=>e.type==='verkauf'&&e.delivered!==false).forEach(e=>(e.items||[]).forEach(i=>{const k=i.pid||i.name;pr[k]=pr[k]||{name:i.name,q:0,rev:0,roh:0};pr[k].q+=num(i.qty);pr[k].rev+=num(i.qty)*num(i.price);pr[k].roh+=num(i.qty)*(num(i.price)-num(i.ek))}));
   const top=Object.values(pr).sort((a,b)=>b.rev-a.rev).slice(0,8);
@@ -677,13 +692,17 @@ function vAuswertung(){
   <div class="sec-head"><h2>Jahresauswertung</h2></div>`:''}
   <div class="chips">${years.map(v=>`<button class="chip ${+y===v?'on':''}" data-act="year" data-v="${v}">${v}</button>`).join('')}</div>
   <button class="btn ghost" style="margin-bottom:12px" data-act="annual" data-v="${y}">Jahresübersicht ${y} für die Steuer</button>
-  <div class="chart"><div class="eyebrow" style="margin-bottom:10px">Überschuss je Monat ${y}</div>
+  <div class="chart" id="monthChart">
+   <div class="seg" style="margin-bottom:12px">${Object.entries(CM).map(([k,l])=>`<button class="${cm===k?'on':''}" data-act="cm" data-v="${k}">${l}</button>`).join('')}</div>
+   <div class="chart-head"><div><div class="eyebrow">${CM[cm]} · ${sm.n} ${y}</div><div class="chart-val num ${val(sm)<0?'neg':''}">${eur(val(sm))}</div></div>
+    <div class="chart-side"><span>Jahr ${eur(yt[cm])}</span><span>Ø/Monat ${eur(avgM)}</span></div></div>
+   <div class="chart-mini">${sm.t.n} Verkäuf${sm.t.n===1?'':'e'} · Einnahmen ${eur(sm.t.ein)} · Ausgaben ${eur(sm.t.aus)}</div>
    <div class="bars"><div class="zero" style="top:${zero}%"></div>${bars}</div>
-   <div class="bar-lbl">${MONTHS.map(m=>`<span>${m.slice(0,1)}</span>`).join('')}</div></div>
+   <div class="bar-lbl">${MONTHS.map((m,i)=>`<span class="${i===sel?'on':''}">${m.slice(0,1)}</span>`).join('')}</div></div>
   <h2>Monate</h2>
-  <div class="tbl-wrap"><table><thead><tr><th>Monat</th><th>Einnahmen</th><th>Ausgaben</th><th>Überschuss</th><th>Rohertrag</th></tr></thead>
-   <tbody>${active.length?active.map(m=>`<tr><td>${m.n}</td><td>${eur(m.t.ein)}</td><td>${eur(m.t.aus)}</td><td class="${m.t.ueber<0?'neg':''}">${eur(m.t.ueber)}</td><td>${eur(m.t.roh)}</td></tr>`).join(''):'<tr><td colspan="5" class="muted" style="text-align:center;font-family:var(--f-ui)">Keine Buchungen in diesem Jahr.</td></tr>'}</tbody>
-   <tfoot><tr><td>${y}</td><td>${eur(yt.ein)}</td><td>${eur(yt.aus)}</td><td class="${yt.ueber<0?'neg':''}">${eur(yt.ueber)}</td><td>${eur(yt.roh)}</td></tr></tfoot></table></div>
+  <div class="tbl-wrap"><table><thead><tr><th>Monat</th><th>Umsatz</th><th>Einnahmen</th><th>Ausgaben</th><th>Überschuss</th><th>Rohertrag</th></tr></thead>
+   <tbody>${active.length?active.map(m=>`<tr><td>${m.n}</td><td>${eur(m.t.umsatz)}</td><td>${eur(m.t.ein)}</td><td>${eur(m.t.aus)}</td><td class="${m.t.ueber<0?'neg':''}">${eur(m.t.ueber)}</td><td>${eur(m.t.roh)}</td></tr>`).join(''):'<tr><td colspan="6" class="muted" style="text-align:center;font-family:var(--f-ui)">Keine Buchungen in diesem Jahr.</td></tr>'}</tbody>
+   <tfoot><tr><td>${y}</td><td>${eur(yt.umsatz)}</td><td>${eur(yt.ein)}</td><td>${eur(yt.aus)}</td><td class="${yt.ueber<0?'neg':''}">${eur(yt.ueber)}</td><td>${eur(yt.roh)}</td></tr></tfoot></table></div>
   ${st.kleinunternehmer?`<h2>Kleinunternehmergrenze</h2><div class="card"><p><span class="num">${eur(yt.umsatz)}</span> <span class="muted">von ${eur(st.limit)} Jahresumsatz</span></p><div class="meter"><i class="${pct>=80?'w':''}" style="width:${pct}%"></i></div>${pct>=80?'<p class="warn" style="margin-top:8px;font-size:13px;font-weight:600">Du näherst dich der Grenze – rechtzeitig mit Steuerberatung abklären.</p>':''}</div>`:''}
   <h2>Top-Produkte ${y}</h2>
   <div class="tbl-wrap"><table><thead><tr><th>Produkt</th><th>Menge</th><th>Umsatz</th><th>Rohertrag</th></tr></thead><tbody>
@@ -1638,9 +1657,15 @@ document.addEventListener('click',async ev=>{
   switch(a){
     case'close':case'close-bg':closeSheet();break;
     case'period':UI.period=v;render();break;
+    case'kpi':if(v==='offen'){UI.filter='offen';UI.q='';UI.screen='buchungen';render();scrollTo(0,0);requestAnimationFrame(()=>document.querySelector('.chip.on')?.scrollIntoView({inline:'center',block:'nearest'}))}
+      else if(v==='lager'){UI.lagerCat='alle';UI.screen='lager';render();scrollTo(0,0)}
+      else{UI.cm=v;UI.year=new Date().getFullYear();UI.barSel=new Date().getMonth();UI.screen='auswertung';render();
+        requestAnimationFrame(()=>{const c=document.getElementById('monthChart');if(c)scrollTo(0,c.getBoundingClientRect().top+scrollY-14)})}break;
+    case'cm':UI.cm=v;render();break;
+    case'bar':UI.barSel=+v;render();break;
     case'filter':UI.filter=v;render();break;
     case'lagercat':UI.lagerCat=v;render();break;
-    case'year':UI.year=+v;render();break;
+    case'year':UI.year=+v;UI.barSel=null;render();break;
     case'new-entry':openEntryForm(v);break;
     case'ftype':F.type=v;F.items=v==='ausgabe'?[]:F.items.length?F.items.map(i=>{const p=prodById(i.pid);return{pid:i.pid,qty:i.qty,price:p?(v==='verkauf'?p.vk:p.ek):i.price}}):[{pid:'',qty:1,price:0}];renderEntryForm();break;
     case'add-row':F.items.push({pid:'',qty:1,price:0});renderEntryForm();break;
