@@ -68,6 +68,7 @@ nav.tabs button.on{color:var(--acc)}
 tr.done input{background:rgba(198,244,50,.10);color:var(--acc)}
 .settype{font-size:11px;font-weight:800;border-radius:6px;padding:2px 0;display:inline-block;width:24px}
 .settype.w{color:var(--gold)}
+.settype.d{color:var(--blue)}
 .list-item{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 2px;border-bottom:1px solid var(--line)}
 .list-item:last-child{border-bottom:0}
 .empty{text-align:center;padding:40px 20px;color:var(--muted)}
@@ -125,7 +126,7 @@ const PLAN=[
  {name:'Brust & Rücken',emoji:'🏋️',items:[
   ['Flat Smith Machine','Brust',2,8,10,100],['Latziehen','Latissimus',2,8,10,110],['Incline Smith Machine','Obere Brust',2,8,10,92.5],
   ['Rudern Kabelturm','Rücken',2,8,10,105],['Flys Maschine','Brust',2,12,15,75],['Enges Rudern','Rücken',2,8,10,85],
-  ['Flys Kabelturm','Brust',2,12,15,''],['Latzug einarmig','Latissimus',2,8,10,85]]},
+  ['Flys Kabelturm','Brust',1,'','',45,{amrap:true,drops:[20]}],['Latzug einarmig','Latissimus',2,8,10,85]]},
  {name:'Arme & Schultern',emoji:'💪',items:[
   ['Seitheben Maschine','Schultern',3,12,15,70],['Reverse Flys Maschine','Hintere Schulter',3,15,20,60],['Hammer Curls','Bizeps',2,8,10,20],
   ['Pushdowns','Trizeps',3,10,12,105],['Preacher Curls','Bizeps',2,10,12,36.25],['Trizeps Überkopf','Trizeps',3,10,12,80],
@@ -150,7 +151,7 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 function defaults(){
   const exercises=[];
   const add=(name,muscle)=>{let e=exercises.find(x=>x.name===name);if(!e){e={id:uid(),name,muscle};exercises.push(e)}return e.id};
-  const templates=PLAN.map(p=>({id:uid(),name:p.name,emoji:p.emoji,items:p.items.map(([n,m,sets,rMin,rMax,kg])=>({exId:add(n,m),sets,rMin,rMax,kg}))}));
+  const templates=PLAN.map(p=>({id:uid(),name:p.name,emoji:p.emoji,items:p.items.map(([n,m,sets,rMin,rMax,kg,x])=>Object.assign({exId:add(n,m),sets,rMin,rMax,kg},x||{}))}));
   DEFAULT_EX.forEach(([n,m])=>add(n,m));
   const bench=exercises.find(e=>e.name==='Bankdrücken (Langhantel)').id;
   return {version:2,exercises,workouts:[],templates,body:[],active:null,
@@ -167,6 +168,7 @@ function load(){
   if(!Array.isArray(S.prs))S.prs=[];
   if(!S.cycle)S.cycle={days:S.templates.slice(0,3).map(t=>t.id).concat('rest'),anchor:isoDay(new Date()),anchorIdx:0};
   // Fixpunkt: 19.10.2026 = Brust & Rücken (Tag 1)
+  if(!S.flyFix){S.flyFix=1;const fe=S.exercises.find(e=>e.name==='Flys Kabelturm');if(fe)S.templates.forEach(t=>t.items.forEach(i=>{if(i.exId===fe.id)Object.assign(i,{sets:1,rMin:'',rMax:'',kg:45,amrap:true,drops:[20]})}));save()}
   if(S.cycleFix!==1){S.cycle.anchor='2026-10-19';S.cycle.anchorIdx=0;S.cycleFix=1;save()}
   S.settings=Object.assign({},d.settings,S.settings||{});
 }
@@ -204,9 +206,10 @@ function lastSets(exId,beforeTs=Infinity){
 }
 function bestE1rm(exId,beforeTs=Infinity){
   let b=0;for(const p of S.prs||[])if(p.exId===exId&&p.t<beforeTs)b=Math.max(b,e1rm(p.kg,p.reps));
-  for(const w of S.workouts){if(w.start>=beforeTs)continue;for(const ex of w.exercises)if(ex.exId===exId)for(const s of ex.sets)if(s.done&&s.type!=='w')b=Math.max(b,e1rm(num(s.kg),num(s.reps)))}
+  for(const w of S.workouts){if(w.start>=beforeTs)continue;for(const ex of w.exercises)if(ex.exId===exId)for(const s of ex.sets)if(s.done&&isW(s))b=Math.max(b,e1rm(num(s.kg),num(s.reps)))}
   return b;
 }
+const isW=s=>!s.type||s.type==='n';
 function isoDay(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
 function dayNum(iso){const [y,m,d]=iso.split('-').map(Number);return Math.round(Date.UTC(y,m-1,d)/864e5)}
 function cycleIdx(date=new Date()){const C=S.cycle,n=C.days.length;if(!n)return 0;return(((C.anchorIdx+dayNum(isoDay(date))-dayNum(C.anchor))%n)+n)%n}
@@ -285,8 +288,8 @@ function renderWorkout(){
   bindWorkout(v);
 }
 function newExEntry(exId,n=3,target=null){
-  const prev=lastSets(exId);const work=prev&&prev.filter(s=>s.type!=='w');
-  const tg=target&&(target.rMax||target.kg!=='')?{rMin:target.rMin,rMax:target.rMax,kg:target.kg}:null;
+  const prev=lastSets(exId);const work=prev&&prev.filter(isW);const prevDrops=prev?prev.filter(s=>s.type==='d'):[];
+  const tg=target&&(target.rMax||target.kg!==''||target.amrap)?{rMin:target.rMin,rMax:target.rMax,kg:target.kg,amrap:!!target.amrap,drops:target.drops||[]}:null;
   // Progression: alle Arbeitssätze am oberen Ende der Spanne → Hinweis
   const up=!!(tg&&tg.rMax&&work&&work.length&&work.every(s=>num(s.reps)>=tg.rMax));
   const sets=[];for(let i=0;i<n;i++){
@@ -294,9 +297,10 @@ function newExEntry(exId,n=3,target=null){
     const ph=p?{kg:p.kg,reps:p.reps}:tg?{kg:tg.kg,reps:tg.rMax||''}:null;
     sets.push({kg:'',reps:'',done:false,type:'n',ph});
   }
+  (tg?tg.drops:[]).forEach((dk,i)=>{const p=prevDrops[i];sets.push({kg:'',reps:'',done:false,type:'d',ph:p?{kg:p.kg,reps:p.reps}:{kg:dk,reps:''}})});
   return {exId,sets,note:'',target:tg,up};
 }
-const targetTxt=t=>t?[t.rMax?(t.rMin&&t.rMin!==t.rMax?`${t.rMin}–${t.rMax} Wdh`:`${t.rMax} Wdh`):'',t.kg!==''&&t.kg!=null?`${fmt(num(t.kg),2)} kg`:''].filter(Boolean).join(' · '):'';
+const targetTxt=t=>t?[t.amrap?'max. Wdh':t.rMax?(t.rMin&&t.rMin!==t.rMax?`${t.rMin}–${t.rMax} Wdh`:`${t.rMax} Wdh`):'',t.kg!==''&&t.kg!=null?`${fmt(num(t.kg),2)} kg`:'',...(t.drops||[]).map(d=>`Drop → ${fmt(num(d),2)} kg`)].filter(Boolean).join(' · '):'';
 function exerciseCard(ex,ei){
   const e=exById(ex.exId);const prev=lastSets(ex.exId,S.active.start);
   let n=0;
@@ -305,7 +309,7 @@ function exerciseCard(ex,ei){
     ${ex.up?`<div class="small" style="color:var(--acc);margin-top:4px">⬆️ Letztes Mal alle Sätze am oberen Ende – Gewicht erhöhen!</div>`:''}
     ${ex.note?`<div class="small" style="color:var(--blue);margin-top:4px">${esc(ex.note)}</div>`:''}
     <table class="sets"><thead><tr><th>Satz</th><th>Zuletzt</th><th>kg</th><th>Wdh</th><th></th></tr></thead><tbody>
-    ${ex.sets.map((s,si)=>{const lbl=s.type==='w'?'<span class="settype w">W</span>':`<span class="settype">${++n}</span>`;
+    ${ex.sets.map((s,si)=>{const lbl=s.type==='w'?'<span class="settype w">W</span>':s.type==='d'?'<span class="settype d">D</span>':`<span class="settype">${++n}</span>`;
       const p=prev&&prev[si];
       return `<tr class="${s.done?'done':''}" data-si="${si}">
         <td class="n"><button data-type="${si}">${lbl}</button></td>
@@ -335,14 +339,16 @@ function bindWorkout(v){
         if(s.reps===''&&s.ph)s.reps=s.ph.reps;
         if(s.reps===''){toast('Bitte Wiederholungen eintragen');return}
         s.done=true;vib(30);
-        if(s.type!=='w'){const b4=bestE1rm(ex.exId,A.start);const cur=e1rm(num(s.kg),num(s.reps));
-          const inSession=ex.sets.filter((x,i)=>i!==si&&x.done&&x.type!=='w').reduce((m,x)=>Math.max(m,e1rm(num(x.kg),num(x.reps))),0);
+        if(isW(s)){const b4=bestE1rm(ex.exId,A.start);const cur=e1rm(num(s.kg),num(s.reps));
+          const inSession=ex.sets.filter((x,i)=>i!==si&&x.done&&isW(x)).reduce((m,x)=>Math.max(m,e1rm(num(x.kg),num(x.reps))),0);
           if(b4>0&&cur>b4&&cur>inSession){toast('🏆 Neuer Rekord!');vib([40,60,40])}}
-        startTimer(S.settings.rest);
+        const nx=ex.sets[si+1];
+        if(nx&&nx.type==='d'&&!nx.done){stopTimer();toast('Sofort droppen! ⬇️');setTimeout(()=>{const i=document.querySelector(`.ex[data-ei="${ei}"] tr[data-si="${si+1}"] input[data-f="reps"]`);i&&i.focus()},80)}
+        else startTimer(S.settings.rest);
       }else s.done=false;
       save();renderWorkout();
     });
-    card.querySelectorAll('[data-type]').forEach(b=>b.onclick=()=>{const s=ex.sets[+b.dataset.type];s.type=s.type==='w'?'n':'w';save();renderWorkout()});
+    card.querySelectorAll('[data-type]').forEach(b=>b.onclick=()=>{const s=ex.sets[+b.dataset.type];s.type=s.type==='w'?'d':s.type==='d'?'n':'w';save();renderWorkout()});
     card.querySelector('[data-addset]').onclick=()=>{const last=ex.sets[ex.sets.length-1];ex.sets.push({kg:last?last.kg:'',reps:last?last.reps:'',done:false,type:'n',ph:last?last.ph:null});save();renderWorkout()};
     card.querySelector('[data-exmenu]').onclick=()=>exerciseMenu(ei);
   });
@@ -381,7 +387,7 @@ function finishWorkout(){
   const open=A.exercises.reduce((n,ex)=>n+ex.sets.filter(s=>!s.done).length,0);
   if(open&&!confirm(`${open} Satz/Sätze nicht abgehakt – die werden nicht gespeichert. Beenden?`))return;
   // PRs zählen
-  let prs=0;for(const ex of exs){const b=bestE1rm(ex.exId,A.start);const c=Math.max(0,...ex.sets.filter(s=>s.type!=='w').map(s=>e1rm(s.kg,s.reps)));if(b>0&&c>b)prs++}
+  let prs=0;for(const ex of exs){const b=bestE1rm(ex.exId,A.start);const c=Math.max(0,...ex.sets.filter(isW).map(s=>e1rm(s.kg,s.reps)));if(b>0&&c>b)prs++}
   const w={id:A.id,name:A.name,start:A.start,end:Date.now(),note:A.note||'',exercises:exs,prs};
   S.workouts.push(w);S.workouts.sort((a,b)=>a.start-b.start);
   S.active=null;save();stopTimer();
@@ -396,7 +402,7 @@ function finishWorkout(){
 }
 function saveAsTemplate(w){
   const name=prompt('Name der Vorlage',w.name==='Training'?'':w.name);if(!name)return;
-  S.templates.push({id:uid(),name,items:w.exercises.map(e=>{const ws=e.sets.filter(s=>s.type!=='w');const r=ws.map(s=>num(s.reps));return {exId:e.exId,sets:ws.length||3,rMin:r.length?Math.min(...r):'',rMax:r.length?Math.max(...r):'',kg:ws.length?Math.max(...ws.map(s=>num(s.kg))):''}})});save();toast('Vorlage gespeichert');
+  S.templates.push({id:uid(),name,items:w.exercises.map(e=>{const ws=e.sets.filter(isW);const r=ws.map(s=>num(s.reps));return {exId:e.exId,sets:ws.length||3,drops:e.sets.filter(s=>s.type==='d').map(s=>num(s.kg)),rMin:r.length?Math.min(...r):'',rMax:r.length?Math.max(...r):'',kg:ws.length?Math.max(...ws.map(s=>num(s.kg))):''}})});save();toast('Vorlage gespeichert');
 }
 
 /* ================= Pausentimer ================= */
@@ -462,10 +468,14 @@ function editTemplate(id){
         <div class="row between"><b style="flex:1">${esc(exById(it.exId).name)}</b><button class="btn ghost" data-up="${i}">↑</button><button class="btn ghost" data-rm="${i}" style="color:var(--red)">✕</button></div>
         <div class="row" style="gap:6px"><button class="btn ghost" data-dec="${i}">−</button><span style="min-width:52px;text-align:center">${it.sets} Sätze</span><button class="btn ghost" data-inc="${i}">+</button>
           <input class="f" data-tf="rMin" data-i="${i}" inputmode="numeric" value="${esc(it.rMin??'')}" placeholder="8" style="width:48px;padding:8px;text-align:center">–<input class="f" data-tf="rMax" data-i="${i}" inputmode="numeric" value="${esc(it.rMax??'')}" placeholder="10" style="width:48px;padding:8px;text-align:center">
-          <input class="f" data-tf="kg" data-i="${i}" inputmode="decimal" value="${esc(it.kg??'')}" placeholder="kg" style="width:64px;padding:8px;text-align:center"></div></div>`).join('')||'<div class="muted small">Noch keine Übungen.</div>'}</div>
+          <input class="f" data-tf="kg" data-i="${i}" inputmode="decimal" value="${esc(it.kg??'')}" placeholder="kg" style="width:64px;padding:8px;text-align:center"></div>
+        <div class="row small muted" style="gap:8px"><label class="row" style="gap:6px"><input type="checkbox" data-amrap="${i}" ${it.amrap?'checked':''}> so oft wie möglich</label>
+          <span style="margin-left:auto">Drop → </span><input class="f" data-drop="${i}" inputmode="decimal" value="${esc((it.drops||[]).join('; '))}" placeholder="kg" style="width:72px;padding:6px;text-align:center"></div></div>`).join('')||'<div class="muted small">Noch keine Übungen.</div>'}</div>
       <button class="btn block" id="tadd">${ICON.plus} Übung hinzufügen</button>
       <button class="btn acc block" id="tsave" style="margin-top:10px">Speichern</button>`);
     $('#tn').oninput=e=>t.name=e.target.value;
+    document.querySelectorAll('#sheet [data-amrap]').forEach(c=>c.onchange=()=>{t.items[+c.dataset.amrap].amrap=c.checked});
+    document.querySelectorAll('#sheet [data-drop]').forEach(inp=>inp.oninput=()=>{t.items[+inp.dataset.drop].drops=inp.value.split(/[;\s]+/).map(x=>num(x)).filter(x=>x>0)});
     document.querySelectorAll('#sheet [data-tf]').forEach(inp=>inp.oninput=()=>{const it=t.items[+inp.dataset.i],v=inp.value.trim().replace(',','.');it[inp.dataset.tf]=v===''?'':num(v)});
     $('#tadd').onclick=()=>pickExercise(exId=>{if(exId)t.items.push({exId,sets:3,rMin:8,rMax:10,kg:''});draw()});
     document.querySelectorAll('#sheet [data-inc]').forEach(b=>b.onclick=()=>{t.items[+b.dataset.inc].sets++;draw()});
@@ -497,7 +507,7 @@ function renderHistory(){
     html+=`<div class="card" data-w="${w.id}" style="cursor:pointer">
       <div class="row between"><b>${esc(w.name)}</b>${w.prs?`<span class="pill pr">🏆 ${w.prs} PR</span>`:''}</div>
       <div class="muted small">${dFmt(w.start,{weekday:'long',day:'numeric',month:'short'})} · ${tFmt(w.start)} · ${dur((w.end||w.start)-w.start)} · ${fmt(st.vol/1000,1)} t</div>
-      <div class="hist-ex">${w.exercises.map(e=>`${e.sets.filter(s=>s.type!=='w').length}× ${esc(exById(e.exId).name)}`).join('<br>')}</div></div>`;
+      <div class="hist-ex">${w.exercises.map(e=>`${e.sets.filter(isW).length}× ${esc(exById(e.exId).name)}`).join('<br>')}</div></div>`;
   }
   v.innerHTML=html;
   v.querySelectorAll('[data-w]').forEach(c=>c.onclick=()=>showWorkout(c.dataset.w));
@@ -508,7 +518,7 @@ function showWorkout(id){
     <div class="grid3" style="margin:12px 0"><div class="stat"><span class="tiny">Dauer</span><b>${dur((w.end||w.start)-w.start)}</b></div><div class="stat"><span class="tiny">Sätze</span><b>${st.sets}</b></div><div class="stat"><span class="tiny">Volumen</span><b>${fmt(st.vol)} kg</b></div></div>
     ${w.note?`<div class="card" style="background:var(--card2)">${esc(w.note)}</div>`:''}
     ${w.exercises.map(e=>{let n=0;return `<div style="margin-bottom:12px"><b>${esc(exById(e.exId).name)}</b>${e.note?`<div class="small" style="color:var(--blue)">${esc(e.note)}</div>`:''}
-      ${e.sets.map(s=>`<div class="row small" style="padding:3px 0"><span class="muted" style="width:24px">${s.type==='w'?'W':++n}</span><span>${fmt(s.kg)} kg × ${s.reps}</span><span class="muted" style="margin-left:auto">${s.type==='w'?'':'≈1RM '+fmt(e1rm(s.kg,s.reps))}</span></div>`).join('')}</div>`}).join('')}
+      ${e.sets.map(s=>`<div class="row small" style="padding:3px 0"><span class="muted" style="width:24px">${s.type==='w'?'W':s.type==='d'?'D':++n}</span><span>${fmt(s.kg)} kg × ${s.reps}</span><span class="muted" style="margin-left:auto">${s.type==='d'?'Dropsatz':s.type==='w'?'':'≈1RM '+fmt(e1rm(s.kg,s.reps))}</span></div>`).join('')}</div>`}).join('')}
     <div style="display:grid;gap:8px;margin-top:8px">
       <button class="btn" id="hw_again">Nochmal machen</button>
       <button class="btn" id="hw_tpl">Als Vorlage speichern</button>
@@ -541,7 +551,7 @@ function renderProgress(){
     progressEx=used.sort((a,b)=>(cnt[b]||0)-(cnt[a]||0))[0];
   }
   const sessions=S.workouts.filter(w=>w.exercises.some(e=>e.exId===progressEx)).map(w=>{
-    const sets=w.exercises.filter(e=>e.exId===progressEx).flatMap(e=>e.sets).filter(s=>s.type!=='w');
+    const sets=w.exercises.filter(e=>e.exId===progressEx).flatMap(e=>e.sets).filter(isW);
     return {t:w.start,e1rm:Math.max(0,...sets.map(s=>e1rm(s.kg,s.reps))),top:Math.max(0,...sets.map(s=>s.kg)),vol:sets.reduce((a,s)=>a+s.kg*s.reps,0),reps:Math.max(0,...sets.map(s=>s.reps)),sets};
   }).filter(s=>s.sets.length);
   // eingetragene Rekorde fließen als eigene Punkte ein
@@ -575,7 +585,7 @@ function renderProgress(){
   if(myPRs.length){$('#pchart').closest('.card').insertAdjacentHTML('afterend',`<div class="sect tiny">Eingetragene Rekorde</div><div class="card">${myPRs.map(p=>`<div class="list-item"><span>🏆 <b>${fmt(p.kg,2)} kg × ${p.reps}</b>${p.note?` <span class="muted small">· ${esc(p.note)}</span>`:''}<div class="muted small">${dFmt(p.t)}</div></span><button class="btn ghost" data-prdel="${p.id}" style="color:var(--red)">✕</button></div>`).join('')}</div>`);
     v.querySelectorAll('[data-prdel]').forEach(b=>b.onclick=()=>{if(confirm('Rekord löschen?')){S.prs=S.prs.filter(x=>x.id!==b.dataset.prdel);save();renderProgress()}})}
   // Alle Übungen: bestes 1RM
-  const all=used.map(id=>{let b=0,t=0;S.workouts.forEach(w=>w.exercises.forEach(e=>{if(e.exId===id)e.sets.forEach(s=>{if(s.type==='w')return;const x=e1rm(s.kg,s.reps);if(x>b){b=x;t=w.start}})}));S.prs.forEach(p=>{if(p.exId===id&&e1rm(p.kg,p.reps)>b){b=e1rm(p.kg,p.reps);t=p.t}});return {id,b,t}}).filter(x=>x.b>0).sort((a,b)=>b.b-a.b);
+  const all=used.map(id=>{let b=0,t=0;S.workouts.forEach(w=>w.exercises.forEach(e=>{if(e.exId===id)e.sets.forEach(s=>{if(!isW(s))return;const x=e1rm(s.kg,s.reps);if(x>b){b=x;t=w.start}})}));S.prs.forEach(p=>{if(p.exId===id&&e1rm(p.kg,p.reps)>b){b=e1rm(p.kg,p.reps);t=p.t}});return {id,b,t}}).filter(x=>x.b>0).sort((a,b)=>b.b-a.b);
   $('#allpr').innerHTML=all.map(x=>`<div class="list-item" data-pe="${x.id}" style="cursor:pointer"><span>${esc(exById(x.id).name)}</span><span><b>${fmt(x.b)} kg</b></span></div>`).join('');
   $('#allpr').querySelectorAll('[data-pe]').forEach(r=>r.onclick=()=>{progressEx=r.dataset.pe;renderProgress();window.scrollTo(0,0)});
 }
@@ -668,7 +678,7 @@ function renderMore(){
     <div class="sect tiny">Zum Homescreen hinzufügen</div>
     <div class="card muted small">iPhone: In Safari auf „Teilen“ → „Zum Home-Bildschirm“.<br>Android: In Chrome ⋮ → „Zum Startbildschirm hinzufügen“.<br>Danach läuft die App im Vollbild und auch offline.</div>
     <button class="btn red block" id="reset" style="margin-top:12px">Alle Daten löschen</button>
-    <div class="muted small" style="text-align:center;margin-top:16px">Training · v1.2</div>`;
+    <div class="muted small" style="text-align:center;margin-top:16px">Training · v1.3</div>`;
   $('#rest').onchange=e=>{S.settings.rest=+e.target.value;save();toast('Gespeichert')};
   $('#manageEx').onclick=manageExercises;
   const keepToday=fn=>{const ci=cycleIdx();fn();setToday(Math.min(ci,S.cycle.days.length-1));renderMore()};
@@ -704,7 +714,7 @@ function exportJSON(){
 }
 function exportCSV(){
   const rows=[['Datum','Training','Übung','Muskelgruppe','Satz','Typ','kg','Wdh','1RM geschätzt']];
-  for(const w of S.workouts)for(const e of w.exercises){let n=0;for(const s of e.sets){const ex=exById(e.exId);rows.push([new Date(w.start).toISOString().slice(0,10),w.name,ex.name,ex.muscle,s.type==='w'?'W':++n,s.type==='w'?'Aufwärmen':'Arbeitssatz',String(s.kg).replace('.',','),s.reps,s.type==='w'?'':fmt(e1rm(s.kg,s.reps)).replace(/\./g,'')])}}
+  for(const w of S.workouts)for(const e of w.exercises){let n=0;for(const s of e.sets){const ex=exById(e.exId);rows.push([new Date(w.start).toISOString().slice(0,10),w.name,ex.name,ex.muscle,s.type==='w'?'W':s.type==='d'?'D':++n,s.type==='w'?'Aufwärmen':s.type==='d'?'Dropsatz':'Arbeitssatz',String(s.kg).replace('.',','),s.reps,!isW(s)?'':fmt(e1rm(s.kg,s.reps)).replace(/\./g,'')])}}
   download(`training-${new Date().toISOString().slice(0,10)}.csv`,'﻿'+rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(';')).join('\n'),'text/csv');
 }
 $('#importFile').addEventListener('change',async e=>{
