@@ -238,39 +238,32 @@ function renderWorkout(){
   clearInterval(tick);
   const A=S.active,v=$('#view');
   if(!A){
-    const last=S.workouts[S.workouts.length-1];
-    const week=S.workouts.filter(w=>w.start>Date.now()-7*864e5).length;
-    const ci=cycleIdx(),today=cycleLabel(S.cycle.days[ci]),next=cycleLabel(S.cycle.days[(ci+1)%S.cycle.days.length]);
+    const n=S.cycle.days.length,ci=cycleIdx(),today=cycleLabel(S.cycle.days[ci]);
     const doneToday=S.workouts.some(w=>isoDay(new Date(w.start))===isoDay(new Date()));
+    let off=1;while(off<=n&&S.cycle.days[(ci+off)%n]==='rest')off++;
+    const next=off<=n?cycleLabel(S.cycle.days[(ci+off)%n]):null;
+    const nextDate=new Date(Date.now()+off*864e5);
+    const exList=(t,big)=>`<div style="margin:10px 0 ${big?14:4}px">${t.items.map(i=>`<div class="list-item" style="padding:${big?10:7}px 0"><span${big?'':' class="small"'}>${esc(exById(i.exId).name)}</span><span class="muted small" style="text-align:right;white-space:nowrap">${i.sets}× ${esc(targetTxt(i))}</span></div>`).join('')}</div>`;
     v.innerHTML=`
       <div class="card" style="background:linear-gradient(135deg,#232a12,#17191e 70%)">
-        <div class="row between"><span class="tiny" style="color:var(--acc)">Heute dran · Tag ${ci+1}/${S.cycle.days.length}</span><button class="btn ghost small" id="chgDay" style="padding:4px 6px">ändern</button></div>
+        <div class="row between"><span class="tiny" style="color:var(--acc)">Heute · ${dFmt(Date.now(),{weekday:'long',day:'numeric',month:'numeric'})}</span><button class="btn ghost small" id="chgDay" style="padding:4px 6px">ändern</button></div>
         <div class="big" style="margin:6px 0 2px">${today.emoji} ${esc(today.name)}</div>
-        <div class="muted small" style="margin-bottom:12px">${today.t?today.t.items.map(i=>esc(exById(i.exId).name)).join(' · '):'Erholung – Muskeln wachsen in der Pause.'}</div>
-        ${today.t?`<button class="btn acc block" data-start="${today.t.id}">${doneToday?'Nochmal starten':'Training starten'}</button>`:''}
-        <div class="muted small" style="margin-top:10px">Morgen: ${next.emoji} ${esc(next.name)}</div>
+        ${today.t?(doneToday?`<div style="color:var(--acc);font-weight:600;margin:8px 0 12px">✅ Erledigt – stark!</div>`:exList(today.t,true))
+          :'<div class="muted" style="margin:6px 0 4px">Erholung – Muskeln wachsen in der Pause.</div>'}
+        ${today.t?`<button class="btn ${doneToday?'':'acc'} block" data-start="${today.t.id}">${doneToday?'Nochmal starten':'Training starten'}</button>`:''}
       </div>
-      <div class="grid2" style="margin-bottom:12px">
-        <div class="stat"><span class="tiny">Diese Woche</span><b>${week} Training${week===1?'':'s'}</b></div>
-        <div class="stat"><span class="tiny">Zuletzt</span><b>${last?dFmt(last.start,{day:'2-digit',month:'2-digit'}):'–'}</b></div>
-      </div>
-      <button class="btn block" id="startEmpty">${ICON.plus} Leeres Training starten</button>
-      <div class="sect row between"><span class="tiny">Vorlagen</span><button class="btn ghost small" id="newTpl">${ICON.plus} Neu</button></div>
-      ${S.templates.length?S.templates.map(t=>`
-        <div class="card" data-tpl="${t.id}">
-          <div class="row between"><h3 style="margin:0;font-size:17px">${t.emoji?t.emoji+' ':''}${esc(t.name)}</h3><button class="btn ghost" data-tplmenu="${t.id}">${ICON.dots}</button></div>
-          <div class="muted small" style="margin:4px 0 10px">${t.items.map(i=>esc(exById(i.exId).name)).join(' · ')||'Keine Übungen'}</div>
-          <button class="btn block" data-start="${t.id}">Starten</button>
-        </div>`).join(''):'<div class="muted small">Noch keine Vorlagen.</div>'}`;
-    $('#startEmpty').onclick=()=>startWorkout(null);
+      ${next?`<div class="card">
+        <span class="tiny">Als Nächstes · ${off===1?'morgen':dFmt(nextDate,{weekday:'long',day:'numeric',month:'numeric'})}</span>
+        <div style="font-size:20px;font-weight:700;margin:6px 0 0">${next.emoji} ${esc(next.name)}</div>
+        ${next.t?exList(next.t,false):''}
+        ${(!today.t||doneToday)&&next.t?`<button class="btn block" data-start="${next.t.id}" style="margin-top:8px">Jetzt schon starten</button>`:''}
+      </div>`:''}`;
     $('#chgDay').onclick=()=>{
       sheet(`<h2>Welcher Tag ist heute?</h2><div style="display:grid;gap:8px">${S.cycle.days.map((d,i)=>{const l=cycleLabel(d);return `<button class="btn ${i===ci?'acc':''}" data-ci="${i}" style="justify-content:flex-start">Tag ${i+1}: ${l.emoji} ${esc(l.name)}</button>`}).join('')}</div>
-        <div class="muted small" style="margin-top:12px">Der Zyklus läuft ab heute von hier weiter. Reihenfolge änderst du unter „Mehr“.</div>`);
+        <div class="muted small" style="margin-top:12px">Der Zyklus läuft ab heute von hier weiter. Übungen und Reihenfolge änderst du unter „Mehr“.</div>`);
       document.querySelectorAll('#sheet [data-ci]').forEach(b=>b.onclick=()=>{setToday(+b.dataset.ci);closeSheet();renderWorkout()});
     };
-    $('#newTpl').onclick=()=>editTemplate(null);
     v.querySelectorAll('[data-start]').forEach(b=>b.onclick=()=>startWorkout(b.dataset.start));
-    v.querySelectorAll('[data-tplmenu]').forEach(b=>b.onclick=()=>templateMenu(b.dataset.tplmenu));
     return;
   }
   $('#title').textContent=A.name||'Training';
@@ -668,6 +661,8 @@ function renderMore(){
       <select class="f" data-cyc="${i}" style="flex:1"><option value="rest" ${d==='rest'?'selected':''}>😴 Rest Day</option>${S.templates.map(t=>`<option value="${t.id}" ${t.id===d?'selected':''}>${t.emoji||'🏋️'} ${esc(t.name)}</option>`).join('')}</select>
       <button class="btn ghost" data-cycrm="${i}" style="color:var(--red)">✕</button></div>`}).join('')}
       <button class="btn block" id="cycadd" style="margin-top:8px">${ICON.plus} Tag hinzufügen</button></div>
+    <div class="sect row between"><span class="tiny">Trainingstage bearbeiten</span><button class="btn ghost small" id="newTpl">${ICON.plus} Neu</button></div>
+    <div class="card">${S.templates.map(t=>`<div class="list-item" data-tpledit="${t.id}" style="cursor:pointer"><div>${t.emoji?t.emoji+' ':''}${esc(t.name)}<div class="muted small">${t.items.length} Übungen</div></div><span class="muted small">Bearbeiten</span></div>`).join('')||'<span class="muted">Keine</span>'}</div>
     <div class="sect tiny">Übungen (${S.exercises.length})</div>
     <div class="card"><button class="btn block" id="manageEx">Übungen verwalten</button></div>
     <div class="sect tiny">Daten-Backup</div>
@@ -678,9 +673,11 @@ function renderMore(){
     <div class="sect tiny">Zum Homescreen hinzufügen</div>
     <div class="card muted small">iPhone: In Safari auf „Teilen“ → „Zum Home-Bildschirm“.<br>Android: In Chrome ⋮ → „Zum Startbildschirm hinzufügen“.<br>Danach läuft die App im Vollbild und auch offline.</div>
     <button class="btn red block" id="reset" style="margin-top:12px">Alle Daten löschen</button>
-    <div class="muted small" style="text-align:center;margin-top:16px">Training · v1.3</div>`;
+    <div class="muted small" style="text-align:center;margin-top:16px">Training · v1.4</div>`;
   $('#rest').onchange=e=>{S.settings.rest=+e.target.value;save();toast('Gespeichert')};
   $('#manageEx').onclick=manageExercises;
+  $('#newTpl').onclick=()=>editTemplate(null);
+  v.querySelectorAll('[data-tpledit]').forEach(r=>r.onclick=()=>templateMenu(r.dataset.tpledit));
   const keepToday=fn=>{const ci=cycleIdx();fn();setToday(Math.min(ci,S.cycle.days.length-1));renderMore()};
   v.querySelectorAll('[data-cyc]').forEach(s=>s.onchange=()=>{S.cycle.days[+s.dataset.cyc]=s.value;save();toast('Gespeichert')});
   v.querySelectorAll('[data-cycrm]').forEach(b=>b.onclick=()=>{if(S.cycle.days.length>1)keepToday(()=>S.cycle.days.splice(+b.dataset.cycrm,1))});
