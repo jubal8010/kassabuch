@@ -250,13 +250,13 @@ function renderWorkout(){
         <div class="big" style="margin:6px 0 2px">${today.emoji} ${esc(today.name)}</div>
         ${today.t?(doneToday?`<div style="color:var(--acc);font-weight:600;margin:8px 0 12px">✅ Erledigt – stark!</div>`:exList(today.t,true))
           :'<div class="muted" style="margin:6px 0 4px">Erholung – Muskeln wachsen in der Pause.</div>'}
-        ${today.t?`<button class="btn ${doneToday?'':'acc'} block" data-start="${today.t.id}">${doneToday?'Nochmal starten':'Training starten'}</button>`:''}
+        ${today.t&&!doneToday?`<button class="btn acc block" data-start="${today.t.id}">Training starten</button>`:''}
       </div>
       ${next?`<div class="card">
         <span class="tiny">Als Nächstes · ${off===1?'morgen':dFmt(nextDate,{weekday:'long',day:'numeric',month:'numeric'})}</span>
         <div style="font-size:20px;font-weight:700;margin:6px 0 0">${next.emoji} ${esc(next.name)}</div>
         ${next.t?exList(next.t,false):''}
-        ${(!today.t||doneToday)&&next.t?`<button class="btn block" data-start="${next.t.id}" style="margin-top:8px">Jetzt schon starten</button>`:''}
+        ${!today.t&&next.t?`<button class="btn block" data-start="${next.t.id}" style="margin-top:8px">Jetzt schon starten</button>`:''}
       </div>`:''}`;
     $('#chgDay').onclick=()=>{
       sheet(`<h2>Welcher Tag ist heute?</h2><div style="display:grid;gap:8px">${S.cycle.days.map((d,i)=>{const l=cycleLabel(d);return `<button class="btn ${i===ci?'acc':''}" data-ci="${i}" style="justify-content:flex-start">Tag ${i+1}: ${l.emoji} ${esc(l.name)}</button>`}).join('')}</div>
@@ -622,7 +622,7 @@ function renderMore(){
     <div class="sect tiny">Zum Homescreen hinzufügen</div>
     <div class="card muted small">iPhone: In Safari auf „Teilen“ → „Zum Home-Bildschirm“.<br>Android: In Chrome ⋮ → „Zum Startbildschirm hinzufügen“.<br>Danach läuft die App im Vollbild und auch offline.</div>
     <button class="btn red block" id="reset" style="margin-top:12px">Alle Daten löschen</button>
-    <div class="muted small" style="text-align:center;margin-top:16px">Training · v2.0</div>`;
+    <div class="muted small" style="text-align:center;margin-top:16px">Training · v2.1</div>`;
   $('#rest').onchange=e=>{S.settings.rest=+e.target.value;save();toast('Gespeichert')};
   $('#manageEx').onclick=manageExercises;
   $('#newTpl').onclick=()=>editTemplate(null);
