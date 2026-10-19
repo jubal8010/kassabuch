@@ -117,6 +117,7 @@ label.lbl{display:block;font-size:13px;color:var(--muted);margin:10px 0 6px}
 
 <script>
 'use strict';
+const APP_VERSION='2.2';
 /* ================= Daten ================= */
 const KEY='training.v1';
 const MUSCLES=['Brust','Obere Brust','Rücken','Latissimus','Unterer Rücken','Schultern','Hintere Schulter','Bizeps','Trizeps','Quadrizeps','Beinbeuger','Adduktoren','Po','Waden','Bauch','Unterarme','Ganzkörper','Cardio'];
@@ -622,7 +623,7 @@ function renderMore(){
     <div class="sect tiny">Zum Homescreen hinzufügen</div>
     <div class="card muted small">iPhone: In Safari auf „Teilen“ → „Zum Home-Bildschirm“.<br>Android: In Chrome ⋮ → „Zum Startbildschirm hinzufügen“.<br>Danach läuft die App im Vollbild und auch offline.</div>
     <button class="btn red block" id="reset" style="margin-top:12px">Alle Daten löschen</button>
-    <div class="muted small" style="text-align:center;margin-top:16px">Training · v2.1</div>`;
+    <div class="muted small" style="text-align:center;margin-top:16px">Training · v${APP_VERSION}</div>`;
   $('#rest').onchange=e=>{S.settings.rest=+e.target.value;save();toast('Gespeichert')};
   $('#manageEx').onclick=manageExercises;
   $('#newTpl').onclick=()=>editTemplate(null);
@@ -682,7 +683,18 @@ try{const t=sessionStorage.getItem('tab');if(t&&TITLES[t])tab=t}catch(e){}
 if(S.active)tab='workout';
 render();
 let lastW=innerWidth;window.addEventListener('resize',()=>{if(innerWidth!==lastW&&tab==='progress'&&!document.activeElement.matches('input,textarea')){lastW=innerWidth;render()}});
-if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js').catch(()=>{});
+if('serviceWorker' in navigator&&location.protocol==='https:'){
+  navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).then(r=>r.update()).catch(()=>{});
+  let reloading=false;navigator.serviceWorker.addEventListener('controllerchange',()=>{if(!reloading){reloading=true;location.reload()}});
+}
+// Beim Öffnen/Zurückkehren prüfen, ob es eine neue Version gibt, und dann automatisch neu laden
+async function checkUpdate(){
+  if(location.protocol!=='https:')return;
+  try{const t=await (await fetch('index.html?v='+Date.now(),{cache:'no-store'})).text();const m=t.match(/APP_VERSION='([^']+)'/);
+    if(m&&m[1]!==APP_VERSION&&!document.querySelector('#sheet.show'))location.reload()}catch(e){}
+}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')checkUpdate()});
+checkUpdate();
 // Persistenten Speicher anfragen, damit der Browser Daten nicht automatisch löscht
 if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});
 </script>
