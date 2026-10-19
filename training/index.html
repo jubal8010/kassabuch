@@ -155,7 +155,7 @@ function defaults(){
   const bench=exercises.find(e=>e.name==='Bankdrücken (Langhantel)').id;
   return {version:2,exercises,workouts:[],templates,body:[],active:null,
     prs:[{id:uid(),exId:bench,kg:130,reps:1,t:new Date(2026,6,6,12).getTime(),note:'Bench Press PR'}],
-    cycle:{days:[templates[0].id,templates[1].id,templates[2].id,'rest'],anchor:'2026-10-16',anchorIdx:1},
+    cycle:{days:[templates[0].id,templates[1].id,templates[2].id,'rest'],anchor:'2026-10-19',anchorIdx:0},cycleFix:1,
     settings:{rest:120,unit:'kg'}};
 }
 let S;
@@ -166,6 +166,8 @@ function load(){
   for(const k of ['workouts','templates','body','exercises'])if(!Array.isArray(S[k]))S[k]=d[k];
   if(!Array.isArray(S.prs))S.prs=[];
   if(!S.cycle)S.cycle={days:S.templates.slice(0,3).map(t=>t.id).concat('rest'),anchor:isoDay(new Date()),anchorIdx:0};
+  // Fixpunkt: 19.10.2026 = Brust & Rücken (Tag 1)
+  if(S.cycleFix!==1){S.cycle.anchor='2026-10-19';S.cycle.anchorIdx=0;S.cycleFix=1;save()}
   S.settings=Object.assign({},d.settings,S.settings||{});
 }
 function save(){
@@ -666,7 +668,7 @@ function renderMore(){
     <div class="sect tiny">Zum Homescreen hinzufügen</div>
     <div class="card muted small">iPhone: In Safari auf „Teilen“ → „Zum Home-Bildschirm“.<br>Android: In Chrome ⋮ → „Zum Startbildschirm hinzufügen“.<br>Danach läuft die App im Vollbild und auch offline.</div>
     <button class="btn red block" id="reset" style="margin-top:12px">Alle Daten löschen</button>
-    <div class="muted small" style="text-align:center;margin-top:16px">Training · v1.1</div>`;
+    <div class="muted small" style="text-align:center;margin-top:16px">Training · v1.2</div>`;
   $('#rest').onchange=e=>{S.settings.rest=+e.target.value;save();toast('Gespeichert')};
   $('#manageEx').onclick=manageExercises;
   const keepToday=fn=>{const ci=cycleIdx();fn();setToday(Math.min(ci,S.cycle.days.length-1));renderMore()};
