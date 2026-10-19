@@ -47,6 +47,7 @@ input.f:focus,select.f:focus,textarea.f:focus{border-color:var(--acc)}
 .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .stat{background:var(--card2);border-radius:12px;padding:10px}
 .stat b{display:block;font-size:20px;letter-spacing:-.01em}
+.stat b.small{font-size:16px;margin-top:3px}
 /* nav */
 nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:30;background:rgba(18,20,24,.96);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);padding:6px 4px calc(6px + var(--safe-b))}
 nav.tabs button{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11px;color:var(--muted);padding:6px 0}
@@ -106,7 +107,7 @@ label.lbl{display:block;font-size:13px;color:var(--muted);margin:10px 0 6px}
 <nav class="tabs" id="tabs">
   <button data-tab="workout"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 7v10M18 7v10M3 10v4M21 10v4M6 12h12"/></svg>Training</button>
   <button data-tab="history"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="17" rx="3"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>Verlauf</button>
-  <button data-tab="progress"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8M15 7h6v6"/></svg>Übungen</button>
+  <button data-tab="progress"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8M15 7h6v6"/></svg>Statistik</button>
   <button data-tab="more"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>Mehr</button>
 </nav>
 
@@ -117,7 +118,7 @@ label.lbl{display:block;font-size:13px;color:var(--muted);margin:10px 0 6px}
 
 <script>
 'use strict';
-const APP_VERSION='2.2';
+const APP_VERSION='2.3';
 /* ================= Daten ================= */
 const KEY='training.v1';
 const MUSCLES=['Brust','Obere Brust','Rücken','Latissimus','Unterer Rücken','Schultern','Hintere Schulter','Bizeps','Trizeps','Quadrizeps','Beinbeuger','Adduktoren','Po','Waden','Bauch','Unterarme','Ganzkörper','Cardio'];
@@ -223,7 +224,7 @@ function workoutStats(w){
 
 /* ================= Navigation ================= */
 let tab='workout';
-const TITLES={workout:'Training',history:'Verlauf',progress:'Übungen',more:'Mehr'};
+const TITLES={workout:'Training',history:'Verlauf',progress:'Statistik',more:'Mehr'};
 function go(t){if(t==='progress'&&tab==='progress')progressEx=null;tab=t;try{sessionStorage.setItem('tab',t)}catch(e){}render();window.scrollTo(0,0)}
 $('#tabs').addEventListener('click',e=>{const b=e.target.closest('button[data-tab]');if(b)go(b.dataset.tab)});
 function render(){
@@ -295,6 +296,12 @@ function newExEntry(exId,n=3,target=null){
   return {exId,sets,note:'',target:tg,up};
 }
 const targetTxt=t=>t?[t.amrap?'max. Wdh':t.rMax?(t.rMin&&t.rMin!==t.rMax?`${t.rMin}–${t.rMax} Wdh`:`${t.rMax} Wdh`):'',t.kg!==''&&t.kg!=null?`${fmt(num(t.kg),2)} kg`:'',...(t.drops||[]).map(d=>`Drop → ${fmt(num(d),2)} kg`)].filter(Boolean).join(' · '):'';
+function deltaTag(s,p){
+  const dk=num(s.kg)-num(p.kg),dr=num(s.reps)-num(p.reps);
+  let t,c;if(dk>0){t=`+${fmt(dk,2)} kg`;c='var(--acc)'}else if(dk<0){t=`${fmt(dk,2)} kg`;c='var(--red)'}
+  else if(dr>0){t=`+${dr} Wdh`;c='var(--acc)'}else if(dr<0){t=`${dr} Wdh`;c='var(--red)'}else{t='=';c='var(--muted)'}
+  return `<div style="font-size:11px;font-weight:700;color:${c}">${t}</div>`;
+}
 function exerciseCard(ex,ei){
   const e=exById(ex.exId);const prev=lastSets(ex.exId,S.active.start);
   let n=0;
@@ -307,7 +314,7 @@ function exerciseCard(ex,ei){
       const p=prev&&prev[si];
       return `<tr class="${s.done?'done':''}" data-si="${si}">
         <td class="n"><button data-type="${si}">${lbl}</button></td>
-        <td class="prev">${p?`${fmt(num(p.kg))}×${esc(p.reps)}`:'–'}</td>
+        <td class="prev">${p?`${fmt(num(p.kg))}×${esc(p.reps)}`:'–'}${s.done&&p&&isW(s)?deltaTag(s,p):''}</td>
         <td><input inputmode="decimal" data-f="kg" value="${esc(s.kg)}" placeholder="${s.ph?esc(s.ph.kg):''}"></td>
         <td><input inputmode="numeric" data-f="reps" value="${esc(s.reps)}" placeholder="${s.ph?esc(s.ph.reps):''}"></td>
         <td><button class="chk ${s.done?'on':''}" data-done="${si}">${ICON.check}</button></td></tr>`}).join('')}
@@ -517,6 +524,48 @@ function openExercise(id){progressEx=id;tab='progress';try{sessionStorage.setIte
 function exSessions(exId){
   return S.workouts.map(w=>{const sets=w.exercises.filter(e=>e.exId===exId).flatMap(e=>e.sets);return {t:w.start,id:w.id,sets,work:sets.filter(isW)}}).filter(x=>x.sets.length);
 }
+const DAY=864e5;
+const topSet=x=>x.work.reduce((m,s)=>num(s.kg)>num(m.kg)||(num(s.kg)===num(m.kg)&&num(s.reps)>num(m.reps))?s:m,x.work[0]);
+// Veränderung des schwersten Satzes: zuerst Gewicht, bei gleichem Gewicht Wiederholungen
+function change(a,b){if(!a||!b)return null;const dk=num(b.kg)-num(a.kg);return dk?{kg:dk}:{reps:num(b.reps)-num(a.reps)}}
+function changeTxt(c){if(!c)return '–';if(c.kg!=null)return `<span style="color:${c.kg>0?'var(--acc)':'var(--red)'}">${c.kg>0?'+':''}${fmt(c.kg,2)} kg</span>`;
+  return c.reps?`<span style="color:${c.reps>0?'var(--acc)':'var(--red)'}">${c.reps>0?'+':''}${c.reps} Wdh</span>`:'<span class="muted">gleich</span>'}
+function sinceChange(exId,days){
+  const ss=exSessions(exId).filter(x=>x.work.length);if(ss.length<2)return null;
+  const last=ss[ss.length-1];const from=days?Date.now()-days*DAY:-Infinity;
+  const base=[...ss].reverse().find(x=>x!==last&&x.t<=from)||ss.find(x=>x.t>=from&&x!==last);
+  return base?change(topSet(base),topSet(last)):null;
+}
+function overviewHtml(){
+  const now=new Date(),monday=new Date(now.getFullYear(),now.getMonth(),now.getDate()-((now.getDay()+6)%7)).getTime();
+  const month=new Date(now.getFullYear(),now.getMonth(),1).getTime();
+  const wk=S.workouts.filter(w=>w.start>=monday).length,mo=S.workouts.filter(w=>w.start>=month).length;
+  const durs=S.workouts.slice(-10).map(w=>(w.end||w.start)-w.start).filter(d=>d>5*6e4&&d<5*36e5);
+  const avg=durs.length?durs.reduce((a,b)=>a+b,0)/durs.length:0;
+  // Arbeitssätze pro Muskelgruppe, letzte 7 Tage
+  const mus={};S.workouts.filter(w=>w.start>Date.now()-7*DAY).forEach(w=>w.exercises.forEach(e=>{const m=exById(e.exId).muscle||'Sonstige';mus[m]=(mus[m]||0)+e.sets.filter(isW).length}));
+  const mk=Object.entries(mus).sort((a,b)=>b[1]-a[1]),mx=Math.max(1,...mk.map(x=>x[1]));
+  // Fortschritt letzte 4 Wochen
+  const used=[...new Set(S.workouts.flatMap(w=>w.exercises.map(e=>e.exId)))].filter(id=>S.exercises.some(e=>e.id===id));
+  const prog=used.map(id=>({id,c:sinceChange(id,28)})).filter(x=>x.c&&(x.c.kg||x.c.reps));
+  const score=c=>c.kg!=null?c.kg*10:c.reps;prog.sort((a,b)=>score(b.c)-score(a.c));
+  // Wochen-Balken (8 Wochen)
+  const weeks=Array.from({length:8},(_,i)=>{const st=monday-(7-i)*7*DAY;return S.workouts.filter(w=>w.start>=st&&w.start<st+7*DAY).length});const wm=Math.max(1,...weeks);
+  return `
+  <div class="grid3" style="margin-bottom:12px">
+    <div class="stat"><span class="tiny">Diese Woche</span><b>${wk}</b></div>
+    <div class="stat"><span class="tiny">Dieser Monat</span><b>${mo}</b></div>
+    <div class="stat"><span class="tiny">Ø Dauer</span><b>${avg?Math.round(avg/6e4)+' min':'–'}</b></div>
+  </div>
+  <div class="card"><div class="tiny" style="margin-bottom:8px">Trainings pro Woche</div>
+    <div style="display:flex;align-items:flex-end;gap:6px;height:64px">${weeks.map((n,i)=>`<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px"><span style="font-size:10px;color:var(--muted)">${n||''}</span><div style="width:100%;height:${n/wm*42+3}px;border-radius:4px;background:${i===7?'var(--acc)':'var(--card2)'}"></div></div>`).join('')}</div>
+    <div class="row between muted" style="font-size:10px;margin-top:4px"><span>vor 7 Wo.</span><span>diese Woche</span></div></div>
+  <div class="card"><div class="tiny" style="margin-bottom:8px">Arbeitssätze pro Muskel · letzte 7 Tage</div>
+    ${mk.length?mk.map(([m,n])=>`<div class="row" style="gap:8px;margin:6px 0"><span class="small" style="width:116px;flex:none">${esc(m)}</span><div style="flex:1;height:10px;border-radius:5px;background:var(--card2)"><div style="height:100%;width:${n/mx*100}%;border-radius:5px;background:var(--acc)"></div></div><b class="small" style="width:22px;text-align:right">${n}</b></div>`).join(''):'<span class="muted small">Noch keine Trainings in den letzten 7 Tagen.</span>'}</div>
+  <div class="card"><div class="tiny" style="margin-bottom:4px">Fortschritt · letzte 4 Wochen</div><div class="muted small" style="margin-bottom:4px">Schwerster Satz: erst Gewicht, bei gleichem Gewicht Wiederholungen</div>
+    ${prog.length?(()=>{const li=x=>`<div class="list-item" data-ex="${x.id}" style="cursor:pointer;padding:9px 0"><span class="small">${esc(exById(x.id).name)}</span><b class="small">${changeTxt(x.c)}</b></div>`;
+      return prog.slice(0,6).map(li).join('')+(prog.length>6?`<details><summary class="muted small" style="padding:10px 0;cursor:pointer">Alle ${prog.length} anzeigen</summary>${prog.slice(6).map(li).join('')}</details>`:'')})():'<span class="muted small">Ab dem 2. Training pro Übung siehst du hier deinen Fortschritt.</span>'}</div>`;
+}
 function renderProgress(){
   if(progressEx&&S.exercises.some(e=>e.id===progressEx))return renderExercise();
   progressEx=null;
@@ -525,7 +574,7 @@ function renderProgress(){
     return `<div class="list-item" data-ex="${id}" style="cursor:pointer;align-items:flex-start"><div><div>${esc(exById(id).name)}</div>${l?`<div class="muted small">${dFmt(l.t,{day:'2-digit',month:'2-digit'})}</div>`:''}</div>
       <span class="small" style="text-align:right">${l?l.sets.map(x=>setTxt(x)).join(' · '):'<span class="muted">noch nichts</span>'}</span></div>`};
   const inPlan=new Set();
-  let html=S.templates.map(t=>{t.items.forEach(i=>inPlan.add(i.exId));return `<div class="sect tiny">${t.emoji?t.emoji+' ':''}${esc(t.name)}</div><div class="card">${t.items.filter(i=>S.exercises.some(e=>e.id===i.exId)).map(i=>row(i.exId)).join('')}</div>`}).join('');
+  let html=overviewHtml()+`<div class="sect tiny" style="margin-top:22px">Übungen</div>`+S.templates.map(t=>{t.items.forEach(i=>inPlan.add(i.exId));return `<div class="sect tiny">${t.emoji?t.emoji+' ':''}${esc(t.name)}</div><div class="card">${t.items.filter(i=>S.exercises.some(e=>e.id===i.exId)).map(i=>row(i.exId)).join('')}</div>`}).join('');
   const other=[...new Set(S.workouts.flatMap(w=>w.exercises.map(e=>e.exId)))].filter(id=>!inPlan.has(id)&&S.exercises.some(e=>e.id===id));
   if(other.length)html+=`<div class="sect tiny">Weitere</div><div class="card">${other.map(row).join('')}</div>`;
   v.innerHTML=html;
@@ -565,6 +614,13 @@ function renderExercise(){
     <div class="card">${top}</div>
     <div class="card"><canvas id="pchart" height="200"></canvas>
       ${series.length>1?`<div class="row small" style="gap:12px;margin-top:8px;flex-wrap:wrap">${series.map(x=>`<span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${x.color};margin-right:4px"></span>${x.label}</span>`).join('')}</div>`:''}</div>
+    <div class="grid3" style="margin-bottom:12px">
+      <div class="stat"><span class="tiny">Trainings</span><b>${ss.length}</b></div>
+      <div class="stat"><span class="tiny">Seit Start</span><b class="small">${changeTxt(sinceChange(progressEx,0))}</b></div>
+      <div class="stat"><span class="tiny">4 Wochen</span><b class="small">${changeTxt(sinceChange(progressEx,28))}</b></div>
+    </div>
+    ${(()=>{const m={};ss.forEach(x=>x.work.forEach(s=>{const k=num(s.kg);if(!m[k]||num(s.reps)>m[k].r)m[k]={r:num(s.reps),t:x.t}}));const ks=Object.keys(m).map(Number).sort((a,b)=>b-a).slice(0,8);
+      return ks.length?`<div class="sect tiny">Meiste Wdh pro Gewicht</div><div class="card">${ks.map(k=>`<div class="list-item" style="padding:9px 0"><span><b>${fmt(k,2)} kg</b></span><span class="small"><b>${m[k].r} Wdh</b> <span class="muted">· ${dFmt(m[k].t,{day:'2-digit',month:'2-digit',year:'2-digit'})}</span></span></div>`).join('')}</div>`:''})()}
     <div class="sect tiny">Alle Trainings</div>
     <div class="card">${[...ss].reverse().map(x=>{const h=hl?hl(x):null;return `<div class="list-item" style="align-items:flex-start"><span class="muted small" style="white-space:nowrap">${dFmt(x.t,{weekday:'short',day:'2-digit',month:'2-digit',year:'2-digit'})}</span>
       <span class="small" style="text-align:right">${x.sets.map(s=>s===h?`<b style="color:var(--acc)">${setTxt(s)}</b>`:setTxt(s)).join(' · ')}</span></div>`}).join('')}</div>`;
