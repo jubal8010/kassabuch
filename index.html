@@ -234,6 +234,10 @@ tfoot td{font-weight:700;border-top:2px solid var(--ink)}
 button.bar-col{border:0;background:none;padding:0;border-radius:4px}
 .bar-col.sel{background:var(--accent-soft)}
 .bar-lbl span.on{color:var(--ink);font-weight:700}
+.fold-head{display:flex;justify-content:space-between;align-items:center;width:100%;background:none;border:0;padding:0;margin:18px 0 8px;color:inherit;text-align:left}
+.fold-head h2{margin:0}
+.fold-n{display:inline-block;background:var(--surface-2);color:var(--muted);border-radius:99px;padding:1px 8px;font-size:11px;margin-left:4px;vertical-align:middle}
+.fold-ic{font-size:16px;color:var(--muted);padding:4px 6px}
 .chart{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 12px 8px}
 .bars{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:4px;height:120px;position:relative}
 .bar-col{position:relative;height:100%}
@@ -577,6 +581,9 @@ function renderKeep(id){
 function filterPicker(){const q=norm(UI.fq||'');let n=0;
   document.querySelectorAll('.tiles.mini .tile').forEach(b=>{const ok=!q||norm(b.dataset.name||'').includes(q);b.hidden=!ok;if(ok)n++});
   const e=$('#fqEmpty');if(e)e.hidden=n>0}
+UI.fold=(()=>{try{return JSON.parse(localStorage.getItem('kb_fold')||'{}')}catch{return{}}})();
+const isOpen=(k,def)=>UI.fold[k]??def;
+const foldHead=(k,def,title,count)=>`<button class="fold-head" data-act="fold" data-v="${k}" data-def="${def?1:0}" aria-expanded="${isOpen(k,def)}"><h2>${title}${count!=null?` <span class="fold-n">${count}</span>`:''}</h2><span class="fold-ic">${isOpen(k,def)?'▾':'▸'}</span></button>`;
 function header(t,act){
   const c=Store.mode==='cloud'?'':'<span class="store-chip cloud">Offline · nur auf diesem Gerät</span>';
   return `<div class="top" style="align-items:center"><div><div class="eyebrow">${esc(S.settings.company||S.settings.owner||'Kassabuch')}</div><h1>${t}</h1></div>${act||c}</div>`;
@@ -684,15 +691,16 @@ function vLager(){
    <div class="kpi"><div class="lbl">Möglicher Rohertrag</div><div class="val pos">${eur(v.vk-v.ek)}</div></div>
   </div>
   ${UI.lagerCat==='alle'&&Object.keys(byCat).length>1?`<div class="tbl-wrap" style="margin-bottom:14px"><table><thead><tr><th>Kategorie</th><th>Warenwert (EK)</th></tr></thead><tbody>${Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([k,x])=>`<tr><td>${esc(k)}</td><td>${eur(x)}</td></tr>`).join('')}</tbody></table></div>`:''}`:''}
-  ${(()=>{const need=l.map(p=>({p,ps:productStats(p,sm,pm)})).filter(x=>x.ps.need);return need.length?`<div class="sec-head" style="margin-top:0"><h2>Nachbestellen empfohlen${UI.lagerCat!=='alle'?' · '+esc(UI.lagerCat):''} (${need.length})</h2></div>
-   <div class="list" style="margin-bottom:14px">${need.map(({p,ps})=>`<button class="row" data-act="prod" data-id="${p.id}"><span class="tag aus">!</span><span style="min-width:0"><span class="row-title" style="display:block">${esc(p.name)}</span><span class="row-sub" style="display:block">frei ${ps.avail}${ps.inc?' · +'+ps.inc+' bestellt':''} · reicht ${fmtReach(ps.reach)}</span></span><span class="row-amt"><span class="num">${ps.suggest}</span><span class="row-sub">empfohlen</span></span></button>`).join('')}</div>
-   <div class="sec-head" style="margin-top:0"><h2>${UI.lagerCat!=='alle'?esc(UI.lagerCat):'Alle Produkte'}</h2></div>`:''})()}
-  <div class="list">${l.length?l.map(p=>{const s=sm[p.id],inc=pm.inc[p.id]||0,res=pm.res[p.id]||0;const ps=productStats(p,sm,pm);const low=ps.need;
+  ${(()=>{const need=l.map(p=>({p,ps:productStats(p,sm,pm)})).filter(x=>x.ps.need);return need.length?`${foldHead('reorder',true,'Nachbestellen empfohlen'+(UI.lagerCat!=='alle'?' · '+esc(UI.lagerCat):''),need.length)}${isOpen('reorder',true)?`
+   <div class="list" style="margin-bottom:14px">${need.map(({p,ps})=>`<button class="row" data-act="prod" data-id="${p.id}"><span class="tag aus">!</span><span style="min-width:0"><span class="row-title" style="display:block">${esc(p.name)}</span><span class="row-sub" style="display:block">frei ${ps.avail}${ps.inc?' · +'+ps.inc+' bestellt':''} · reicht ${fmtReach(ps.reach)}</span></span><span class="row-amt"><span class="num">${ps.suggest}</span><span class="row-sub">empfohlen</span></span></button>`).join('')}</div>`:''}
+   `:''})()}
+  ${S.products.length?foldHead('inv',true,UI.lagerCat!=='alle'?'Inventar · '+esc(UI.lagerCat):'Inventar',l.length):''}
+  ${isOpen('inv',true)||!S.products.length?`<div class="list">${l.length?l.map(p=>{const s=sm[p.id],inc=pm.inc[p.id]||0,res=pm.res[p.id]||0;const ps=productStats(p,sm,pm);const low=ps.need;
     return `<button class="row" data-act="prod" data-id="${p.id}"><span class="tag ${low?'aus':'vk'}">${esc((p.unit||'Stk').slice(0,3))}</span>
     <span style="min-width:0"><span class="row-title" style="display:block">${esc(p.name)}${p.sample?'<span class="pill ex">Beispiel</span>':''}</span>
     <span class="row-sub" style="display:block">${esc(p.cat||'Allgemein')}${p.sku?' · '+esc(p.sku):''} · Wert ${eur(Math.max(0,s)*num(p.ek))}${inc?` · <b class="pos">+${inc} bestellt</b>`:''}${res?` · <b class="warn">${res} reserviert</b>`:''}${ps.rate>0?' · reicht '+fmtReach(ps.reach):''}</span></span>
     <span class="row-amt"><span class="num ${low?'neg':''}" style="font-size:18px">${s}</span>${low?'<span class="pill low">Nachbestellen</span>':''}</span></button>`}).join('')
-    :'<div class="empty"><b>Keine Produkte</b>Produkte legst du unter „Mehr → Produkte“ an.</div>'}</div>
+    :'<div class="empty"><b>Keine Produkte</b>Produkte legst du unter „Mehr → Produkte“ an.</div>'}</div>`:''}
   <p class="hint" style="margin-top:10px">Bestand = Anfangsbestand + erhaltene Einkäufe − gelieferte Verkäufe. „Bestellt“ ist Ware, die noch kommt, „reserviert“ sind Kundenbestellungen, die noch nicht geliefert sind. Tippe ein Produkt an für Verkaufsstatistik, Prognose und Inventur.</p>`;
 }
 
@@ -720,11 +728,11 @@ function vAuswertung(){
   const active=months.filter(m=>m.t.n||m.t.aus||m.t.ein);
   const psAll=S.products.map(p=>({p,ps:productStats(p)})).sort((a,b)=>b.ps.q30-a.ps.q30||b.ps.tot.rev-a.ps.tot.rev);
   return header('Auswertung')+`
-  ${psAll.length?`<div class="sec-head" style="margin-top:0"><h2>Produkt-Check · letzte 30 Tage</h2></div>
+  ${psAll.length?`${foldHead('pcheck',false,'Produkt-Check · letzte 30 Tage',psAll.length)}${isOpen('pcheck',false)?`
   <div class="list" style="margin-bottom:6px">${psAll.map(({p,ps})=>{const [c,l]=STATUS[ps.status];return `<button class="row" data-act="prod" data-id="${p.id}"><span class="tag ${ps.need?'aus':'vk'}">${ps.q30}</span>
    <span style="min-width:0"><span class="row-title" style="display:block">${esc(p.name)}</span><span class="row-sub" style="display:block">${ps.q30} verkauft${ps.q30||ps.q30p?' · '+fmtTrend(ps.trend)+' zum Vormonat':''} · reicht ${fmtReach(ps.reach)}</span></span>
    <span class="row-amt"><span class="pill ${ps.need?'low':c}">${ps.need?'Nachbestellen':l}</span></span></button>`}).join('')}</div>
-  <p class="hint" style="margin:0 0 4px">Tippe ein Produkt an für Wochenverlauf, Prognose und Bestellempfehlung.</p>
+  <p class="hint" style="margin:0 0 4px">Tippe ein Produkt an für Wochenverlauf, Prognose und Bestellempfehlung.</p>`:''}
   <div class="sec-head"><h2>Jahresauswertung</h2></div>`:''}
   <div class="chips">${years.map(v=>`<button class="chip ${+y===v?'on':''}" data-act="year" data-v="${v}">${v}</button>`).join('')}</div>
   <button class="btn" style="margin-bottom:12px" data-act="fin-export" data-v="${y}">Finanzen ${y} exportieren</button>
@@ -1846,6 +1854,7 @@ document.addEventListener('click',async ev=>{
       await Store.setSettings({...S.settings,partners:partners().filter(p=>p.id!==id)});closeSheet();toast('Partner gelöscht');break}
     case'payout-partner':openPayout(id);break;
     case'save-payout':savePayout(id);break;
+    case'fold':{const def=b.dataset.def==='1';UI.fold[v]=!isOpen(v,def);try{localStorage.setItem('kb_fold',JSON.stringify(UI.fold))}catch{}render();break}
     case'fcat':UI.fcat=v;renderEntryForm();break;
     case'f-add':{const p=prodById(id);if(!p||!F)break;const row=F.items.find(i=>i.pid===p.id);
       if(row)row.qty=num(row.qty)+1;else{const empty=F.items.find(i=>!i.pid);const it={pid:p.id,qty:1,price:F.type==='verkauf'?p.vk:p.ek};if(empty)Object.assign(empty,it);else F.items.push(it)}
@@ -1973,7 +1982,7 @@ document.addEventListener('change',async ev=>{
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#sheetRoot').innerHTML)closeSheet()});
 
 render();Store.connect();
-const APP_VER='30';
+const APP_VER='31';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
