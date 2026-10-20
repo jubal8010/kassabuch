@@ -118,7 +118,7 @@ label.lbl{display:block;font-size:13px;color:var(--muted);margin:10px 0 6px}
 
 <script>
 'use strict';
-const APP_VERSION='2.3';
+const APP_VERSION='2.4';
 /* ================= Daten ================= */
 const KEY='training.v1';
 const MUSCLES=['Brust','Obere Brust','Rücken','Latissimus','Unterer Rücken','Schultern','Hintere Schulter','Bizeps','Trizeps','Quadrizeps','Beinbeuger','Adduktoren','Po','Waden','Bauch','Unterarme','Ganzkörper','Cardio'];
@@ -170,6 +170,9 @@ function load(){
   if(!S.cycle)S.cycle={days:S.templates.slice(0,3).map(t=>t.id).concat('rest'),anchor:isoDay(new Date()),anchorIdx:0};
   // Fixpunkt: 19.10.2026 = Brust & Rücken (Tag 1)
   if(!S.flyFix){S.flyFix=1;const fe=S.exercises.find(e=>e.name==='Flys Kabelturm');if(fe)S.templates.forEach(t=>t.items.forEach(i=>{if(i.exId===fe.id)Object.assign(i,{sets:1,rMin:'',rMax:'',kg:45,amrap:true,drops:[20]})}));save()}
+  if(!S.ww||typeof S.ww!=='object'){S.ww={};S.wwLog=[];const t0=Date.now();
+    S.templates.forEach(t=>t.items.forEach(i=>{if(i.kg!==''&&i.kg!=null&&S.ww[i.exId]==null){S.ww[i.exId]=num(i.kg);S.wwLog.push({exId:i.exId,kg:num(i.kg),t:t0})}}));save()}
+  if(!Array.isArray(S.wwLog))S.wwLog=[];
   if(S.cycleFix!==1){S.cycle.anchor='2026-10-19';S.cycle.anchorIdx=0;S.cycleFix=1;save()}
   S.settings=Object.assign({},d.settings,S.settings||{});
 }
@@ -211,6 +214,13 @@ function bestE1rm(exId,beforeTs=Infinity){
   return b;
 }
 const isW=s=>!s.type||s.type==='n';
+/* Arbeitsgewicht: fixer Zielwert pro Übung, unabhängig davon, was in einem Satz tatsächlich geschafft wurde */
+const getWW=exId=>S.ww&&S.ww[exId]!=null?S.ww[exId]:null;
+function setWW(exId,kg){
+  kg=Math.round(num(kg)*100)/100;if(!(kg>0)||kg===getWW(exId))return false;
+  S.ww[exId]=kg;S.wwLog.push({exId,kg,t:Date.now()});
+  S.templates.forEach(t=>t.items.forEach(i=>{if(i.exId===exId)i.kg=kg}));return true;
+}
 function isoDay(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
 function dayNum(iso){const [y,m,d]=iso.split('-').map(Number);return Math.round(Date.UTC(y,m-1,d)/864e5)}
 function cycleIdx(date=new Date()){const C=S.cycle,n=C.days.length;if(!n)return 0;return(((C.anchorIdx+dayNum(isoDay(date))-dayNum(C.anchor))%n)+n)%n}
@@ -289,7 +299,10 @@ function newExEntry(exId,n=3,target=null){
   const up=!!(tg&&tg.rMax&&work&&work.length&&work.every(s=>num(s.reps)>=tg.rMax));
   const sets=[];for(let i=0;i<n;i++){
     const p=work&&work.length?work[Math.min(i,work.length-1)]:null;
-    const ph=p?{kg:p.kg,reps:p.reps}:tg?{kg:tg.kg,reps:tg.rMax||''}:null;
+    const ww=getWW(exId);
+    const kg=ww!=null?ww:p?p.kg:tg&&tg.kg!==''?tg.kg:'';
+    const reps=p?p.reps:tg?(tg.rMax||''):'';
+    const ph=kg!==''||reps!==''?{kg,reps}:null;
     sets.push({kg:'',reps:'',done:false,type:'n',ph});
   }
   (tg?tg.drops:[]).forEach((dk,i)=>{const p=prevDrops[i];sets.push({kg:'',reps:'',done:false,type:'d',ph:p?{kg:p.kg,reps:p.reps}:{kg:dk,reps:''}})});
@@ -306,7 +319,11 @@ function exerciseCard(ex,ei){
   const e=exById(ex.exId);const prev=lastSets(ex.exId,S.active.start);
   let n=0;
   return `<div class="ex" data-ei="${ei}">
-    <div class="row between"><div><h3>${esc(e.name)}</h3><div class="muted small">${esc(e.muscle)}${ex.target?` · Ziel ${targetTxt(ex.target)}`:''}</div></div><button class="btn ghost" data-exmenu="${ei}">${ICON.dots}</button></div>
+    <div class="row between"><div><h3>${esc(e.name)}</h3><div class="muted small">${esc(e.muscle)}${ex.target&&targetTxt({...ex.target,kg:''})?` · Ziel ${targetTxt({...ex.target,kg:''})}`:''}</div></div><button class="btn ghost" data-exmenu="${ei}">${ICON.dots}</button></div>
+    <div class="row" style="gap:8px;margin-top:8px;background:var(--card2);border-radius:12px;padding:6px 10px">
+      <span class="small" style="flex:1">Arbeitsgewicht</span>
+      <input class="wwin" data-ww="${ei}" inputmode="decimal" value="${getWW(ex.exId)!=null?fmt(getWW(ex.exId),2).replace(/\./g,''):''}" placeholder="–" style="width:78px;text-align:center;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 4px;font-weight:700;color:var(--acc);outline:none">
+      <span class="muted small">kg</span></div>
     ${ex.up?`<div class="small" style="color:var(--acc);margin-top:4px">⬆️ Letztes Mal alle Sätze am oberen Ende – Gewicht erhöhen!</div>`:''}
     ${ex.note?`<div class="small" style="color:var(--blue);margin-top:4px">${esc(ex.note)}</div>`:''}
     <table class="sets"><thead><tr><th>Satz</th><th>Zuletzt</th><th>kg</th><th>Wdh</th><th></th></tr></thead><tbody>
@@ -315,7 +332,7 @@ function exerciseCard(ex,ei){
       return `<tr class="${s.done?'done':''}" data-si="${si}">
         <td class="n"><button data-type="${si}">${lbl}</button></td>
         <td class="prev">${p?`${fmt(num(p.kg))}×${esc(p.reps)}`:'–'}${s.done&&p&&isW(s)?deltaTag(s,p):''}</td>
-        <td><input inputmode="decimal" data-f="kg" value="${esc(s.kg)}" placeholder="${s.ph?esc(s.ph.kg):''}"></td>
+        <td><input inputmode="decimal" data-f="kg" value="${esc(String(s.kg).replace('.',','))}" placeholder="${s.ph?esc(String(s.ph.kg).replace('.',',')):''}"></td>
         <td><input inputmode="numeric" data-f="reps" value="${esc(s.reps)}" placeholder="${s.ph?esc(s.ph.reps):''}"></td>
         <td><button class="chk ${s.done?'on':''}" data-done="${si}">${ICON.check}</button></td></tr>`}).join('')}
     </tbody></table>
@@ -349,6 +366,10 @@ function bindWorkout(v){
     card.querySelectorAll('[data-type]').forEach(b=>b.onclick=()=>{const s=ex.sets[+b.dataset.type];s.type=s.type==='w'?'d':s.type==='d'?'n':'w';save();renderWorkout()});
     card.querySelector('[data-addset]').onclick=()=>{const last=ex.sets[ex.sets.length-1];ex.sets.push({kg:last?last.kg:'',reps:last?last.reps:'',done:false,type:'n',ph:last?last.ph:null});save();renderWorkout()};
     card.querySelector('[data-exmenu]').onclick=()=>exerciseMenu(ei);
+    const wi=card.querySelector('[data-ww]');wi.onfocus=()=>wi.select();
+    wi.onchange=()=>{const v=num(wi.value);if(!(v>0)){wi.value=getWW(ex.exId)!=null?fmt(getWW(ex.exId),2).replace(/\./g,''):'';return}
+      if(setWW(ex.exId,v)){ex.sets.forEach(x=>{if(!x.done&&isW(x)){x.ph=Object.assign({reps:''},x.ph||{},{kg:getWW(ex.exId)})}});save();toast(`Arbeitsgewicht: ${fmt(getWW(ex.exId),2)} kg`);renderWorkout()}};
+    wi.onkeydown=e=>{if(e.key==='Enter')wi.blur()};
   });
 }
 function exerciseMenu(ei){
@@ -473,6 +494,7 @@ function editTemplate(id){
     document.querySelectorAll('#sheet [data-rm]').forEach(b=>b.onclick=()=>{t.items.splice(+b.dataset.rm,1);draw()});
     document.querySelectorAll('#sheet [data-up]').forEach(b=>b.onclick=()=>{const i=+b.dataset.up;if(i>0)[t.items[i-1],t.items[i]]=[t.items[i],t.items[i-1]];draw()});
     $('#tsave').onclick=()=>{if(!t.name.trim())return toast('Name fehlt');t.name=t.name.trim();
+      t.items.forEach(it=>{if(it.kg!==''&&it.kg!=null)setWW(it.exId,it.kg)});
       if(orig)Object.assign(orig,t);else S.templates.push(t);save();closeSheet();render()};
   };
   draw();
@@ -519,7 +541,7 @@ function showWorkout(id){
 }
 
 /* ================= Übungen ================= */
-let progressEx=null,progressMetric='kg';
+let progressEx=null,progressMetric='ww';
 function openExercise(id){progressEx=id;tab='progress';try{sessionStorage.setItem('tab',tab)}catch(e){}render();window.scrollTo(0,0)}
 function exSessions(exId){
   return S.workouts.map(w=>{const sets=w.exercises.filter(e=>e.exId===exId).flatMap(e=>e.sets);return {t:w.start,id:w.id,sets,work:sets.filter(isW)}}).filter(x=>x.sets.length);
@@ -587,15 +609,21 @@ function renderExercise(){
   $('#back').onclick=()=>{progressEx=null;render()};
   const ss=exSessions(progressEx).filter(x=>x.work.length);
   const pr=(S.prs||[]).filter(p=>p.exId===progressEx);
-  if(!ss.length&&!pr.length){v.innerHTML=`<div class="empty">${ICON.dumb}<div>Für diese Übung ist noch nichts gespeichert.</div></div>`;return}
-  const M=progressMetric;
+  const wl=(S.wwLog||[]).filter(x=>x.exId===progressEx).sort((a,b)=>a.t-b.t);
+  if(!ss.length&&!pr.length&&!wl.length){v.innerHTML=`<div class="empty">${ICON.dumb}<div>Für diese Übung ist noch nichts gespeichert.</div></div>`;return}
+  const M=ss.length?progressMetric:'ww';
   // Kennzahl pro Training
   const maxKg=x=>x.work.reduce((m,s)=>num(s.kg)>num(m.kg)||(num(s.kg)===num(m.kg)&&num(s.reps)>num(m.reps))?s:m,x.work[0]);
   const bestSet=x=>x.work.reduce((m,s)=>num(s.kg)*num(s.reps)>num(m.kg)*num(m.reps)?s:m,x.work[0]);
   let top='',series=[],unit=' kg',hl;
-  if(M==='kg'){
+  if(M==='ww'){
+    const cur=getWW(progressEx);const since=wl.length?wl[wl.length-1].t:null;
+    top=`<div class="tiny">Aktuelles Arbeitsgewicht</div><b class="big" style="display:block;margin-top:4px">${cur!=null?fmt(cur,2)+' kg':'–'}</b><div class="muted small">${since?'seit '+dFmt(since):'Im Training oben bei der Übung eintragen'}</div>`;
+    const pts=wl.map(x=>({t:x.t,v:x.kg}));if(pts.length&&pts[pts.length-1].t<Date.now()-DAY)pts.push({t:Date.now(),v:pts[pts.length-1].v});
+    series=[{pts}];hl=null;
+  }else if(M==='kg'){
     const all=ss.map(x=>({x,s:maxKg(x)}));const b=all.reduce((m,a)=>num(a.s.kg)>num(m.s.kg)?a:m,all[0]||{s:{kg:0}});
-    top=`<div class="tiny">Höchstes Arbeitsgewicht</div><b class="big" style="display:block;margin-top:4px">${b.x?fmt(num(b.s.kg),2)+' kg':'–'}</b><div class="muted small">${b.x?`× ${b.s.reps} Wdh · ${dFmt(b.x.t)}`:''}</div>`
+    top=`<div class="tiny">Schwerster Satz</div><b class="big" style="display:block;margin-top:4px">${b.x?fmt(num(b.s.kg),2)+' kg':'–'}</b><div class="muted small">${b.x?`× ${b.s.reps} Wdh · ${dFmt(b.x.t)}`:''}</div>`
       +pr.map(p=>`<div class="small" style="margin-top:6px;color:var(--gold)">🏆 Eingetragen: ${fmt(p.kg,2)} kg × ${p.reps} · ${dFmt(p.t,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>`).join('');
     series=[{pts:all.map(a=>({t:a.x.t,v:num(a.s.kg)}))}];hl=x=>maxKg(x);
   }else if(M==='load'){
@@ -610,7 +638,7 @@ function renderExercise(){
     unit='';hl=null;
   }
   v.innerHTML=`
-    <div class="chips" style="margin-bottom:10px">${[['kg','Max. Gewicht'],['load','Bester Satz'],['reps','Wiederholungen']].map(([k,l])=>`<button class="chip ${M===k?'on':''}" data-pm="${k}">${l}</button>`).join('')}</div>
+    <div class="chips" style="margin-bottom:10px">${[['ww','Arbeitsgewicht'],['kg','Max. Gewicht'],['load','Bester Satz'],['reps','Wiederholungen']].filter(([k])=>ss.length||k==='ww').map(([k,l])=>`<button class="chip ${M===k?'on':''}" data-pm="${k}">${l}</button>`).join('')}</div>
     <div class="card">${top}</div>
     <div class="card"><canvas id="pchart" height="200"></canvas>
       ${series.length>1?`<div class="row small" style="gap:12px;margin-top:8px;flex-wrap:wrap">${series.map(x=>`<span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${x.color};margin-right:4px"></span>${x.label}</span>`).join('')}</div>`:''}</div>
@@ -621,8 +649,9 @@ function renderExercise(){
     </div>
     ${(()=>{const m={};ss.forEach(x=>x.work.forEach(s=>{const k=num(s.kg);if(!m[k]||num(s.reps)>m[k].r)m[k]={r:num(s.reps),t:x.t}}));const ks=Object.keys(m).map(Number).sort((a,b)=>b-a).slice(0,8);
       return ks.length?`<div class="sect tiny">Meiste Wdh pro Gewicht</div><div class="card">${ks.map(k=>`<div class="list-item" style="padding:9px 0"><span><b>${fmt(k,2)} kg</b></span><span class="small"><b>${m[k].r} Wdh</b> <span class="muted">· ${dFmt(m[k].t,{day:'2-digit',month:'2-digit',year:'2-digit'})}</span></span></div>`).join('')}</div>`:''})()}
-    <div class="sect tiny">Alle Trainings</div>
-    <div class="card">${[...ss].reverse().map(x=>{const h=hl?hl(x):null;return `<div class="list-item" style="align-items:flex-start"><span class="muted small" style="white-space:nowrap">${dFmt(x.t,{weekday:'short',day:'2-digit',month:'2-digit',year:'2-digit'})}</span>
+    ${M==='ww'&&wl.length?`<div class="sect tiny">Änderungen Arbeitsgewicht</div><div class="card">${[...wl].reverse().map((x,i,a)=>{const prev=a[i+1];const d=prev?x.kg-prev.kg:0;return `<div class="list-item" style="padding:9px 0"><span class="muted small">${dFmt(x.t,{day:'2-digit',month:'2-digit',year:'2-digit'})}</span><span><b>${fmt(x.kg,2)} kg</b>${prev?` <span class="small" style="color:${d>0?'var(--acc)':'var(--red)'}">${d>0?'+':''}${fmt(d,2)}</span>`:' <span class="muted small">Start</span>'}</span></div>`}).join('')}</div>`:''}
+    ${ss.length?'<div class="sect tiny">Alle Trainings</div>':''}
+    <div class="card" ${ss.length?'':'hidden'}>${[...ss].reverse().map(x=>{const h=hl?hl(x):null;return `<div class="list-item" style="align-items:flex-start"><span class="muted small" style="white-space:nowrap">${dFmt(x.t,{weekday:'short',day:'2-digit',month:'2-digit',year:'2-digit'})}</span>
       <span class="small" style="text-align:right">${x.sets.map(s=>s===h?`<b style="color:var(--acc)">${setTxt(s)}</b>`:setTxt(s)).join(' · ')}</span></div>`}).join('')}</div>`;
   v.querySelectorAll('[data-pm]').forEach(c=>c.onclick=()=>{progressMetric=c.dataset.pm;renderExercise()});
   drawChart($('#pchart'),series,unit);
