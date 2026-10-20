@@ -547,6 +547,21 @@ function render(){
   m.classList.toggle('kasse',UI.screen==='kasse');
   m.innerHTML=({kasse:vKasse,start:vStart,buchungen:vBuchungen,kunden:vKunden,lager:vLager,auswertung:vAuswertung,mehr:vMehr}[UI.screen])();
 }
+/* Neu zeichnen, ohne das Suchfeld zu ersetzen – sonst schließt iOS die Tastatur */
+function renderKeep(id){
+  const m=$('#main'),old=$('#'+id);
+  const fb=()=>{const pos=old?old.selectionStart:null;render();const n=$('#'+id);if(n){n.focus();if(pos!=null)try{n.setSelectionRange(pos,pos)}catch{}}};
+  if(!old||old.parentNode!==m)return fb();
+  const tpl=document.createElement('template');
+  tpl.innerHTML=({kasse:vKasse,start:vStart,buchungen:vBuchungen,kunden:vKunden,lager:vLager,auswertung:vAuswertung,mehr:vMehr}[UI.screen])();
+  const neu=tpl.content.querySelector('#'+id);if(!neu||neu.parentNode!==tpl.content)return fb();
+  const before=[],after=[];let seen=false;
+  [...tpl.content.childNodes].forEach(n=>{if(n===neu){seen=true;return}(seen?after:before).push(n)});
+  [...m.childNodes].forEach(n=>{if(n!==old)n.remove()});old.before(...before);old.after(...after);
+}
+function filterPicker(){const q=norm(UI.fq||'');let n=0;
+  document.querySelectorAll('.tiles.mini .tile').forEach(b=>{const ok=!q||norm(b.dataset.name||'').includes(q);b.hidden=!ok;if(ok)n++});
+  const e=$('#fqEmpty');if(e)e.hidden=n>0}
 function header(t,act){
   const c=Store.mode==='cloud'?'':'<span class="store-chip cloud">Offline · nur auf diesem Gerät</span>';
   return `<div class="top" style="align-items:center"><div><div class="eyebrow">${esc(S.settings.company||S.settings.owner||'Kassabuch')}</div><h1>${t}</h1></div>${act||c}</div>`;
@@ -1127,6 +1142,7 @@ function productOptions(sel){
   return `<option value="">Produkt wählen …</option>`+Object.keys(by).sort().map(c=>`<optgroup label="${esc(c)}">${by[c].sort((a,b)=>a.name.localeCompare(b.name)).map(p=>`<option value="${p.id}" ${p.id===sel?'selected':''}>${esc(p.name)} (${sm[p.id]} da)</option>`).join('')}</optgroup>`).join('');
 }
 function openEntryForm(type,e,preset){
+  UI.fq='';
   F=e?JSON.parse(JSON.stringify(e)):{id:null,newId:newId(),type,date:today(),party:'',partyAddress:'',items:[],extra:0,override:'',method:'bar',paid:true,delivered:true,note:'',expenseCat:S.settings.expenseCats[0]||'Sonstiges',amount:'',updateEk:true,att:[]};
   if(!e&&type==='verkauf'){F.delivered=false;F.paid=false}
   if(preset)Object.assign(F,preset);
@@ -1141,10 +1157,10 @@ function productPicker(t){
   const sm=stockMap();const cats=[...new Set(S.products.map(p=>p.cat||'Allgemein'))].sort((a,b)=>a.localeCompare(b,'de'));
   if(!UI.fcat||(UI.fcat!=='alle'&&!cats.includes(UI.fcat)))UI.fcat='alle';
   const l=S.products.filter(p=>UI.fcat==='alle'||(p.cat||'Allgemein')===UI.fcat).sort((a,b)=>a.name.localeCompare(b.name,'de'));
-  return `<div class="picker">${cats.length>1?`<div class="chips">${['alle',...cats].map(c=>`<button class="chip ${UI.fcat===c?'on':''}" data-act="fcat" data-v="${esc(c)}">${c==='alle'?'Alle':esc(c)}</button>`).join('')}</div>`:''}
+  return `<div class="picker"><input class="search" id="fq" type="search" placeholder="Produkt suchen …" value="${esc(UI.fq||'')}" style="margin-bottom:8px">${cats.length>1?`<div class="chips">${['alle',...cats].map(c=>`<button class="chip ${UI.fcat===c?'on':''}" data-act="fcat" data-v="${esc(c)}">${c==='alle'?'Alle':esc(c)}</button>`).join('')}</div>`:''}
    <div class="tiles mini">${l.map(p=>{const q=F.items.filter(i=>i.pid===p.id).reduce((s,i)=>s+num(i.qty),0);
-    return `<button class="tile ${q?'on':''}" data-act="f-add" data-id="${p.id}">${q?`<span class="tile-q">${q}</span>`:''}<span class="tile-n">${esc(p.name)}</span><span class="tile-p num">${eur(t==='verkauf'?p.vk:p.ek)}</span><span class="tile-s ${(sm[p.id]||0)<=0?'neg':''}">${sm[p.id]||0} da</span></button>`}).join('')}</div>
-   <p class="hint" style="margin:6px 0 10px">Antippen zum Hinzufügen – nochmal tippen = +1. Menge und Preis unten anpassen.</p></div>`;
+    return `<button class="tile ${q?'on':''}" data-act="f-add" data-id="${p.id}" data-name="${esc(p.name+' '+(p.sku||'')+' '+(p.ean||''))}">${q?`<span class="tile-q">${q}</span>`:''}<span class="tile-n">${esc(p.name)}</span><span class="tile-p num">${eur(t==='verkauf'?p.vk:p.ek)}</span><span class="tile-s ${(sm[p.id]||0)<=0?'neg':''}">${sm[p.id]||0} da</span></button>`}).join('')}</div>
+   <p class="muted" id="fqEmpty" hidden style="font-size:13px;margin:4px 0">Kein Produkt gefunden.</p><p class="hint" style="margin:6px 0 10px">Antippen zum Hinzufügen – nochmal tippen = +1. Menge und Preis unten anpassen.</p></div>`;
 }
 function renderEntryForm(){
   const t=F.type,kind=t==='verkauf'?'kunde':t==='einkauf'?'lieferant':null;
@@ -1192,6 +1208,7 @@ function renderEntryForm(){
    <label class="field"><span>Notiz</span><textarea class="inp" data-f="note" rows="2" placeholder="z. B. Wunsch, Abholtermin, Größe …">${esc(F.note)}</textarea></label>
    <button class="btn" data-act="save-entry">${F.id?'Änderungen speichern':!F.delivered?'Bestellung speichern':TYPES[t]+' buchen'}</button>`;
   if($('#sheetBody'))$('#sheetBody').innerHTML=body;else openSheet(F.id?TYPES[t]+' bearbeiten':'Neue Buchung',body);
+  if(UI.fq)filterPicker();
   if($('.sheet-head h3'))$('.sheet-head h3').textContent=F.id?TYPES[t]+' bearbeiten':'Neue Buchung';
   updateSummary();fillThumbs();
 }
@@ -1835,7 +1852,8 @@ document.addEventListener('input',ev=>{
   if(t.id==='noteEdit'){const b=$('#noteBtn');if(b)b.hidden=false;return}
   if(t.id==='coGiven'||t.id==='coRecv'){coRefresh();return}
   if(t.id&&t.id.startsWith('lb_')&&LB){refreshLabel();return}
-  if(t.id==='q'||t.id==='cq'||t.id==='pq'||t.id==='kq'){UI[t.id]=t.value;const pos=t.selectionStart;render();const n=$('#'+t.id);n.focus();n.setSelectionRange(pos,pos);return}
+  if(t.id==='q'||t.id==='cq'||t.id==='pq'||t.id==='kq'){UI[t.id]=t.value;renderKeep(t.id);return}
+  if(t.id==='fq'){UI.fq=t.value;filterPicker();return}
   if(!F)return;
   if(t.dataset.row!==undefined&&t.dataset.k!=='pid'){F.items[+t.dataset.row][t.dataset.k]=t.value;updateSummary();return}
   if(t.dataset.f&&t.type!=='checkbox'&&t.tagName!=='SELECT'){F[t.dataset.f]=t.value;updateSummary()}
@@ -1861,7 +1879,7 @@ document.addEventListener('change',async ev=>{
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#sheetRoot').innerHTML)closeSheet()});
 
 render();Store.connect();
-const APP_VER='28';
+const APP_VER='29';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
