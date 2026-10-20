@@ -1144,7 +1144,7 @@ function renderEntryForm(){
      <label>Menge<input class="inp num" type="number" inputmode="decimal" min="0" step="1" data-row="${i}" data-k="qty" value="${it.qty}"></label>
      <label>${t==='verkauf'?'VK':'EK'} / Stk €<input class="inp num" type="number" inputmode="decimal" min="0" step="0.01" data-row="${i}" data-k="price" value="${it.price}"></label>
      <button class="x" data-act="rm-row" data-i="${i}" aria-label="Position entfernen">✕</button>
-     <div class="sum"><span>${it.pid&&t==='verkauf'?'EK '+eur(it.ek??prodById(it.pid)?.ek):''}</span><span class="num" id="rs${i}">${eur(num(it.qty)*num(it.price))}</span></div></div>`).join('')}</div>
+     <div class="sum"><span id="rm${i}">${it.pid&&t==='verkauf'?'EK '+eur(it.ek??prodById(it.pid)?.ek):it.pid&&t==='einkauf'?(()=>{const vk=num(prodById(it.pid)?.vk);return vk?'VK '+eur(vk)+' · Marge '+Math.round((vk-num(it.price))/vk*100)+' %':'kein VK hinterlegt'})():''}</span><span class="num" id="rs${i}">${eur(num(it.qty)*num(it.price))}</span></div></div>`).join('')}</div>
    <button class="add-row" data-act="add-row">+ Position</button>`;
   const ps=F.id?S.entries.find(x=>x.id===F.id):null;
   const body=`
@@ -1193,7 +1193,8 @@ function formCalc(){
 }
 function updateSummary(){
   const c=formCalc(),el=$('#fsum');if(!el)return;
-  F.items.forEach((it,i)=>{const r=$('#rs'+i);if(r)r.textContent=eur(num(it.qty)*num(it.price))});
+  F.items.forEach((it,i)=>{const r=$('#rs'+i);if(r)r.textContent=eur(num(it.qty)*num(it.price));
+    const m=$('#rm'+i),vk=num(prodById(it.pid)?.vk);if(m&&F.type==='einkauf'&&it.pid&&vk)m.textContent='VK '+eur(vk)+' · Marge '+Math.round((vk-num(it.price))/vk*100)+' %'});
   if(F.type==='verkauf'){
     el.innerHTML=`<div class="l"><span>Positionen</span><span class="num">${eur(c.sub)}</span></div>
     ${num(F.extra)?`<div class="l"><span>Versand / Service</span><span class="num">${eur(F.extra)}</span></div>`:''}
@@ -1201,7 +1202,11 @@ function updateSummary(){
     <div class="l"><span>Wareneinsatz (EK)</span><span class="num">${eur(c.cogs)}</span></div>
     <div class="l big"><span>Gesamt</span><span class="num">${eur(c.total)}</span></div>
     <div class="l"><span>Rohertrag</span><span class="num ${c.total-c.cogs>=0?'pos':'neg'}">${eur(c.total-c.cogs)}</span></div>`;
-  }else el.innerHTML=`<div class="l big" style="border:0;margin:0;padding:0"><span>${F.type==='einkauf'?'Einkaufssumme':'Ausgabe'}</span><span class="num">${eur(c.total)}</span></div>`;
+  }else if(F.type==='einkauf'){const vw=r2(F.items.reduce((s,i)=>s+num(i.qty)*num(prodById(i.pid)?.vk),0));
+    el.innerHTML=`<div class="l big"><span>Einkaufssumme</span><span class="num">${eur(c.total)}</span></div>
+    <div class="l"><span>Verkaufswert (VK)</span><span class="num">${eur(vw)}</span></div>
+    <div class="l"><span>Möglicher Rohertrag</span><span class="num ${vw-c.total>=0?'pos':'neg'}">${eur(vw-c.total)}${vw>0?' · '+Math.round((vw-c.total)/vw*100)+' %':''}</span></div>`;
+  }else el.innerHTML=`<div class="l big" style="border:0;margin:0;padding:0"><span>Ausgabe</span><span class="num">${eur(c.total)}</span></div>`;
 }
 async function saveEntry(){
   const c=formCalc();
@@ -1249,7 +1254,8 @@ function openEntry(id){
    ${e.storno?`<div class="banner">Stornorechnung zu Rechnung ${esc(e.refInvoice||'')} vom ${fdate(e.refDate)}.</div>`:''}
    ${ov?`<div class="banner" style="display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--neg-soft);color:var(--neg)"><span>Seit ${daysBetween(dueDate(e),today())} Tag${daysBetween(dueDate(e),today())===1?'':'en'} überfällig${rem?' · erinnert am '+fdate(rem):''}</span><button class="btn sm" data-act="remind" data-id="${e.id}">Erinnern</button></div>`:''}
    <div class="summary">${lines}<div class="l big"><span>Gesamt</span><span class="num">${eur(e.total)}</span></div>
-   ${e.type==='verkauf'?`<div class="l"><span>Rohertrag</span><span class="num">${eur(e.total-num(e.cogs))}</span></div>`:''}</div>
+   ${e.type==='verkauf'?`<div class="l"><span>Rohertrag</span><span class="num">${eur(e.total-num(e.cogs))}</span></div>`:''}
+   ${e.type==='einkauf'&&!e.storno?(()=>{const vw=r2((e.items||[]).reduce((s,i)=>s+num(i.qty)*num(prodById(i.pid)?.vk),0));return vw?`<div class="l"><span>Verkaufswert (VK)</span><span class="num">${eur(vw)}</span></div><div class="l"><span>Möglicher Rohertrag</span><span class="num pos">${eur(vw-num(e.total))} · ${Math.round((vw-num(e.total))/vw*100)} %</span></div>`:''})():''}</div>
    ${(()=>{const meta=[e.orderDate?'bestellt am '+fdate(e.orderDate):'',e.invoiceNo?'Rechnung '+esc(e.invoiceNo)+(e.type==='verkauf'&&live(e)&&e.delivered!==false&&open>0.005?' · fällig '+fdate(dueDate(e)):''):'',rem&&!ov?'erinnert am '+fdate(rem):''].filter(Boolean).join(' · ');return meta?`<p class="muted" style="margin:0 0 12px;font-size:13px">${meta}</p>`:''})()}
    ${(()=>{if(!live(e))return'';
      const isV=e.type==='verkauf',hasFlow=e.type!=='ausgabe',pending=e.delivered===false,due=open>0.005,over=open<-0.005;
@@ -1838,7 +1844,7 @@ document.addEventListener('change',async ev=>{
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#sheetRoot').innerHTML)closeSheet()});
 
 render();Store.connect();
-const APP_VER='25';
+const APP_VER='26';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
