@@ -344,7 +344,7 @@ const TYPES={verkauf:'Verkauf',einkauf:'Einkauf',ausgabe:'Ausgabe'};
 const DEF={owner:'',company:'',address:'',email:'',phone:'',uidNr:'',iban:'',
   kleinunternehmer:true,limit:55000,defaultTax:20,lowStock:3,leadTime:7,coverDays:30,
   categories:['Allgemein'],expenseCats:['Versand','Verpackung','Gebühren','Werbung','Material','Sonstiges'],
-  invoiceYear:new Date().getFullYear(),nextInvoice:1,payDays:14,payTerms:'Zahlbar innerhalb von 14 Tagen ohne Abzug.'};
+  invoiceYear:new Date().getFullYear(),nextInvoice:1,partners:[],payDays:14,payTerms:'Zahlbar innerhalb von 14 Tagen ohne Abzug.'};
 
 const S={settings:{...DEF},products:[],entries:[],customers:[],suppliers:[],recurring:[]};
 const UI={lblFmt:(()=>{try{return localStorage.getItem('kb_lblfmt')||'a6'}catch{return'a6'}})(),ktab:'kunde',cart:[],kq:'',kcat:'alle',kpay:'bar',kparty:'',remTone:(()=>{try{return localStorage.getItem('kb_tone')||'du'}catch{return'du'}})(),cq:'',pq:'',pcat:'alle',psort:(()=>{try{return localStorage.getItem('kb_psort')||'kat'}catch{return'kat'}})(),screen:'start',period:'monat',filter:'alle',q:'',lagerCat:'alle',year:new Date().getFullYear(),ready:false};
@@ -409,6 +409,21 @@ function pendingMap(){
 }
 const KIND={kunde:{col:'customers',type:'verkauf',one:'Kunde',many:'Kunden'},lieferant:{col:'suppliers',type:'einkauf',one:'Lieferant',many:'Lieferanten'}};
 const live=e=>!e.cancelled&&!e.storno;
+/* ---------- Provision ---------- */
+const BASES={roh:'vom Rohertrag',umsatz:'vom Umsatz'};
+const partners=()=>S.settings.partners||[];
+const partnerById=id=>partners().find(p=>p.id===id);
+const partnerSnap=(id,old)=>{if(!id)return null;if(old&&old.id===id)return old;const p=partnerById(id);return p?{id:p.id,name:p.name,pct:num(p.pct),base:p.base||'roh'}:null};
+const provBase=(e,pt)=>pt.base==='umsatz'?num(e.total):num(e.total)-num(e.cogs);
+const provAmt=e=>{const pt=e.partner;if(!pt)return 0;return r2(Math.max(0,provBase(e,pt))*num(pt.pct)/100)};
+const provDesc=pt=>`${esc(pt.name)} · ${num(pt.pct)} % ${BASES[pt.base||'roh']}`;
+function partnerStats(id){
+  const sales=S.entries.filter(e=>e.type==='verkauf'&&live(e)&&e.delivered!==false&&e.partner?.id===id);
+  const pend=S.entries.filter(e=>e.type==='verkauf'&&live(e)&&e.delivered===false&&e.partner?.id===id);
+  const earned=r2(sales.reduce((s,e)=>s+provAmt(e),0)),paid=r2(S.entries.filter(e=>e.type==='ausgabe'&&e.partnerPayout===id).reduce((s,e)=>s+paidSum(e),0));
+  return{sales,pend,n:sales.length,umsatz:r2(sales.reduce((s,e)=>s+num(e.total),0)),earned,paid,open:r2(earned-paid),pendAmt:r2(pend.reduce((s,e)=>s+provAmt(e),0))};
+}
+const partnerSelect=(attr,sel)=>partners().length?`<label class="field"><span>Vermittelt durch (Provision)</span><select class="inp" ${attr}><option value="">— niemand —</option>${partners().filter(p=>p.active!==false||p.id===sel).map(p=>`<option value="${p.id}" ${p.id===sel?'selected':''}>${esc(p.name)} · ${num(p.pct)} % ${BASES[p.base||'roh']}</option>`).join('')}</select></label>`:'';
 const pf=e=>{const sub=(e.items||[]).reduce((s,i)=>s+num(i.qty)*num(i.price),0);const it=num(e.total)-num(e.extra);return sub>0.005&&it>=0?it/sub:1};
 const stage=e=>e.delivered===false?(e.ready?'fertig':'geplant'):'uebergeben';
 const STAGE_PILL=e=>e.type==='verkauf'?(e.ready?'<span class="pill top">Fertig</span>':'<span class="pill ord">Geplant</span>'):'<span class="pill ord">Bestellt</span>';
@@ -991,6 +1006,7 @@ function openCheckout(){
    <div class="summary" id="coSum"></div>
    <label class="field"><span>Tatsächlich erhalten €</span><input class="inp num" id="coRecv" type="number" inputmode="decimal" step="0.01" min="0" value="${UI.krecv??''}" placeholder="leer = ${eur(cartTotal())}"></label>
    <label class="field"><span>Kunde (optional)</span><input class="inp" id="coParty" list="coList" value="${esc(UI.kparty||'')}" placeholder="Laufkunde"></label>
+   ${partnerSelect('id="coPartner"',UI.kpartner||'')}
    <datalist id="coList">${custs.map(p=>`<option value="${esc(p)}">`).join('')}</datalist>
    <div class="field"><span>Zahlung</span></div>
    <div class="seg" style="margin-bottom:12px">${['bar','karte','ueb','paypal'].map(k=>`<button class="${UI.kpay===k?'on':''}" data-act="kpay" data-v="${k}">${k==='ueb'?'Überw.':METHODS[k]}</button>`).join('')}</div>
@@ -1008,19 +1024,20 @@ function coRefresh(){
   const el=$('#coSum');if(el)el.innerHTML=`<div class="l"><span>Regulär</span><span class="num">${eur(reg)}</span></div>
     ${d?`<div class="l"><span>${d>0?'Rabatt':'Aufschlag'}${reg>0?' ('+Math.round(Math.abs(d)/reg*100)+' %)':''}</span><span class="num ${d>0?'neg':'pos'}">${d>0?'−':'+'}${eur(Math.abs(d))}</span></div>`:''}
     <div class="l big"><span>Gesamt</span><span class="num">${eur(t)}</span></div>
-    <div class="l"><span>Rohertrag</span><span class="num ${t-cogs>=0?'pos':'neg'}">${eur(t-cogs)}</span></div>`;
+    <div class="l"><span>Rohertrag</span><span class="num ${t-cogs>=0?'pos':'neg'}">${eur(t-cogs)}</span></div>
+    ${(()=>{const pt=partnerSnap(UI.kpartner);if(!pt)return'';const pv=provAmt({total:t,cogs,partner:pt});return `<div class="l"><span>Provision ${esc(pt.name)}</span><span class="num neg">−${eur(pv)}</span></div><div class="l"><span><b>Dein Gewinn</b></span><span class="num pos"><b>${eur(t-cogs-pv)}</b></span></div>`})()}`;
   if($('#coBtn'))$('#coBtn').textContent=eur(t);
   const g=$('#coGiven');if(g&&$('#coChange'))$('#coChange').textContent=g.value?eur(num(g.value)-t):'–'}
 async function doCheckout(){
   const party=$('#coParty').value.trim(),open=$('#coOpen').checked,method=UI.kpay,planned=(UI.kstage||'geplant')==='geplant',note=($('#coNote')?.value||'').trim();
   const items=UI.cart.map(c=>{const p=prodById(c.pid);return{pid:c.pid,name:p?.name||'?',qty:c.qty,price:r2(num(c.price)),ek:r2(num(p?.ek)),tax:S.settings.kleinunternehmer?0:num(p?.tax??S.settings.defaultTax),unit:p?.unit||'Stk'}});
   const regular=r2(items.reduce((s,i)=>s+i.qty*i.price,0)),cogs=r2(items.reduce((s,i)=>s+i.qty*i.ek,0)),total=coFinal(),discount=r2(regular-total);
-  const e={id:newId(),created:new Date().toISOString(),type:'verkauf',date:today(),party,partyAddress:custByName(party)?.address||'',method,note,total,regular,discount,extra:0,cogs,items,delivered:!planned,att:[],viaKasse:true,
+  const e={id:newId(),created:new Date().toISOString(),type:'verkauf',date:today(),party,partyAddress:custByName(party)?.address||'',method,note,total,regular,discount,extra:0,cogs,items,delivered:!planned,att:[],viaKasse:true,...(partnerSnap(UI.kpartner)?{partner:partnerSnap(UI.kpartner)}:{}),
     payments:open?[]:[{date:today(),amount:total,method}]};
   e.paid=isPaid(e);
   try{await Store.put('entries',e)}catch{return}
   if(party&&!custByName(party))await Store.put('customers',{id:newId(),name:party,address:'',phone:'',email:'',note:''}).catch(()=>{});
-  UI.cart=[];UI.kparty='';UI.krecv='';UI.knote='';UI.kstage='geplant';closeSheet();render();toast((planned?'Bestellung aufgenommen · ':'Verkauf gebucht · ')+eur(total)+(discount>0?' (Rabatt '+eur(discount)+')':''));
+  UI.cart=[];UI.kparty='';UI.krecv='';UI.knote='';UI.kpartner='';UI.kstage='geplant';closeSheet();render();toast((planned?'Bestellung aufgenommen · ':'Verkauf gebucht · ')+eur(total)+(discount>0?' (Rabatt '+eur(discount)+')':''));
 }
 /* ---------- Barcode ---------- */
 const canScan=()=>!!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia);
@@ -1100,6 +1117,12 @@ function vMehr(){
     <span class="row-amt"><span class="num">${eur(r.amount)}</span>${r.active===false?'<span class="pill slow">pausiert</span>':`<span class="row-sub">nächste ${fdate(nextRun(r))}</span>`}</span></button>`).join('')
     :'<div class="empty">Z. B. Shop-Gebühr, Handyvertrag oder Lagermiete – die App bucht sie automatisch.</div>'}</div>
 
+  <div class="sec-head"><h2>Provisionspartner</h2><button class="add-btn" data-act="new-partner">+ Partner</button></div>
+  <div class="list">${partners().length?partners().map(p=>{const ps=partnerStats(p.id);return `<button class="row" data-act="open-partner" data-id="${p.id}"><span class="tag vk">%</span>
+    <span style="min-width:0"><span class="row-title" style="display:block">${esc(p.name)}${p.active===false?'<span class="pill slow">inaktiv</span>':''}</span><span class="row-sub" style="display:block">${num(p.pct)} % ${BASES[p.base||'roh']} · ${ps.n} Verkäuf${ps.n===1?'':'e'}</span></span>
+    <span class="row-amt"><span class="num ${ps.open>0.005?'warn':''}">${eur(ps.open)}</span><span class="row-sub">offen</span></span></button>`}).join('')
+    :'<div class="empty">Leg Personen an, die dir Kunden vermitteln – z. B. 50 % vom Rohertrag. Beim Verkauf wählst du dann „Vermittelt durch“ aus.</div>'}</div>
+
   <h2>Firmendaten & Steuer</h2>
   <div class="card"><p><b>${esc(st.company||st.owner)}</b></p><p class="muted">${esc(st.address||'Keine Adresse hinterlegt')}${st.uidNr?' · UID '+esc(st.uidNr):''}</p>
    <p class="muted">${st.kleinunternehmer?'Kleinunternehmer – Rechnungen ohne Umsatzsteuer':'Regelbesteuert – Rechnungen mit USt-Ausweis'}</p>
@@ -1149,6 +1172,7 @@ function openEntryForm(type,e,preset){
   ['party','partyAddress','note'].forEach(k=>F[k]=F[k]||'');F.items=F.items||[];F.att=F.att||[];F.delivered=F.type==='ausgabe'||F.delivered!==false;
   F.payStatus=e?(isPaid(e)?'1':isPartial(e)?'p':'0'):(F.paid===false?'0':'1');
   F.stage=F.delivered?'uebergeben':(F.ready?'fertig':'geplant');
+  F.partnerId=F.partner?.id||F.partnerId||'';
   if(e){F.override=e.type==='verkauf'&&e.discount?String(e.total):'';F.amount=e.type==='ausgabe'?e.total:'';F.updateEk=false}
   if(F.type!=='ausgabe'&&!F.items.length)F.items.push({pid:'',qty:1,price:0});
   renderEntryForm();
@@ -1190,7 +1214,7 @@ function renderEntryForm(){
    ${items}
    ${t==='verkauf'?`<div class="grid2">
      <label class="field"><span>Versand / Service €</span><input class="inp num" type="number" inputmode="decimal" min="0" step="0.01" data-f="extra" value="${F.extra||''}" placeholder="0"></label>
-     <label class="field"><span>Tatsächlich erhalten €</span><input class="inp num" type="number" inputmode="decimal" min="0" step="0.01" data-f="override" value="${F.override}" placeholder="leer = regulär"></label></div>`:''}
+     <label class="field"><span>Tatsächlich erhalten €</span><input class="inp num" type="number" inputmode="decimal" min="0" step="0.01" data-f="override" value="${F.override}" placeholder="leer = regulär"></label></div>${partnerSelect('data-f="partnerId"',F.partnerId)}`:''}
    ${t==='einkauf'&&!F.id?`<label class="check"><input type="checkbox" data-f="updateEk" ${F.updateEk?'checked':''}> Einkaufspreise im Produkt aktualisieren</label>`:''}
    <div class="summary" id="fsum"></div>
    ${t==='verkauf'?`<div class="field"><span>Übergabe</span></div>
@@ -1231,7 +1255,9 @@ function updateSummary(){
     ${c.discount?`<div class="l"><span>${c.discount>0?'Rabatt':'Aufschlag'}</span><span class="num ${c.discount>0?'neg':''}">${c.discount>0?'−':'+'}${eur(Math.abs(c.discount))}</span></div>`:''}
     <div class="l"><span>Wareneinsatz (EK)</span><span class="num">${eur(c.cogs)}</span></div>
     <div class="l big"><span>Gesamt</span><span class="num">${eur(c.total)}</span></div>
-    <div class="l"><span>Rohertrag</span><span class="num ${c.total-c.cogs>=0?'pos':'neg'}">${eur(c.total-c.cogs)}</span></div>`;
+    <div class="l"><span>Rohertrag</span><span class="num ${c.total-c.cogs>=0?'pos':'neg'}">${eur(c.total-c.cogs)}</span></div>
+    ${(()=>{const pt=partnerSnap(F.partnerId,F.partner);if(!pt)return'';const pv=provAmt({total:c.total,cogs:c.cogs,partner:pt});
+      return `<div class="l"><span>Provision ${provDesc(pt)}</span><span class="num neg">−${eur(pv)}</span></div><div class="l"><span><b>Dein Gewinn</b></span><span class="num pos"><b>${eur(c.total-c.cogs-pv)}</b></span></div>`})()}`;
   }else if(F.type==='einkauf'){const vw=r2(F.items.reduce((s,i)=>s+num(i.qty)*num(prodById(i.pid)?.vk),0));
     el.innerHTML=`<div class="l big"><span>Einkaufssumme</span><span class="num">${eur(c.total)}</span></div>
     <div class="l"><span>Verkaufswert (VK)</span><span class="num">${eur(vw)}</span></div>
@@ -1251,7 +1277,7 @@ async function saveEntry(){
   if(F.type==='ausgabe'){e.expenseCat=F.expenseCat;delete e.items}
   else{
     e.items=F.items.map(i=>{const p=prodById(i.pid);return{pid:i.pid,name:i.name||p?.name||'?',qty:num(i.qty),price:r2(num(i.price)),ek:r2(F.type==='verkauf'?num(i.ek??p?.ek):num(i.price)),tax:i.tax??(S.settings.kleinunternehmer?0:num(p?.tax??S.settings.defaultTax)),unit:i.unit||p?.unit||'Stk'}});
-    if(F.type==='verkauf'){Object.assign(e,{partyAddress:F.partyAddress.trim(),extra:r2(num(F.extra)),regular:c.regular,discount:c.discount,cogs:c.cogs})}
+    if(F.type==='verkauf'){Object.assign(e,{partyAddress:F.partyAddress.trim(),extra:r2(num(F.extra)),regular:c.regular,discount:c.discount,cogs:c.cogs});const ps=partnerSnap(F.partnerId,old?.partner);if(ps)e.partner=ps;else delete e.partner}
   }
   const prev=old?paysOf(old).map(p=>({...p})):[];let pays;
   if(F.payStatus==='1'){pays=prev;const rest=r2(c.total-pays.reduce((s,p)=>s+num(p.amount),0));if(Math.abs(rest)>0.005)pays.push({date:prev.length?today():F.date,amount:rest,method:F.method})}
@@ -1285,6 +1311,7 @@ function openEntry(id){
    ${ov?`<div class="banner" style="display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--neg-soft);color:var(--neg)"><span>Seit ${daysBetween(dueDate(e),today())} Tag${daysBetween(dueDate(e),today())===1?'':'en'} überfällig${rem?' · erinnert am '+fdate(rem):''}</span><button class="btn sm" data-act="remind" data-id="${e.id}">Erinnern</button></div>`:''}
    <div class="summary">${lines}<div class="l big"><span>Gesamt</span><span class="num">${eur(e.total)}</span></div>
    ${e.type==='verkauf'?`<div class="l"><span>Rohertrag</span><span class="num">${eur(e.total-num(e.cogs))}</span></div>`:''}
+   ${e.type==='verkauf'&&e.partner?`<div class="l"><span>Provision ${provDesc(e.partner)}${e.delivered===false?' (fällig bei Übergabe)':''}</span><span class="num neg">−${eur(provAmt(e))}</span></div><div class="l"><span><b>Dein Gewinn</b></span><span class="num pos"><b>${eur(e.total-num(e.cogs)-provAmt(e))}</b></span></div>`:''}
    ${e.type==='einkauf'&&!e.storno?(()=>{const vw=r2((e.items||[]).reduce((s,i)=>s+num(i.qty)*num(prodById(i.pid)?.vk),0));return vw?`<div class="l"><span>Verkaufswert (VK)</span><span class="num">${eur(vw)}</span></div><div class="l"><span>Möglicher Rohertrag</span><span class="num pos">${eur(vw-num(e.total))} · ${Math.round((vw-num(e.total))/vw*100)} %</span></div>`:''})():''}</div>
    ${(()=>{const meta=[e.orderDate?'bestellt am '+fdate(e.orderDate):'',e.invoiceNo?'Rechnung '+esc(e.invoiceNo)+(e.type==='verkauf'&&live(e)&&e.delivered!==false&&open>0.005?' · fällig '+fdate(dueDate(e)):''):'',rem&&!ov?'erinnert am '+fdate(rem):''].filter(Boolean).join(' · ');return meta?`<p class="muted" style="margin:0 0 12px;font-size:13px">${meta}</p>`:''})()}
    ${(()=>{if(!live(e))return'';
@@ -1335,6 +1362,59 @@ async function stornoEntry(id){
   await Store.bulk(async()=>{await Store.put('entries',s);await Store.put('entries',{...e,cancelled:true,cancelledBy:s.id,cancelNo:n.no})});
   await Store.setSettings(n.settings);
   toast('Storniert – Stornorechnung '+n.no);openEntry(s.id);
+}
+function openPartnerForm(id){
+  const p=id?partnerById(id):{name:'',pct:50,base:'roh',active:true};UI.pbase=p.base||'roh';
+  openSheet(id?'Partner bearbeiten':'Neuer Provisionspartner',`
+   <label class="field"><span>Name</span><input class="inp" id="ptName" value="${esc(p.name)}" placeholder="z. B. Max"></label>
+   <label class="field"><span>Provision %</span><input class="inp num" id="ptPct" type="number" inputmode="decimal" min="0" max="100" step="0.5" value="${p.pct}"></label>
+   <div class="field"><span>Berechnet</span></div>
+   <div class="seg" style="margin-bottom:8px">${Object.entries(BASES).map(([k,l])=>`<button class="${UI.pbase===k?'on':''}" data-act="pbase" data-v="${k}">${l}</button>`).join('')}</div>
+   <p class="hint" style="margin:0 0 12px">Rohertrag = Verkaufspreis − Einkaufspreis der Ware. Beispiel: Verkauf 50 €, EK 20 € → Rohertrag 30 € → bei 50 % bekommt der Partner 15 €.</p>
+   ${id?`<label class="check"><input type="checkbox" id="ptActive" ${p.active!==false?'checked':''}> Aktiv (bei neuen Verkäufen auswählbar)</label>`:''}
+   <button class="btn" data-act="save-partner" data-id="${id||''}">Speichern</button>
+   ${id?`<button class="btn danger" style="margin-top:8px" data-act="del-partner" data-id="${id}">Partner löschen</button>`:''}
+   <p class="hint" style="margin-top:10px">Änderungen am Prozentsatz gelten nur für neue Verkäufe – bestehende behalten ihren Satz.</p>`);
+}
+async function savePartner(id){
+  const name=$('#ptName').value.trim(),pct=num($('#ptPct').value);
+  if(!name){toast('Bitte einen Namen eingeben.');return}if(!(pct>=0&&pct<=100)){toast('Prozent zwischen 0 und 100.');return}
+  const list=[...partners()];const i=list.findIndex(x=>x.id===id);
+  const p={...(i>=0?list[i]:{id:newId()}),name,pct,base:UI.pbase||'roh',active:$('#ptActive')?$('#ptActive').checked:true};
+  if(i>=0)list[i]=p;else list.push(p);
+  await Store.setSettings({...S.settings,partners:list});closeSheet();toast('Partner gespeichert');
+}
+function openPartner(id){
+  const p=partnerById(id);if(!p)return;const ps=partnerStats(id);
+  const pays=sorted(S.entries.filter(e=>e.type==='ausgabe'&&e.partnerPayout===id)).reverse();
+  openSheet(p.name,`
+   <p class="muted" style="margin:-6px 0 12px">${num(p.pct)} % ${BASES[p.base||'roh']}${p.active===false?' · inaktiv':''}</p>
+   <div class="kpis" style="margin:0 0 12px">
+    <div class="kpi"><div class="lbl">Offen auszuzahlen</div><div class="val ${ps.open>0.005?'warn':''}">${eur(ps.open)}</div></div>
+    <div class="kpi"><div class="lbl">Bereits ausgezahlt</div><div class="val">${eur(ps.paid)}</div></div>
+    <div class="kpi"><div class="lbl">Provision gesamt</div><div class="val">${eur(ps.earned)}</div><div class="sub2">${ps.n} Verkäuf${ps.n===1?'':'e'} · Umsatz ${eur(ps.umsatz)}</div></div>
+    <div class="kpi"><div class="lbl">In offenen Bestellungen</div><div class="val">${eur(ps.pendAmt)}</div><div class="sub2">${ps.pend.length} noch nicht übergeben</div></div>
+   </div>
+   ${ps.open>0.005?`<button class="btn" style="margin-bottom:8px" data-act="payout-partner" data-id="${id}">${eur(ps.open)} auszahlen</button>`:''}
+   <button class="btn ghost" style="margin-bottom:14px" data-act="edit-partner" data-id="${id}">Partner bearbeiten</button>
+   ${ps.sales.length?`<div class="eyebrow" style="margin-bottom:6px">Vermittelte Verkäufe</div><div class="list" style="margin-bottom:14px">${sorted(ps.sales).reverse().slice(0,30).map(e=>`<button class="row" data-act="open-entry" data-id="${e.id}"><span class="tag vk">VK</span><span style="min-width:0"><span class="row-title" style="display:block">${esc(e.party||'Laufkunde')}</span><span class="row-sub" style="display:block">${fdate(e.date)} · ${eur(e.total)}</span></span><span class="row-amt"><span class="num">${eur(provAmt(e))}</span><span class="row-sub">Provision</span></span></button>`).join('')}</div>`:''}
+   ${pays.length?`<div class="eyebrow" style="margin-bottom:6px">Auszahlungen</div><div class="card" style="padding:4px 14px">${pays.map(e=>`<div class="kv"><span>${fdate(e.date)} · ${METHODS[e.method]||''}</span><b>${eur(e.total)}</b></div>`).join('')}</div>`:''}`);
+}
+function openPayout(id){
+  const p=partnerById(id),ps=partnerStats(id);
+  openSheet('Provision auszahlen',`<p class="muted" style="margin:-6px 0 12px">${esc(p.name)} · offen ${eur(ps.open)}</p>
+   <div class="grid2"><label class="field"><span>Betrag €</span><input class="inp num" id="poAmt" type="number" inputmode="decimal" step="0.01" value="${ps.open}"></label>
+    <label class="field"><span>Datum</span><input class="inp" id="poDate" type="date" value="${today()}"></label></div>
+   <label class="field"><span>Zahlungsart</span><select class="inp" id="poMethod">${Object.entries(METHODS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></label>
+   <p class="hint">Wird als Ausgabe „Provision“ gebucht und zählt damit im Überschuss.</p>
+   <button class="btn" data-act="save-payout" data-id="${id}">Auszahlung buchen</button>`);
+}
+async function savePayout(id){
+  const p=partnerById(id),amt=r2(num($('#poAmt').value)),date=$('#poDate').value||today(),method=$('#poMethod').value;
+  if(!(amt>0)){toast('Bitte einen Betrag eingeben.');return}
+  if(!S.settings.expenseCats.includes('Provision'))await Store.setSettings({...S.settings,expenseCats:[...S.settings.expenseCats,'Provision']});
+  await Store.put('entries',{id:newId(),created:new Date().toISOString(),type:'ausgabe',date,party:p.name,expenseCat:'Provision',total:amt,method,note:'Provisionsauszahlung',items:[],att:[],delivered:true,partnerPayout:id,payments:[{date,amount:amt,method}],paid:true});
+  toast('Auszahlung gebucht');openPartner(id);
 }
 function openPay(id){
   const e=S.entries.find(x=>x.id===id);if(!e)return;const open=openAmt(e);
@@ -1673,9 +1753,9 @@ async function saveSettings(){
 /* ---------- data ---------- */
 function exportCSV(){
   const q=s=>`"${String(s??'').replace(/"/g,'""')}"`;const d=n=>r2(n).toFixed(2).replace('.',',');
-  const head=['Datum','Art','Rechnungsnr.','Kunde/Lieferant/Beschreibung','Positionen','Kategorie','Betrag','Bezahlt','Wareneinsatz','Zahlungsart','Status','Lieferung','Sendungsnr.','Belege','Notiz'];
+  const head=['Datum','Art','Rechnungsnr.','Kunde/Lieferant/Beschreibung','Positionen','Kategorie','Betrag','Bezahlt','Wareneinsatz','Zahlungsart','Status','Lieferung','Sendungsnr.','Belege','Notiz','Vermittler','Provision'];
   const rows=sorted(S.entries).reverse().map(e=>[fdate(e.date),TYPES[e.type],e.invoiceNo||'',e.party||'',(e.items||[]).map(i=>`${i.qty}x ${i.name} à ${d(i.price)}`).join(' | '),e.expenseCat||(e.type==='einkauf'?'Wareneinkauf':''),
-    (e.type==='verkauf'?'':'-')+d(e.total),(e.type==='verkauf'?'':'-')+d(paidSum(e)),e.type==='verkauf'?d(e.cogs):'',METHODS[e.method]||'',e.cancelled?'storniert':e.storno?'Storno':isPaid(e)?'bezahlt':isPartial(e)?'teilweise':'offen',e.type==='ausgabe'?'':e.delivered===false?'bestellt':'geliefert',e.ship?.tracking||'',(e.att||[]).length,e.note||''].map(q).join(';'));
+    (e.type==='verkauf'?'':'-')+d(e.total),(e.type==='verkauf'?'':'-')+d(paidSum(e)),e.type==='verkauf'?d(e.cogs):'',METHODS[e.method]||'',e.cancelled?'storniert':e.storno?'Storno':isPaid(e)?'bezahlt':isPartial(e)?'teilweise':'offen',e.type==='ausgabe'?'':e.delivered===false?'bestellt':'geliefert',e.ship?.tracking||'',(e.att||[]).length,e.note||'',e.partner?.name||'',e.partner?d(provAmt(e)):''].map(q).join(';'));
   return Store.save(`Buchungen_${today()}.csv`,'﻿'+[head.map(q).join(';'),...rows].join('\r\n'));
 }
 async function exportJSON(){
@@ -1706,6 +1786,7 @@ async function importJSON(file){
         if(!cur){await Store.put(c,x,true);added++}else if((x.updated||'')>(cur.updated||'')){await Store.put(c,x,true);updated++}}
       const ds=data.settings||{},st=S.settings;
       S.settings={...st,categories:[...new Set([...st.categories,...(ds.categories||[])])],expenseCats:[...new Set([...st.expenseCats,...(ds.expenseCats||[])])],
+        partners:[...(st.partners||[]),...(ds.partners||[]).filter(x=>!(st.partners||[]).some(y=>y.id===x.id))],
         nextInvoice:ds.invoiceYear===st.invoiceYear?Math.max(num(st.nextInvoice),num(ds.nextInvoice)):st.nextInvoice,
         owner:st.owner||ds.owner||'',company:st.company||ds.company||'',address:st.address||ds.address||'',uidNr:st.uidNr||ds.uidNr||'',iban:st.iban||ds.iban||''};
     }
@@ -1756,6 +1837,15 @@ document.addEventListener('click',async ev=>{
     case'lagercat':UI.lagerCat=v;render();break;
     case'year':UI.year=+v;UI.barSel=null;render();break;
     case'new-entry':openEntryForm(v);break;
+    case'new-partner':openPartnerForm();break;
+    case'edit-partner':openPartnerForm(id);break;
+    case'open-partner':openPartner(id);break;
+    case'pbase':UI.pbase=v;b.parentElement.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));break;
+    case'save-partner':savePartner(id);break;
+    case'del-partner':{const ps=partnerStats(id);if(!await ask(ps.n||ps.pend.length?'Partner löschen? Bestehende Verkäufe behalten ihre Provision.':'Partner löschen?'))break;
+      await Store.setSettings({...S.settings,partners:partners().filter(p=>p.id!==id)});closeSheet();toast('Partner gelöscht');break}
+    case'payout-partner':openPayout(id);break;
+    case'save-payout':savePayout(id);break;
     case'fcat':UI.fcat=v;renderEntryForm();break;
     case'f-add':{const p=prodById(id);if(!p||!F)break;const row=F.items.find(i=>i.pid===p.id);
       if(row)row.qty=num(row.qty)+1;else{const empty=F.items.find(i=>!i.pid);const it={pid:p.id,qty:1,price:F.type==='verkauf'?p.vk:p.ek};if(empty)Object.assign(empty,it);else F.items.push(it)}
@@ -1851,6 +1941,7 @@ document.addEventListener('input',ev=>{
   if(t.dataset.cartPrice!==undefined){const c=UI.cart[+t.dataset.cartPrice];if(c)c.price=num(t.value);coRefresh();return}
   if(t.id==='noteEdit'){const b=$('#noteBtn');if(b)b.hidden=false;return}
   if(t.id==='coGiven'||t.id==='coRecv'){coRefresh();return}
+  if(t.id==='coPartner'){UI.kpartner=t.value;coRefresh();return}
   if(t.id&&t.id.startsWith('lb_')&&LB){refreshLabel();return}
   if(t.id==='q'||t.id==='cq'||t.id==='pq'||t.id==='kq'){UI[t.id]=t.value;renderKeep(t.id);return}
   if(t.id==='fq'){UI.fq=t.value;filterPicker();return}
@@ -1872,6 +1963,9 @@ document.addEventListener('change',async ev=>{
   if(t.dataset.k==='pid'){const it=F.items[+t.dataset.row];it.pid=t.value;delete it.ek;delete it.name;delete it.tax;delete it.unit;const p=prodById(t.value);if(p)it.price=F.type==='verkauf'?p.vk:p.ek;renderEntryForm();return}
   if(t.dataset.f==='paid'){F.payStatus=t.value;return}
   if(t.dataset.f==='delivered'){F.delivered=t.value==='1';if(!F.id)F.payStatus=F.delivered?'1':'0';renderEntryForm();return}
+  if(t.dataset.f==='partnerId'){F.partnerId=t.value;updateSummary();return}
+  if(t.dataset.f==='party'&&F.type==='verkauf'&&!F.partnerId){const last=sorted(S.entries.filter(e=>e.type==='verkauf'&&e.partner&&norm(e.party)===norm(t.value))).pop();
+    if(last&&partnerById(last.partner.id)){F.partnerId=last.partner.id;const sel=document.querySelector('[data-f="partnerId"]');if(sel)sel.value=F.partnerId;updateSummary();toast('Vermittler übernommen: '+last.partner.name)}}
   if(t.dataset.f==='party'&&F.type==='verkauf'){const c=custByName(t.value);if(c&&c.address&&!F.partyAddress.trim()){F.partyAddress=c.address;const ta=document.querySelector('[data-f="partyAddress"]');if(ta)ta.value=c.address}return}
   if(t.type==='checkbox'&&t.dataset.f){F[t.dataset.f]=t.checked;return}
   if(t.tagName==='SELECT'&&t.dataset.f){F[t.dataset.f]=t.value}
@@ -1879,7 +1973,7 @@ document.addEventListener('change',async ev=>{
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#sheetRoot').innerHTML)closeSheet()});
 
 render();Store.connect();
-const APP_VER='29';
+const APP_VER='30';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
