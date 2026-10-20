@@ -117,6 +117,9 @@ button.row:hover{background:var(--surface-2)}
 .thumb{width:72px;height:72px;border-radius:10px;border:1px solid var(--line);background:var(--surface-2);display:grid;place-items:center;overflow:hidden;font-size:11px;font-weight:700;color:var(--muted);padding:0;text-align:center;line-height:1.2}
 .thumb img{width:100%;height:100%;object-fit:cover}
 .thumb.add{border-style:dashed;cursor:pointer}
+.picker .chips{margin-bottom:8px}
+.tiles.mini{max-height:290px;overflow-y:auto;grid-template-columns:repeat(auto-fill,minmax(98px,1fr));padding:8px 8px 2px 2px;margin:-6px -8px 0 -2px}
+.tiles.mini .tile{min-height:76px;padding:8px}
 .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:8px}
 .tile{position:relative;display:flex;flex-direction:column;gap:4px;text-align:left;border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:10px;min-height:96px;min-width:0}
 .tile.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
@@ -1134,12 +1137,21 @@ function openEntryForm(type,e,preset){
   if(F.type!=='ausgabe'&&!F.items.length)F.items.push({pid:'',qty:1,price:0});
   renderEntryForm();
 }
+function productPicker(t){
+  const sm=stockMap();const cats=[...new Set(S.products.map(p=>p.cat||'Allgemein'))].sort((a,b)=>a.localeCompare(b,'de'));
+  if(!UI.fcat||(UI.fcat!=='alle'&&!cats.includes(UI.fcat)))UI.fcat='alle';
+  const l=S.products.filter(p=>UI.fcat==='alle'||(p.cat||'Allgemein')===UI.fcat).sort((a,b)=>a.name.localeCompare(b.name,'de'));
+  return `<div class="picker">${cats.length>1?`<div class="chips">${['alle',...cats].map(c=>`<button class="chip ${UI.fcat===c?'on':''}" data-act="fcat" data-v="${esc(c)}">${c==='alle'?'Alle':esc(c)}</button>`).join('')}</div>`:''}
+   <div class="tiles mini">${l.map(p=>{const q=F.items.filter(i=>i.pid===p.id).reduce((s,i)=>s+num(i.qty),0);
+    return `<button class="tile ${q?'on':''}" data-act="f-add" data-id="${p.id}">${q?`<span class="tile-q">${q}</span>`:''}<span class="tile-n">${esc(p.name)}</span><span class="tile-p num">${eur(t==='verkauf'?p.vk:p.ek)}</span><span class="tile-s ${(sm[p.id]||0)<=0?'neg':''}">${sm[p.id]||0} da</span></button>`}).join('')}</div>
+   <p class="hint" style="margin:6px 0 10px">Antippen zum Hinzufügen – nochmal tippen = +1. Menge und Preis unten anpassen.</p></div>`;
+}
 function renderEntryForm(){
   const t=F.type,kind=t==='verkauf'?'kunde':t==='einkauf'?'lieferant':null;
   const parties=[...new Set([...(kind?S[KIND[kind].col].map(c=>c.name):[]),...S.entries.filter(e=>e.type===t&&e.party).map(e=>e.party)])].sort((a,b)=>a.localeCompare(b,'de'));
   const items=t==='ausgabe'?'':`
    <div class="sec-head" style="margin:0 0 6px"><span class="eyebrow">Positionen</span>${canScan()?'<button class="add-btn" data-act="scan" data-v="form">Scannen</button>':''}</div>
-   ${S.products.length?'':'<div class="banner">Lege zuerst unter „Mehr → Produkte“ ein Produkt an.</div>'}
+   ${S.products.length?productPicker(t):'<div class="banner">Lege zuerst unter „Mehr → Produkte“ ein Produkt an.</div>'}
    <div class="items">${F.items.map((it,i)=>`<div class="item">
      <label>Produkt<select class="inp" data-row="${i}" data-k="pid">${productOptions(it.pid)}</select></label>
      <label>Menge<input class="inp num" type="number" inputmode="decimal" min="0" step="1" data-row="${i}" data-k="qty" value="${it.qty}"></label>
@@ -1727,6 +1739,10 @@ document.addEventListener('click',async ev=>{
     case'lagercat':UI.lagerCat=v;render();break;
     case'year':UI.year=+v;UI.barSel=null;render();break;
     case'new-entry':openEntryForm(v);break;
+    case'fcat':UI.fcat=v;renderEntryForm();break;
+    case'f-add':{const p=prodById(id);if(!p||!F)break;const row=F.items.find(i=>i.pid===p.id);
+      if(row)row.qty=num(row.qty)+1;else{const empty=F.items.find(i=>!i.pid);const it={pid:p.id,qty:1,price:F.type==='verkauf'?p.vk:p.ek};if(empty)Object.assign(empty,it);else F.items.push(it)}
+      renderEntryForm();break}
     case'ftype':if(!F.id){F.delivered=v!=='verkauf';F.ready=false;F.stage=v==='verkauf'?'geplant':'uebergeben';F.payStatus=v==='verkauf'?'0':'1'}F.type=v;F.items=v==='ausgabe'?[]:F.items.length?F.items.map(i=>{const p=prodById(i.pid);return{pid:i.pid,qty:i.qty,price:p?(v==='verkauf'?p.vk:p.ek):i.price}}):[{pid:'',qty:1,price:0}];renderEntryForm();break;
     case'add-row':F.items.push({pid:'',qty:1,price:0});renderEntryForm();break;
     case'rm-row':F.items.splice(+b.dataset.i,1);if(!F.items.length)F.items.push({pid:'',qty:1,price:0});renderEntryForm();break;
@@ -1845,7 +1861,7 @@ document.addEventListener('change',async ev=>{
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#sheetRoot').innerHTML)closeSheet()});
 
 render();Store.connect();
-const APP_VER='27';
+const APP_VER='28';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
