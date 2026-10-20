@@ -978,10 +978,10 @@ function openCheckout(){
    <div class="seg" style="margin-bottom:12px">${['bar','karte','ueb','paypal'].map(k=>`<button class="${UI.kpay===k?'on':''}" data-act="kpay" data-v="${k}">${k==='ueb'?'Überw.':METHODS[k]}</button>`).join('')}</div>
    ${UI.kpay==='bar'?`<div class="grid2"><label class="field"><span>Gegeben €</span><input class="inp num" id="coGiven" type="number" inputmode="decimal" step="0.01" placeholder="optional"></label><div class="field"><span>Rückgeld</span><div class="inp num" id="coChange" style="background:var(--surface-2)">–</div></div></div>`:''}
    <div class="field"><span>Übergabe</span></div>
-   <div class="seg" style="margin-bottom:12px">${[['uebergeben','Jetzt übergeben'],['geplant','Bestellung aufnehmen']].map(([k,l])=>`<button class="${(UI.kstage||'uebergeben')===k?'on':''}" data-act="kstage" data-v="${k}">${l}</button>`).join('')}</div>
-   <label class="check"><input type="checkbox" id="coOpen" ${UI.kstage==='geplant'?'checked':''}> Noch nicht bezahlt (offen buchen)</label>
+   <div class="seg" style="margin-bottom:12px">${[['uebergeben','Jetzt übergeben'],['geplant','Bestellung aufnehmen']].map(([k,l])=>`<button class="${(UI.kstage||'geplant')===k?'on':''}" data-act="kstage" data-v="${k}">${l}</button>`).join('')}</div>
+   <label class="check"><input type="checkbox" id="coOpen" ${(UI.kstage||'geplant')==='geplant'?'checked':''}> Noch nicht bezahlt (offen buchen)</label>
    <label class="field"><span>Notiz (optional)</span><textarea class="inp" id="coNote" rows="2" placeholder="z. B. Abholung Freitag, Geschenkverpackung …">${esc(UI.knote||'')}</textarea></label>
-   <button class="btn" data-act="co-save">${UI.kstage==='geplant'?'Bestellung speichern':'Verkauf buchen'} · <span id="coBtn">${eur(cartTotal())}</span></button>`);
+   <button class="btn" data-act="co-save">${(UI.kstage||'geplant')==='geplant'?'Bestellung speichern':'Verkauf buchen'} · <span id="coBtn">${eur(cartTotal())}</span></button>`);
   coRefresh();
 }
 const coFinal=()=>{const r=$('#coRecv');return r&&String(r.value).trim()!==''?r2(num(r.value)):cartTotal()};
@@ -994,7 +994,7 @@ function coRefresh(){
   if($('#coBtn'))$('#coBtn').textContent=eur(t);
   const g=$('#coGiven');if(g&&$('#coChange'))$('#coChange').textContent=g.value?eur(num(g.value)-t):'–'}
 async function doCheckout(){
-  const party=$('#coParty').value.trim(),open=$('#coOpen').checked,method=UI.kpay,planned=UI.kstage==='geplant',note=($('#coNote')?.value||'').trim();
+  const party=$('#coParty').value.trim(),open=$('#coOpen').checked,method=UI.kpay,planned=(UI.kstage||'geplant')==='geplant',note=($('#coNote')?.value||'').trim();
   const items=UI.cart.map(c=>{const p=prodById(c.pid);return{pid:c.pid,name:p?.name||'?',qty:c.qty,price:r2(num(c.price)),ek:r2(num(p?.ek)),tax:S.settings.kleinunternehmer?0:num(p?.tax??S.settings.defaultTax),unit:p?.unit||'Stk'}});
   const regular=r2(items.reduce((s,i)=>s+i.qty*i.price,0)),cogs=r2(items.reduce((s,i)=>s+i.qty*i.ek,0)),total=coFinal(),discount=r2(regular-total);
   const e={id:newId(),created:new Date().toISOString(),type:'verkauf',date:today(),party,partyAddress:custByName(party)?.address||'',method,note,total,regular,discount,extra:0,cogs,items,delivered:!planned,att:[],viaKasse:true,
@@ -1002,7 +1002,7 @@ async function doCheckout(){
   e.paid=isPaid(e);
   try{await Store.put('entries',e)}catch{return}
   if(party&&!custByName(party))await Store.put('customers',{id:newId(),name:party,address:'',phone:'',email:'',note:''}).catch(()=>{});
-  UI.cart=[];UI.kparty='';UI.krecv='';UI.knote='';UI.kstage='uebergeben';closeSheet();render();toast((planned?'Bestellung aufgenommen · ':'Verkauf gebucht · ')+eur(total)+(discount>0?' (Rabatt '+eur(discount)+')':''));
+  UI.cart=[];UI.kparty='';UI.krecv='';UI.knote='';UI.kstage='geplant';closeSheet();render();toast((planned?'Bestellung aufgenommen · ':'Verkauf gebucht · ')+eur(total)+(discount>0?' (Rabatt '+eur(discount)+')':''));
 }
 /* ---------- Barcode ---------- */
 const canScan=()=>!!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia);
@@ -1125,6 +1125,7 @@ function productOptions(sel){
 }
 function openEntryForm(type,e,preset){
   F=e?JSON.parse(JSON.stringify(e)):{id:null,newId:newId(),type,date:today(),party:'',partyAddress:'',items:[],extra:0,override:'',method:'bar',paid:true,delivered:true,note:'',expenseCat:S.settings.expenseCats[0]||'Sonstiges',amount:'',updateEk:true,att:[]};
+  if(!e&&type==='verkauf'){F.delivered=false;F.paid=false}
   if(preset)Object.assign(F,preset);
   ['party','partyAddress','note'].forEach(k=>F[k]=F[k]||'');F.items=F.items||[];F.att=F.att||[];F.delivered=F.type==='ausgabe'||F.delivered!==false;
   F.payStatus=e?(isPaid(e)?'1':isPartial(e)?'p':'0'):(F.paid===false?'0':'1');
@@ -1726,7 +1727,7 @@ document.addEventListener('click',async ev=>{
     case'lagercat':UI.lagerCat=v;render();break;
     case'year':UI.year=+v;UI.barSel=null;render();break;
     case'new-entry':openEntryForm(v);break;
-    case'ftype':F.type=v;F.items=v==='ausgabe'?[]:F.items.length?F.items.map(i=>{const p=prodById(i.pid);return{pid:i.pid,qty:i.qty,price:p?(v==='verkauf'?p.vk:p.ek):i.price}}):[{pid:'',qty:1,price:0}];renderEntryForm();break;
+    case'ftype':if(!F.id){F.delivered=v!=='verkauf';F.ready=false;F.stage=v==='verkauf'?'geplant':'uebergeben';F.payStatus=v==='verkauf'?'0':'1'}F.type=v;F.items=v==='ausgabe'?[]:F.items.length?F.items.map(i=>{const p=prodById(i.pid);return{pid:i.pid,qty:i.qty,price:p?(v==='verkauf'?p.vk:p.ek):i.price}}):[{pid:'',qty:1,price:0}];renderEntryForm();break;
     case'add-row':F.items.push({pid:'',qty:1,price:0});renderEntryForm();break;
     case'rm-row':F.items.splice(+b.dataset.i,1);if(!F.items.length)F.items.push({pid:'',qty:1,price:0});renderEntryForm();break;
     case'save-entry':saveEntry();break;
@@ -1844,7 +1845,7 @@ document.addEventListener('change',async ev=>{
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#sheetRoot').innerHTML)closeSheet()});
 
 render();Store.connect();
-const APP_VER='26';
+const APP_VER='27';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
