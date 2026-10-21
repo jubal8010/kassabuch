@@ -95,6 +95,8 @@ tr.done input{background:rgba(198,244,50,.10);color:var(--acc)}
 .sheet-bg.show{display:block}
 .sheet{position:fixed;left:0;right:0;bottom:0;z-index:51;background:var(--card);border-radius:20px 20px 0 0;max-height:88vh;overflow:auto;padding:8px 16px calc(20px + var(--safe-b));transform:translateY(100%);transition:transform .25s ease;max-width:640px;margin:0 auto}
 .sheet.show{transform:none}
+.sheet #sheetX{position:absolute;top:10px;right:12px;width:40px;height:40px;border-radius:50%;background:var(--card2);color:var(--text);font-size:18px;font-weight:700;z-index:2}
+.sheet h2{padding-right:48px}
 .sheet .grab{width:40px;height:5px;border-radius:9px;background:var(--line);margin:4px auto 12px}
 .sheet h2{margin:0 0 12px;font-size:20px}
 .chips{display:flex;gap:6px;overflow-x:auto;padding-bottom:6px;scrollbar-width:none}
@@ -123,13 +125,13 @@ label.lbl{display:block;font-size:13px;color:var(--muted);margin:10px 0 6px}
 </nav>
 
 <div class="sheet-bg" id="sheetBg"></div>
-<div class="sheet" id="sheet"><div class="grab"></div><div id="sheetBody"></div></div>
+<div class="sheet" id="sheet"><div class="grab"></div><button id="sheetX" aria-label="Schließen">✕</button><div id="sheetBody"></div></div>
 <div class="toast" id="toast"></div>
 <input type="file" id="importFile" accept="application/json,.json" hidden>
 
 <script>
 'use strict';
-const APP_VERSION='2.6';
+const APP_VERSION='2.7';
 /* ================= Daten ================= */
 const KEY='training.v1';
 const MUSCLES=['Brust','Obere Brust','Rücken','Latissimus','Unterer Rücken','Schultern','Hintere Schulter','Bizeps','Trizeps','Quadrizeps','Beinbeuger','Adduktoren','Po','Waden','Bauch','Unterarme','Ganzkörper','Cardio'];
@@ -870,7 +872,9 @@ $('#importFile').addEventListener('change',async e=>{
 /* ================= Sheet ================= */
 function sheet(html){$('#sheetBody').innerHTML=html;$('#sheetBg').classList.add('show');$('#sheet').classList.add('show');$('#sheet').scrollTop=0}
 function closeSheet(){$('#sheetBg').classList.remove('show');$('#sheet').classList.remove('show')}
-$('#sheetBg').onclick=closeSheet;
+$('#sheetBg').onclick=closeSheet;$('#sheetX').onclick=closeSheet;
+// nach unten wischen schließt das Fenster
+(()=>{let y0=null;const sh=$('#sheet');sh.addEventListener('touchstart',e=>{y0=sh.scrollTop<=0?e.touches[0].clientY:null},{passive:true});sh.addEventListener('touchend',e=>{if(y0!=null&&e.changedTouches[0].clientY-y0>90)closeSheet();y0=null},{passive:true})})();
 
 /* ================= Start ================= */
 load();
@@ -886,10 +890,10 @@ if('serviceWorker' in navigator&&location.protocol==='https:'){
 async function checkUpdate(){
   if(location.protocol!=='https:')return;
   try{const t=await (await fetch('index.html?v='+Date.now(),{cache:'no-store'})).text();const m=t.match(/APP_VERSION='([^']+)'/);
-    if(m&&m[1]!==APP_VERSION&&!document.querySelector('#sheet.show'))location.reload()}catch(e){}
+    if(m&&m[1]!==APP_VERSION&&!document.activeElement.matches('input,textarea,select'))location.reload()}catch(e){}
 }
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')checkUpdate()});
-checkUpdate();
+checkUpdate();setInterval(()=>{if(document.visibilityState==='visible')checkUpdate()},60000);
 // Persistenten Speicher anfragen, damit der Browser Daten nicht automatisch löscht
 if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});
 </script>
