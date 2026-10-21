@@ -70,8 +70,17 @@ tr.done input{background:rgba(198,244,50,.10);color:var(--acc)}
 .settype{font-size:11px;font-weight:800;border-radius:6px;padding:2px 0;display:inline-block;width:24px}
 .settype.w{color:var(--gold)}
 .settype.d{color:var(--blue)}
-.draghandle{touch-action:none;cursor:grab;font-size:22px;line-height:1;color:var(--muted);padding:6px 10px 6px 0;user-select:none;-webkit-user-select:none}
-.dragitem.dragging{position:relative;z-index:5;background:var(--card2);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.5);padding-left:8px;padding-right:8px}
+.draghandle{touch-action:none;cursor:grab;font-size:24px;line-height:1;color:var(--muted);padding:14px 12px 14px 4px;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;align-self:stretch;display:flex;align-items:center}
+.drow{display:flex;align-items:center;gap:4px;border-bottom:1px solid var(--line);background:var(--card)}
+.drow:last-child{border-bottom:0}
+.drow-main{flex:1;padding:12px 0;cursor:pointer;min-width:0}
+.dragitem.dragging{position:relative;z-index:5;background:var(--card2);border-radius:12px;box-shadow:0 10px 28px rgba(0,0,0,.55);border-bottom-color:transparent}
+.switch{position:relative;display:inline-block;width:50px;height:30px;flex:none}
+.switch input{opacity:0;width:0;height:0;position:absolute}
+.switch span{position:absolute;inset:0;background:var(--line);border-radius:99px;transition:.2s}
+.switch span:before{content:'';position:absolute;width:24px;height:24px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
+.switch input:checked+span{background:var(--acc)}
+.switch input:checked+span:before{transform:translateX(20px)}
 .list-item{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 2px;border-bottom:1px solid var(--line)}
 .list-item:last-child{border-bottom:0}
 .empty{text-align:center;padding:40px 20px;color:var(--muted)}
@@ -120,7 +129,7 @@ label.lbl{display:block;font-size:13px;color:var(--muted);margin:10px 0 6px}
 
 <script>
 'use strict';
-const APP_VERSION='2.5';
+const APP_VERSION='2.6';
 /* ================= Daten ================= */
 const KEY='training.v1';
 const MUSCLES=['Brust','Obere Brust','Rücken','Latissimus','Unterer Rücken','Schultern','Hintere Schulter','Bizeps','Trizeps','Quadrizeps','Beinbeuger','Adduktoren','Po','Waden','Bauch','Unterarme','Ganzkörper','Cardio'];
@@ -237,7 +246,7 @@ function workoutStats(w){
 /* ================= Navigation ================= */
 let tab='workout';
 const TITLES={workout:'Training',history:'Verlauf',progress:'Statistik',more:'Mehr'};
-function go(t){if(t==='progress'&&tab==='progress')progressEx=null;tab=t;try{sessionStorage.setItem('tab',t)}catch(e){}render();window.scrollTo(0,0)}
+function go(t){if(t==='progress'&&tab==='progress')progressEx=null;PAGES=[];tab=t;try{sessionStorage.setItem('tab',t)}catch(e){}render();window.scrollTo(0,0)}
 $('#tabs').addEventListener('click',e=>{const b=e.target.closest('button[data-tab]');if(b)go(b.dataset.tab)});
 function render(){
   document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===tab));
@@ -463,67 +472,151 @@ function newExercise(name,muscle,cb,editId){
   };
 }
 
-/* ================= Vorlagen ================= */
-function templateMenu(id){
-  const t=S.templates.find(x=>x.id===id);
-  sheet(`<h2>${esc(t.name)}</h2><div style="display:grid;gap:8px">
-    <button class="btn" id="te">Bearbeiten</button><button class="btn red" id="td">Löschen</button></div>`);
-  $('#te').onclick=()=>editTemplate(id);
-  $('#td').onclick=()=>{if(confirm('Vorlage löschen?')){S.templates=S.templates.filter(x=>x.id!==id);save();closeSheet();render()}};
+/* ================= Seiten (Bearbeiten) ================= */
+let PAGES=[];
+function openPage(fn){PAGES.push(fn);render();window.scrollTo(0,0)}
+function backPage(){PAGES.pop();render();window.scrollTo(0,0)}
+function pageHeader(title,sub=''){
+  $('#title').textContent=title;$('#title').style.fontSize=title.length>16?'21px':'';$('#subtitle').textContent=sub;
+  $('#hdrAct').innerHTML=`<button class="btn ghost" id="back">‹ Zurück</button>`;$('#back').onclick=backPage;
 }
-/* Drag & Drop (Touch + Maus) über einen Griff */
+const itemSummary=it=>[`${it.sets}×`,it.amrap?'max. Wdh':it.rMax?(it.rMin&&it.rMin!==it.rMax?`${it.rMin}–${it.rMax} Wdh`:`${it.rMax} Wdh`):'',getWW(it.exId)!=null?`${fmt(getWW(it.exId),2)} kg`:'',(it.drops||[]).length?`Drop ${fmt(num(it.drops[0]),2)} kg`:''].filter(Boolean).join(' · ');
+const kgStr=v=>v==null||v===''?'':fmt(num(v),2).replace(/\./g,'');
+
+/* Drag & Drop über den Griff ⠿ – Touch (iPhone/Android) und Maus */
 function sortable(list,onDrop){
   if(!list)return;
   list.querySelectorAll('[data-drag]').forEach(h=>{
-    h.addEventListener('pointerdown',e=>{
-      e.preventDefault();const el=h.closest('.dragitem');const from=[...list.children].indexOf(el);
-      let startY=e.clientY,offset=0;el.classList.add('dragging');h.setPointerCapture(e.pointerId);vib(15);
-      const sc=document.getElementById('sheet');let autoScroll=0,raf=null;
-      const loop=()=>{if(autoScroll){sc.scrollTop+=autoScroll;}raf=requestAnimationFrame(loop)};raf=requestAnimationFrame(loop);
-      const move=ev=>{
-        offset=ev.clientY-startY;el.style.transform=`translateY(${offset}px)`;
-        const r=sc.getBoundingClientRect();autoScroll=ev.clientY<r.top+60?-8:ev.clientY>r.bottom-60?8:0;
-        const prev=el.previousElementSibling,next=el.nextElementSibling;
-        if(prev&&prev.classList.contains('dragitem')){const pr=prev.getBoundingClientRect();if(ev.clientY<pr.top+pr.height/2){const hgt=pr.height;list.insertBefore(el,prev);startY-=hgt;offset+=hgt;el.style.transform=`translateY(${offset}px)`;vib(8)}}
-        if(next&&next.classList.contains('dragitem')){const nr=next.getBoundingClientRect();if(ev.clientY>nr.top+nr.height/2){const hgt=nr.height;list.insertBefore(next,el);startY+=hgt;offset-=hgt;el.style.transform=`translateY(${offset}px)`;vib(8)}}
-      };
-      const up=()=>{h.removeEventListener('pointermove',move);h.removeEventListener('pointerup',up);h.removeEventListener('pointercancel',up);
-        cancelAnimationFrame(raf);el.classList.remove('dragging');el.style.transform='';
-        const to=[...list.children].indexOf(el);if(to!==from)onDrop(from,to)};
-      h.addEventListener('pointermove',move);h.addEventListener('pointerup',up);h.addEventListener('pointercancel',up);
-    });
+    let el,from,startPageY,lastY,raf,active=false;
+    const frame=()=>{
+      if(!active)return;
+      if(lastY<90)window.scrollBy(0,-7);else if(lastY>innerHeight-150)window.scrollBy(0,7);
+      let off=lastY+scrollY-startPageY;
+      const prev=el.previousElementSibling,next=el.nextElementSibling;
+      if(prev){const r=prev.getBoundingClientRect();if(lastY<r.top+r.height/2){list.insertBefore(el,prev);startPageY-=r.height;off+=r.height;vib(8)}}
+      if(next){const r=next.getBoundingClientRect();if(lastY>r.top+r.height/2){list.insertBefore(next,el);startPageY+=r.height;off-=r.height;vib(8)}}
+      el.style.transform=`translateY(${off}px)`;raf=requestAnimationFrame(frame);
+    };
+    const start=y=>{el=h.closest('.dragitem');from=[...list.children].indexOf(el);startPageY=y+scrollY;lastY=y;active=true;el.classList.add('dragging');vib(15);raf=requestAnimationFrame(frame)};
+    const end=()=>{if(!active)return;active=false;cancelAnimationFrame(raf);el.classList.remove('dragging');el.style.transform='';
+      document.removeEventListener('touchmove',tm);document.removeEventListener('touchend',end);document.removeEventListener('touchcancel',end);
+      window.removeEventListener('mousemove',mm);window.removeEventListener('mouseup',end);
+      const to=[...list.children].indexOf(el);if(to!==from)onDrop(from,to)};
+    const tm=e=>{e.preventDefault();lastY=e.touches[0].clientY};
+    const mm=e=>{lastY=e.clientY};
+    h.addEventListener('touchstart',e=>{e.preventDefault();start(e.touches[0].clientY);
+      document.addEventListener('touchmove',tm,{passive:false});document.addEventListener('touchend',end);document.addEventListener('touchcancel',end)},{passive:false});
+    h.addEventListener('mousedown',e=>{e.preventDefault();start(e.clientY);window.addEventListener('mousemove',mm);window.addEventListener('mouseup',end)});
   });
 }
-function editTemplate(id){
-  const orig=S.templates.find(x=>x.id===id);
-  const t=orig?JSON.parse(JSON.stringify(orig)):{id:uid(),name:'',items:[]};
-  const draw=()=>{
-    sheet(`<h2>${orig?'Vorlage bearbeiten':'Neue Vorlage'}</h2>
-      <input class="f" id="tn" placeholder="Name, z. B. Push A" value="${esc(t.name)}">
-      ${t.items.length>1?'<div class="muted small" style="margin-top:10px">Reihenfolge ändern: am Griff ⠿ festhalten und ziehen.</div>':''}
-      <div style="margin:8px 0 12px" id="tlist">${t.items.map((it,i)=>`<div class="list-item dragitem" data-idx="${i}" style="flex-direction:column;align-items:stretch;gap:6px">
-        <div class="row between"><button class="draghandle" data-drag aria-label="Verschieben">⠿</button><b style="flex:1">${esc(exById(it.exId).name)}</b><button class="btn ghost" data-rm="${i}" style="color:var(--red)">✕</button></div>
-        <div class="row" style="gap:6px"><button class="btn ghost" data-dec="${i}">−</button><span style="min-width:52px;text-align:center">${it.sets} Sätze</span><button class="btn ghost" data-inc="${i}">+</button>
-          <input class="f" data-tf="rMin" data-i="${i}" inputmode="numeric" value="${esc(it.rMin??'')}" placeholder="8" style="width:48px;padding:8px;text-align:center">–<input class="f" data-tf="rMax" data-i="${i}" inputmode="numeric" value="${esc(it.rMax??'')}" placeholder="10" style="width:48px;padding:8px;text-align:center">
-          <input class="f" data-tf="kg" data-i="${i}" inputmode="decimal" value="${esc(it.kg??'')}" placeholder="kg" style="width:64px;padding:8px;text-align:center"></div>
-        <div class="row small muted" style="gap:8px"><label class="row" style="gap:6px"><input type="checkbox" data-amrap="${i}" ${it.amrap?'checked':''}> so oft wie möglich</label>
-          <span style="margin-left:auto">Drop → </span><input class="f" data-drop="${i}" inputmode="decimal" value="${esc((it.drops||[]).join('; '))}" placeholder="kg" style="width:72px;padding:6px;text-align:center"></div></div>`).join('')||'<div class="muted small">Noch keine Übungen.</div>'}</div>
-      <button class="btn block" id="tadd">${ICON.plus} Übung hinzufügen</button>
-      <button class="btn acc block" id="tsave" style="margin-top:10px">Speichern</button>`);
-    $('#tn').oninput=e=>t.name=e.target.value;
-    document.querySelectorAll('#sheet [data-amrap]').forEach(c=>c.onchange=()=>{t.items[+c.dataset.amrap].amrap=c.checked});
-    document.querySelectorAll('#sheet [data-drop]').forEach(inp=>inp.oninput=()=>{t.items[+inp.dataset.drop].drops=inp.value.split(/[;\s]+/).map(x=>num(x)).filter(x=>x>0)});
-    document.querySelectorAll('#sheet [data-tf]').forEach(inp=>inp.oninput=()=>{const it=t.items[+inp.dataset.i],v=inp.value.trim().replace(',','.');it[inp.dataset.tf]=v===''?'':num(v)});
-    $('#tadd').onclick=()=>pickExercise(exId=>{if(exId)t.items.push({exId,sets:3,rMin:8,rMax:10,kg:''});draw()});
-    document.querySelectorAll('#sheet [data-inc]').forEach(b=>b.onclick=()=>{t.items[+b.dataset.inc].sets++;draw()});
-    document.querySelectorAll('#sheet [data-dec]').forEach(b=>b.onclick=()=>{const it=t.items[+b.dataset.dec];if(it.sets>1)it.sets--;draw()});
-    document.querySelectorAll('#sheet [data-rm]').forEach(b=>b.onclick=()=>{t.items.splice(+b.dataset.rm,1);draw()});
-    sortable($('#tlist'),(from,to)=>{const [m]=t.items.splice(from,1);t.items.splice(to,0,m);draw()});
-    $('#tsave').onclick=()=>{if(!t.name.trim())return toast('Name fehlt');t.name=t.name.trim();
-      t.items.forEach(it=>{if(it.kg!==''&&it.kg!=null)setWW(it.exId,it.kg)});
-      if(orig)Object.assign(orig,t);else S.templates.push(t);save();closeSheet();render()};
+const dragRow=(inner,attrs='')=>`<div class="dragitem drow" ${attrs}><button class="draghandle" data-drag aria-label="Verschieben">⠿</button>${inner}</div>`;
+
+/* Trainingstag bearbeiten */
+function dayEditor(tplId){
+  const page=()=>{
+    const t=S.templates.find(x=>x.id===tplId);if(!t){PAGES.pop();return render()}
+    t.items.forEach(i=>{if(!i.id)i.id=uid()});
+    pageHeader('Trainingstag');
+    const v=$('#view');
+    v.innerHTML=`
+      <label class="lbl">Name</label>
+      <div class="row" style="gap:8px"><select class="f" id="dEmoji" style="width:72px;padding:12px 6px;text-align:center">${['🏋️','💪','🧱','🦵','🔥','⚡','🎯','🏃'].map(e=>`<option ${e===(t.emoji||'🏋️')?'selected':''}>${e}</option>`).join('')}</select>
+        <input class="f" id="dName" value="${esc(t.name)}" placeholder="z. B. Brust & Rücken"></div>
+      <div class="sect row between"><span class="tiny">Übungen (${t.items.length})</span>${t.items.length>1?'<span class="muted small">⠿ halten & ziehen</span>':''}</div>
+      <div class="card" style="padding:4px 10px" id="dlist">${t.items.map(it=>dragRow(`<div class="drow-main" data-item="${it.id}"><div>${esc(exById(it.exId).name)}</div><div class="muted small">${esc(itemSummary(it))}</div></div><span class="muted" style="font-size:20px">›</span>`)).join('')||'<div class="muted small" style="padding:12px 2px">Noch keine Übungen.</div>'}</div>
+      <button class="btn acc block" id="dAdd">${ICON.plus} Übung hinzufügen</button>
+      <button class="btn red block" id="dDel" style="margin-top:28px">Trainingstag löschen</button>`;
+    $('#dName').onchange=e=>{const n=e.target.value.trim();if(n){t.name=n;save();toast('Gespeichert')}else e.target.value=t.name};
+    $('#dEmoji').onchange=e=>{t.emoji=e.target.value;save()};
+    v.querySelectorAll('[data-item]').forEach(r=>r.onclick=()=>openPage(itemEditor(tplId,r.dataset.item)));
+    sortable($('#dlist'),(a,b)=>{const [m]=t.items.splice(a,1);t.items.splice(b,0,m);save();render()});
+    $('#dAdd').onclick=()=>pickExercise(exId=>{if(!exId)return;const it={id:uid(),exId,sets:2,rMin:8,rMax:10,kg:getWW(exId)??''};t.items.push(it);save();render();openPage(itemEditor(tplId,it.id))});
+    $('#dDel').onclick=()=>{if(!confirm(`„${t.name}“ wirklich löschen? Gespeicherte Trainings bleiben im Verlauf.`))return;
+      const ci=cycleIdx();const todayId=S.cycle.days[ci];
+      S.templates=S.templates.filter(x=>x.id!==tplId);S.cycle.days=S.cycle.days.filter(d=>d!==tplId);if(!S.cycle.days.length)S.cycle.days=['rest'];
+      const ni=S.cycle.days.indexOf(todayId);setToday(ni>=0?ni:Math.min(ci,S.cycle.days.length-1));save();backPage()};
   };
-  draw();
+  return page;
+}
+
+/* Eine Übung in einem Trainingstag */
+function itemEditor(tplId,itemId){
+  return ()=>{
+    const t=S.templates.find(x=>x.id===tplId),it=t&&t.items.find(i=>i.id===itemId);if(!it){PAGES.pop();return render()}
+    const ex=exById(it.exId);pageHeader(ex.name,t.name);
+    const v=$('#view'),ww=getWW(it.exId);
+    v.innerHTML=`
+      <div class="card"><div class="tiny">Arbeitsgewicht</div>
+        <div class="row" style="gap:8px;margin-top:10px"><button class="btn" data-wwstep="-2.5" style="width:64px">−2,5</button>
+          <input class="f" id="iWW" inputmode="decimal" value="${kgStr(ww)}" placeholder="–" style="flex:1;text-align:center;font-size:24px;font-weight:800;color:var(--acc)">
+          <button class="btn" data-wwstep="2.5" style="width:64px">+2,5</button></div>
+        <div class="muted small" style="margin-top:6px;text-align:center">kg · gilt für alle Trainingstage mit dieser Übung</div></div>
+      <div class="card"><div class="row between"><span class="tiny">Arbeitssätze</span>
+        <div class="row" style="gap:6px"><button class="btn" id="iSetM" style="width:46px">−</button><b style="min-width:32px;text-align:center;font-size:20px">${it.sets}</b><button class="btn" id="iSetP" style="width:46px">+</button></div></div></div>
+      <div class="card"><div class="row between"><span class="tiny">Wiederholungen</span>
+        <div class="row small" style="gap:8px">so oft wie möglich <label class="switch"><input type="checkbox" id="iAmrap" ${it.amrap?'checked':''}><span></span></label></div></div>
+        ${it.amrap?'':`<div class="row" style="gap:10px;margin-top:12px;justify-content:center"><input class="f" id="iRMin" inputmode="numeric" value="${esc(it.rMin??'')}" placeholder="8" style="width:80px;text-align:center;font-size:20px;font-weight:700"><span class="muted">bis</span><input class="f" id="iRMax" inputmode="numeric" value="${esc(it.rMax??'')}" placeholder="10" style="width:80px;text-align:center;font-size:20px;font-weight:700"><span class="muted">Wdh</span></div>`}</div>
+      <div class="card"><div class="row between"><span class="tiny">Dropsatz am Ende</span>
+        <label class="switch"><input type="checkbox" id="iDrop" ${(it.drops||[]).length?'checked':''}><span></span></label></div>
+        ${(it.drops||[]).length?`<div class="row" style="gap:10px;margin-top:12px;justify-content:center"><span class="muted">runter auf</span><input class="f" id="iDropKg" inputmode="decimal" value="${kgStr(it.drops[0])}" style="width:100px;text-align:center;font-size:20px;font-weight:700"><span class="muted">kg</span></div>`:''}</div>
+      <div style="display:grid;gap:8px;margin-top:6px">
+        <button class="btn" id="iSwap">Übung austauschen</button>
+        <button class="btn" id="iStats">Statistik dieser Übung</button>
+        <button class="btn red" id="iDel">Aus „${esc(t.name)}“ entfernen</button></div>`;
+    const sv=(rerender)=>{save();if(rerender)render()};
+    const wwi=$('#iWW');wwi.onfocus=()=>wwi.select();
+    wwi.onchange=()=>{const n=num(wwi.value);if(n>0){if(setWW(it.exId,n))toast(`Arbeitsgewicht: ${fmt(n,2)} kg`);sv(true)}else wwi.value=kgStr(getWW(it.exId))};
+    v.querySelectorAll('[data-wwstep]').forEach(b=>b.onclick=()=>{const n=Math.max(0,(getWW(it.exId)||0)+num(b.dataset.wwstep));if(n>0){setWW(it.exId,n);sv(true)}});
+    $('#iSetM').onclick=()=>{if(it.sets>1){it.sets--;sv(true)}};
+    $('#iSetP').onclick=()=>{if(it.sets<10){it.sets++;sv(true)}};
+    $('#iAmrap').onchange=e=>{it.amrap=e.target.checked;if(!it.amrap&&!it.rMax){it.rMin=8;it.rMax=10}sv(true)};
+    const rmin=$('#iRMin'),rmax=$('#iRMax');
+    if(rmin){rmin.onchange=()=>{it.rMin=rmin.value.trim()===''?'':num(rmin.value);sv()};rmax.onchange=()=>{it.rMax=rmax.value.trim()===''?'':num(rmax.value);sv()}}
+    $('#iDrop').onchange=e=>{it.drops=e.target.checked?[Math.round((getWW(it.exId)||20)*0.5/2.5)*2.5||20]:[];sv(true)};
+    const dk=$('#iDropKg');if(dk)dk.onchange=()=>{const n=num(dk.value);if(n>0){it.drops=[n];sv()}else dk.value=kgStr(it.drops[0])};
+    $('#iSwap').onclick=()=>pickExercise(id=>{if(id){it.exId=id;sv(true)}});
+    $('#iStats').onclick=()=>{PAGES=[];openExercise(it.exId)};
+    $('#iDel').onclick=()=>{if(confirm(`${ex.name} aus „${t.name}“ entfernen?`)){t.items=t.items.filter(i=>i.id!==itemId);save();backPage()}};
+  };
+}
+
+/* Übungsbibliothek */
+function libraryPage(){
+  let q='';
+  const page=()=>{
+    pageHeader('Alle Übungen');
+    const v=$('#view');
+    v.innerHTML=`<input class="f" id="lq" placeholder="Suchen …" value="${esc(q)}" autocomplete="off">
+      <button class="btn acc block" id="lNew" style="margin:10px 0 4px">${ICON.plus} Neue Übung</button><div id="llist"></div>`;
+    const draw=()=>{const ql=q.toLowerCase();const groups={};
+      S.exercises.filter(e=>e.name.toLowerCase().includes(ql)).forEach(e=>(groups[e.muscle||'Sonstige']=groups[e.muscle||'Sonstige']||[]).push(e));
+      $('#llist').innerHTML=Object.keys(groups).sort((a,b)=>MUSCLES.indexOf(a)-MUSCLES.indexOf(b)).map(m=>`<div class="sect tiny">${esc(m)}</div><div class="card" style="padding:4px 14px">${groups[m].sort((a,b)=>a.name.localeCompare(b.name,'de')).map(e=>`<div class="list-item" data-lex="${e.id}" style="cursor:pointer"><span>${esc(e.name)}</span><span class="muted" style="font-size:20px">›</span></div>`).join('')}</div>`).join('')||'<div class="muted small" style="padding:12px">Nichts gefunden.</div>';
+      $('#llist').querySelectorAll('[data-lex]').forEach(r=>r.onclick=()=>openPage(exercisePage(r.dataset.lex)))};
+    $('#lq').oninput=e=>{q=e.target.value.trim();draw()};
+    $('#lNew').onclick=()=>newExercise(q,'',id=>{render();if(id)openPage(exercisePage(id))});
+    draw();
+  };
+  return page;
+}
+function exercisePage(exId){
+  return ()=>{
+    const e=S.exercises.find(x=>x.id===exId);if(!e){PAGES.pop();return render()}
+    pageHeader(e.name);
+    const inDays=S.templates.filter(t=>t.items.some(i=>i.exId===exId));
+    const v=$('#view');
+    v.innerHTML=`<label class="lbl">Name</label><input class="f" id="eName" value="${esc(e.name)}">
+      <label class="lbl">Muskelgruppe</label><select class="f" id="eMus">${MUSCLES.map(m=>`<option ${m===e.muscle?'selected':''}>${m}</option>`).join('')}</select>
+      <label class="lbl">Arbeitsgewicht (kg)</label><input class="f" id="eWW" inputmode="decimal" value="${kgStr(getWW(exId))}" placeholder="–">
+      <div class="muted small" style="margin-top:12px">${inDays.length?'In: '+inDays.map(t=>esc(t.name)).join(', '):'In keinem Trainingstag.'}</div>
+      <div style="display:grid;gap:8px;margin-top:18px"><button class="btn" id="eStats">Statistik dieser Übung</button><button class="btn red" id="eDel">Übung löschen</button></div>`;
+    $('#eName').onchange=ev=>{const n=ev.target.value.trim();if(!n||S.exercises.some(x=>x.id!==exId&&x.name.toLowerCase()===n.toLowerCase())){ev.target.value=e.name;return toast(n?'Name gibt es schon':'Name fehlt')}e.name=n;save();render();toast('Gespeichert')};
+    $('#eMus').onchange=ev=>{e.muscle=ev.target.value;save();toast('Gespeichert')};
+    $('#eWW').onchange=ev=>{const n=num(ev.target.value);if(n>0){setWW(exId,n);save();toast('Gespeichert')}else ev.target.value=kgStr(getWW(exId))};
+    $('#eStats').onclick=()=>{PAGES=[];openExercise(exId)};
+    $('#eDel').onclick=()=>{const used=S.workouts.some(w=>w.exercises.some(x=>x.exId===exId));
+      if(!confirm(used?'Diese Übung kommt in deinem Verlauf vor. Trotzdem löschen? Der Verlauf bleibt, heißt dann aber „gelöschte Übung“.':'Übung löschen?'))return;
+      S.exercises=S.exercises.filter(x=>x.id!==exId);S.templates.forEach(t=>t.items=t.items.filter(i=>i.exId!==exId));save();backPage()};
+  };
 }
 
 /* ================= Verlauf ================= */
@@ -713,52 +806,43 @@ function drawChart(c,series,unit=''){
 
 /* ================= Mehr ================= */
 function renderMore(){
-  const v=$('#view');
+  if(PAGES.length)return PAGES[PAGES.length-1]();
+  const v=$('#view');const ci=cycleIdx();
   v.innerHTML=`
+    <div class="sect row between"><span class="tiny">Trainingsplan · ${S.cycle.days.length}-Tage-Zyklus</span>${S.cycle.days.length>1?'<span class="muted small">⠿ halten & ziehen</span>':''}</div>
+    <div class="card" style="padding:4px 10px" id="clist">${S.cycle.days.map((d,i)=>{const l=cycleLabel(d);return dragRow(`<div class="drow-main" data-day="${i}"><div><span class="muted small">Tag ${i+1}${i===ci?' · <span style="color:var(--acc)">heute</span>':''}</span><div>${l.emoji} ${esc(l.name)}</div>${l.t?`<div class="muted small">${l.t.items.length} Übungen</div>`:''}</div></div><span class="muted" style="font-size:20px">›</span>`)}).join('')}</div>
+    <div class="grid2"><button class="btn" id="cAddT">${ICON.plus} Trainingstag</button><button class="btn" id="cAddR">${ICON.plus} Rest Day</button></div>
+    <div class="sect tiny">Übungen</div>
+    <div class="card" style="padding:4px 14px"><div class="list-item" id="openLib" style="cursor:pointer"><span>Alle Übungen <span class="muted">(${S.exercises.length})</span></span><span class="muted" style="font-size:20px">›</span></div></div>
     <div class="sect tiny">Einstellungen</div>
-    <div class="card"><div class="list-item"><span>Pausentimer</span><select class="f" id="rest" style="width:auto">${[0,45,60,90,120,150,180,240,300].map(s=>`<option value="${s}" ${S.settings.rest===s?'selected':''}>${s?Math.floor(s/60)+':'+String(s%60).padStart(2,'0')+' min':'aus'}</option>`).join('')}</select></div></div>
-    <div class="sect tiny">Trainingszyklus (${S.cycle.days.length} Tage)</div>
-    <div class="card">${S.cycle.days.map((d,i)=>{const l=cycleLabel(d);return `<div class="list-item"><span class="muted" style="width:44px">Tag ${i+1}</span>
-      <select class="f" data-cyc="${i}" style="flex:1"><option value="rest" ${d==='rest'?'selected':''}>😴 Rest Day</option>${S.templates.map(t=>`<option value="${t.id}" ${t.id===d?'selected':''}>${t.emoji||'🏋️'} ${esc(t.name)}</option>`).join('')}</select>
-      <button class="btn ghost" data-cycrm="${i}" style="color:var(--red)">✕</button></div>`}).join('')}
-      <button class="btn block" id="cycadd" style="margin-top:8px">${ICON.plus} Tag hinzufügen</button></div>
-    <div class="sect row between"><span class="tiny">Trainingstage bearbeiten</span><button class="btn ghost small" id="newTpl">${ICON.plus} Neu</button></div>
-    <div class="card">${S.templates.map(t=>`<div class="list-item" data-tpledit="${t.id}" style="cursor:pointer"><div>${t.emoji?t.emoji+' ':''}${esc(t.name)}<div class="muted small">${t.items.length} Übungen</div></div><span class="muted small">Bearbeiten</span></div>`).join('')||'<span class="muted">Keine</span>'}</div>
-    <div class="sect tiny">Übungen (${S.exercises.length})</div>
-    <div class="card"><button class="btn block" id="manageEx">Übungen verwalten</button></div>
+    <div class="card" style="padding:4px 14px"><div class="list-item"><span>Pausentimer</span><select class="f" id="rest" style="width:auto">${[0,45,60,90,120,150,180,240,300].map(s=>`<option value="${s}" ${S.settings.rest===s?'selected':''}>${s?Math.floor(s/60)+':'+String(s%60).padStart(2,'0')+' min':'aus'}</option>`).join('')}</select></div></div>
     <div class="sect tiny">Daten-Backup</div>
-    <div class="card"><div class="muted small" style="margin-bottom:10px">Alle Daten liegen nur auf diesem Gerät. Exportiere regelmäßig ein Backup (z. B. in iCloud/Drive), dann ist nichts verloren, falls der Browser-Speicher gelöscht wird. App-Updates löschen keine Daten.</div>
+    <div class="card"><div class="muted small" style="margin-bottom:10px">Alle Daten liegen nur auf diesem Gerät. Exportiere regelmäßig ein Backup (z. B. in iCloud/Drive). App-Updates löschen keine Daten.</div>
       <div class="grid2"><button class="btn" id="exp">Exportieren</button><button class="btn" id="imp">Importieren</button></div>
       <button class="btn block" id="csv" style="margin-top:8px">Als CSV (Excel) exportieren</button>
       <div class="muted small" style="margin-top:8px">${S.lastBackup?'Letztes Backup: '+dFmt(S.lastBackup):'Noch kein Backup gemacht.'}</div></div>
-    <div class="sect tiny">Zum Homescreen hinzufügen</div>
-    <div class="card muted small">iPhone: In Safari auf „Teilen“ → „Zum Home-Bildschirm“.<br>Android: In Chrome ⋮ → „Zum Startbildschirm hinzufügen“.<br>Danach läuft die App im Vollbild und auch offline.</div>
     <button class="btn red block" id="reset" style="margin-top:12px">Alle Daten löschen</button>
     <div class="muted small" style="text-align:center;margin-top:16px">Training · v${APP_VERSION}</div>`;
+  // Zyklus umsortieren: der heutige Tag bleibt heute
+  sortable($('#clist'),(a,b)=>{const todayPos=cycleIdx();const arr=S.cycle.days.map((d,i)=>({d,i}));const [m]=arr.splice(a,1);arr.splice(b,0,m);
+    S.cycle.days=arr.map(x=>x.d);setToday(arr.findIndex(x=>x.i===todayPos));save();render()});
+  v.querySelectorAll('[data-day]').forEach(r=>r.onclick=()=>{const i=+r.dataset.day,d=S.cycle.days[i];
+    if(d!=='rest'&&S.templates.some(t=>t.id===d))return openPage(dayEditor(d));
+    sheet(`<h2>Tag ${i+1}</h2><div style="display:grid;gap:8px">
+      ${S.templates.map(t=>`<button class="btn" data-pick="${t.id}" style="justify-content:flex-start">${t.emoji||'🏋️'} ${esc(t.name)}</button>`).join('')}
+      <button class="btn" data-pick="rest" style="justify-content:flex-start">😴 Rest Day</button>
+      ${S.cycle.days.length>1?'<button class="btn red" id="cRm">Tag aus dem Zyklus entfernen</button>':''}</div>`);
+    document.querySelectorAll('#sheet [data-pick]').forEach(b=>b.onclick=()=>{S.cycle.days[i]=b.dataset.pick;save();closeSheet();render()});
+    const rm=$('#cRm');if(rm)rm.onclick=()=>{const ci=cycleIdx();S.cycle.days.splice(i,1);setToday(Math.min(ci>i?ci-1:ci,S.cycle.days.length-1));save();closeSheet();render()};
+  });
+  $('#cAddT').onclick=()=>{const t={id:uid(),name:'Neuer Trainingstag',emoji:'🏋️',items:[]};S.templates.push(t);const ci=cycleIdx();S.cycle.days.push(t.id);setToday(ci);save();openPage(dayEditor(t.id));setTimeout(()=>{const n=$('#dName');n&&(n.focus(),n.select())},100)};
+  $('#cAddR').onclick=()=>{const ci=cycleIdx();S.cycle.days.push('rest');setToday(ci);save();render()};
+  $('#openLib').onclick=()=>openPage(libraryPage());
   $('#rest').onchange=e=>{S.settings.rest=+e.target.value;save();toast('Gespeichert')};
-  $('#manageEx').onclick=manageExercises;
-  $('#newTpl').onclick=()=>editTemplate(null);
-  v.querySelectorAll('[data-tpledit]').forEach(r=>r.onclick=()=>templateMenu(r.dataset.tpledit));
-  const keepToday=fn=>{const ci=cycleIdx();fn();setToday(Math.min(ci,S.cycle.days.length-1));renderMore()};
-  v.querySelectorAll('[data-cyc]').forEach(s=>s.onchange=()=>{S.cycle.days[+s.dataset.cyc]=s.value;save();toast('Gespeichert')});
-  v.querySelectorAll('[data-cycrm]').forEach(b=>b.onclick=()=>{if(S.cycle.days.length>1)keepToday(()=>S.cycle.days.splice(+b.dataset.cycrm,1))});
-  $('#cycadd').onclick=()=>keepToday(()=>S.cycle.days.push('rest'));
   $('#exp').onclick=exportJSON;
   $('#imp').onclick=()=>$('#importFile').click();
   $('#csv').onclick=exportCSV;
   $('#reset').onclick=()=>{if(confirm('Wirklich ALLE Daten löschen? Das kann nicht rückgängig gemacht werden.')&&confirm('Sicher? Vorher besser ein Backup exportieren.')){localStorage.removeItem(KEY);load();render();toast('Zurückgesetzt')}};
-}
-function manageExercises(){
-  let muscle='';
-  const draw=()=>{
-    sheet(`<h2>Übungen</h2><button class="btn acc block" id="mxnew" style="margin-bottom:10px">${ICON.plus} Neue Übung</button>
-      <div class="chips" style="margin-bottom:6px"><button class="chip ${!muscle?'on':''}" data-m="">Alle</button>${MUSCLES.map(m=>`<button class="chip ${muscle===m?'on':''}" data-m="${m}">${m}</button>`).join('')}</div>
-      ${S.exercises.filter(e=>!muscle||e.muscle===muscle).sort((a,b)=>a.name.localeCompare(b.name,'de')).map(e=>`<div class="list-item" data-e="${e.id}" style="cursor:pointer"><div>${esc(e.name)}<div class="muted small">${esc(e.muscle)}</div></div><span class="muted small">Bearbeiten</span></div>`).join('')}`);
-    $('#mxnew').onclick=()=>newExercise('',muscle,()=>draw());
-    document.querySelectorAll('#sheet .chip').forEach(c=>c.onclick=()=>{muscle=c.dataset.m;draw()});
-    document.querySelectorAll('#sheet [data-e]').forEach(r=>r.onclick=()=>newExercise('','',()=>draw(),r.dataset.e));
-  };
-  draw();
 }
 function download(name,text,type){
   const blob=new Blob([text],{type});
