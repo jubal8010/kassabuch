@@ -88,6 +88,19 @@ tr.done input{background:rgba(198,244,50,.10);color:var(--acc)}
 /* timer */
 #timer{position:fixed;left:12px;right:12px;bottom:calc(84px + var(--safe-b));z-index:40;background:var(--acc);color:var(--acc-ink);border-radius:16px;padding:10px 14px;display:none;align-items:center;justify-content:space-between;box-shadow:0 10px 30px rgba(0,0,0,.45);max-width:616px;margin:0 auto}
 #timer.show{display:flex}
+body:not(.tab-workout) #timer.show{display:none}
+:root{--cw:54px}
+.srow{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)}
+.srow:last-child{border-bottom:0}
+.sname{flex:1;min-width:0;font-size:14px;line-height:1.25}
+.sgrid{display:grid;gap:5px;flex:none}
+.scell{background:var(--card2);border-radius:9px;padding:5px 0 4px;text-align:center;line-height:1.1}
+.scell b{display:block;font-size:14px;font-variant-numeric:tabular-nums}
+.scell span{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.scell.d{background:rgba(93,180,255,.12)}.scell.d span{color:var(--blue)}
+.scell.w{background:rgba(255,201,74,.10)}.scell.w span{color:var(--gold)}
+.scell.hl{background:rgba(198,244,50,.16);box-shadow:inset 0 0 0 1.5px var(--acc)}.scell.hl b{color:var(--acc)}
+@media (max-width:370px){:root{--cw:48px}.scell b{font-size:13px}}
 #timer b{font-size:24px;font-variant-numeric:tabular-nums}
 #timer button{background:rgba(0,0,0,.12);border-radius:10px;padding:8px 11px;font-weight:700;color:var(--acc-ink)}
 /* sheet */
@@ -131,7 +144,7 @@ label.lbl{display:block;font-size:13px;color:var(--muted);margin:10px 0 6px}
 
 <script>
 'use strict';
-const APP_VERSION='2.7';
+const APP_VERSION='2.8';
 /* ================= Daten ================= */
 const KEY='training.v1';
 const MUSCLES=['Brust','Obere Brust','Rücken','Latissimus','Unterer Rücken','Schultern','Hintere Schulter','Bizeps','Trizeps','Quadrizeps','Beinbeuger','Adduktoren','Po','Waden','Bauch','Unterarme','Ganzkörper','Cardio'];
@@ -252,6 +265,7 @@ function go(t){if(t==='progress'&&tab==='progress')progressEx=null;PAGES=[];tab=
 $('#tabs').addEventListener('click',e=>{const b=e.target.closest('button[data-tab]');if(b)go(b.dataset.tab)});
 function render(){
   document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===tab));
+  document.body.className='tab-'+tab;
   $('#title').style.fontSize='';
   $('#title').textContent=TITLES[tab];$('#subtitle').textContent='';$('#hdrAct').innerHTML='';
   ({workout:renderWorkout,history:renderHistory,progress:renderProgress,more:renderMore})[tab]();
@@ -622,6 +636,12 @@ function exercisePage(exId){
 }
 
 /* ================= Verlauf ================= */
+/* Sätze als ausgerichtete Zellen: Gewicht oben, Wdh darunter; Spalten = Satz 1, 2, 3 … */
+function setCells(sets,cols,hl){
+  cols=Math.max(cols||0,sets.length);
+  return `<div class="sgrid" style="grid-template-columns:repeat(${cols},var(--cw))">${sets.map(x=>`<div class="scell${x.type==='d'?' d':x.type==='w'?' w':''}${x===hl?' hl':''}"><b>${fmt(num(x.kg),2)}</b><span>${x.type==='d'?'D ':x.type==='w'?'W ':''}×${x.reps}</span></div>`).join('')}</div>`;
+}
+const srow=(left,sets,cols,hl,attrs='')=>`<div class="srow" ${attrs}><div class="sname">${left}</div>${setCells(sets,cols,hl)}</div>`;
 const setTxt=(s,lbl=true)=>`${lbl&&s.type==='d'?'<span style="color:var(--blue)">D</span> ':lbl&&s.type==='w'?'<span style="color:var(--gold)">W</span> ':''}${fmt(num(s.kg),2)}×${s.reps}`;
 function renderHistory(){
   const v=$('#view');
@@ -631,8 +651,8 @@ function renderHistory(){
     const m=dFmt(w.start,{month:'long',year:'numeric'});
     if(m!==month){month=m;html+=`<div class="sect tiny">${m}</div>`}
     html+=`<div class="card" data-w="${w.id}" style="cursor:pointer">
-      <div class="row between"><b>${esc(w.name)}</b><span class="muted small">${dFmt(w.start,{weekday:'short',day:'2-digit',month:'2-digit'})}</span></div>
-      ${w.exercises.map(e=>`<div class="list-item" style="padding:7px 0;align-items:flex-start"><span class="small">${esc(exById(e.exId).name)}</span><span class="small" style="text-align:right">${e.sets.map(x=>setTxt(x)).join(' · ')}</span></div>`).join('')}
+      <div class="row between"><b style="font-size:17px">${esc(w.name)}</b><span class="muted small">${dFmt(w.start,{weekday:'short',day:'2-digit',month:'2-digit'})}${w.end&&w.end-w.start>5*6e4?' · '+dur(w.end-w.start):''}</span></div>
+      <div style="margin-top:6px">${(()=>{const cols=Math.max(...w.exercises.map(e=>e.sets.length));return w.exercises.map(e=>srow(esc(exById(e.exId).name),e.sets,cols)).join('')})()}</div>
     </div>`;
   }
   v.innerHTML=html;
@@ -714,8 +734,8 @@ function renderProgress(){
   progressEx=null;
   const v=$('#view');
   const row=id=>{const ss=exSessions(id),l=ss[ss.length-1];
-    return `<div class="list-item" data-ex="${id}" style="cursor:pointer;align-items:flex-start"><div><div>${esc(exById(id).name)}</div>${l?`<div class="muted small">${dFmt(l.t,{day:'2-digit',month:'2-digit'})}</div>`:''}</div>
-      <span class="small" style="text-align:right">${l?l.sets.map(x=>setTxt(x)).join(' · '):'<span class="muted">noch nichts</span>'}</span></div>`};
+    const left=`${esc(exById(id).name)}${l?`<div class="muted" style="font-size:11px">${dFmt(l.t,{day:'2-digit',month:'2-digit'})}</div>`:''}`;
+    return l?srow(left,l.sets,4,null,`data-ex="${id}" style="cursor:pointer"`):`<div class="srow" data-ex="${id}" style="cursor:pointer"><div class="sname">${left}</div><span class="muted small">noch nichts</span></div>`};
   const inPlan=new Set();
   let html=overviewHtml()+`<div class="sect tiny" style="margin-top:22px">Übungen</div>`+S.templates.map(t=>{t.items.forEach(i=>inPlan.add(i.exId));return `<div class="sect tiny">${t.emoji?t.emoji+' ':''}${esc(t.name)}</div><div class="card">${t.items.filter(i=>S.exercises.some(e=>e.id===i.exId)).map(i=>row(i.exId)).join('')}</div>`}).join('');
   const other=[...new Set(S.workouts.flatMap(w=>w.exercises.map(e=>e.exId)))].filter(id=>!inPlan.has(id)&&S.exercises.some(e=>e.id===id));
@@ -772,8 +792,7 @@ function renderExercise(){
       return ks.length?`<div class="sect tiny">Meiste Wdh pro Gewicht</div><div class="card">${ks.map(k=>`<div class="list-item" style="padding:9px 0"><span><b>${fmt(k,2)} kg</b></span><span class="small"><b>${m[k].r} Wdh</b> <span class="muted">· ${dFmt(m[k].t,{day:'2-digit',month:'2-digit',year:'2-digit'})}</span></span></div>`).join('')}</div>`:''})()}
     ${M==='ww'&&wl.length?`<div class="sect tiny">Änderungen Arbeitsgewicht</div><div class="card">${[...wl].reverse().map((x,i,a)=>{const prev=a[i+1];const d=prev?x.kg-prev.kg:0;return `<div class="list-item" style="padding:9px 0"><span class="muted small">${dFmt(x.t,{day:'2-digit',month:'2-digit',year:'2-digit'})}</span><span><b>${fmt(x.kg,2)} kg</b>${prev?` <span class="small" style="color:${d>0?'var(--acc)':'var(--red)'}">${d>0?'+':''}${fmt(d,2)}</span>`:' <span class="muted small">Start</span>'}</span></div>`}).join('')}</div>`:''}
     ${ss.length?'<div class="sect tiny">Alle Trainings</div>':''}
-    <div class="card" ${ss.length?'':'hidden'}>${[...ss].reverse().map(x=>{const h=hl?hl(x):null;return `<div class="list-item" style="align-items:flex-start"><span class="muted small" style="white-space:nowrap">${dFmt(x.t,{weekday:'short',day:'2-digit',month:'2-digit',year:'2-digit'})}</span>
-      <span class="small" style="text-align:right">${x.sets.map(s=>s===h?`<b style="color:var(--acc)">${setTxt(s)}</b>`:setTxt(s)).join(' · ')}</span></div>`}).join('')}</div>`;
+    <div class="card" ${ss.length?'':'hidden'}>${(()=>{const cols=Math.max(0,...ss.map(x=>x.sets.length));return [...ss].reverse().map(x=>srow(`<span class="muted">${dFmt(x.t,{weekday:'short',day:'2-digit',month:'2-digit'})}</span>`,x.sets,cols,hl?hl(x):null)).join('')})()}</div>`;
   v.querySelectorAll('[data-pm]').forEach(c=>c.onclick=()=>{progressMetric=c.dataset.pm;renderExercise()});
   drawChart($('#pchart'),series,unit);
 }
