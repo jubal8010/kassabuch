@@ -144,7 +144,7 @@ label.lbl{display:block;font-size:13px;color:var(--muted);margin:10px 0 6px}
 
 <script>
 'use strict';
-const APP_VERSION='2.10';
+const APP_VERSION='2.11';
 /* ================= Daten ================= */
 const KEY='training.v1';
 const MUSCLES=['Brust','Obere Brust','Rücken','Latissimus','Unterer Rücken','Schultern','Hintere Schulter','Bizeps','Trizeps','Quadrizeps','Beinbeuger','Adduktoren','Po','Waden','Bauch','Unterarme','Ganzkörper','Cardio'];
@@ -392,6 +392,8 @@ function bindWorkout(v){
         else startTimer(S.settings.rest);
       }else s.done=false;
       save();renderWorkout();
+      // letzter offener Satz abgehakt → Training automatisch beenden
+      if(s.done&&A.exercises.length&&A.exercises.every(e=>e.sets.every(x=>x.done))){stopTimer();setTimeout(()=>{if(S.active===A&&A.exercises.every(e=>e.sets.every(x=>x.done)))finishWorkout()},600)}
     });
     card.querySelectorAll('[data-type]').forEach(b=>b.onclick=()=>{const s=ex.sets[+b.dataset.type];s.type=s.type==='w'?'d':s.type==='d'?'n':'w';save();renderWorkout()});
     card.querySelector('[data-addset]').onclick=()=>{const last=ex.sets[ex.sets.length-1];ex.sets.push({kg:last?last.kg:'',reps:last?last.reps:'',done:false,type:'n',ph:last?last.ph:null});save();renderWorkout()};
