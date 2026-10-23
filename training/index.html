@@ -144,7 +144,7 @@ label.lbl{display:block;font-size:13px;color:var(--muted);margin:10px 0 6px}
 
 <script>
 'use strict';
-const APP_VERSION='2.8';
+const APP_VERSION='2.9';
 /* ================= Daten ================= */
 const KEY='training.v1';
 const MUSCLES=['Brust','Obere Brust','Rücken','Latissimus','Unterer Rücken','Schultern','Hintere Schulter','Bizeps','Trizeps','Quadrizeps','Beinbeuger','Adduktoren','Po','Waden','Bauch','Unterarme','Ganzkörper','Cardio'];
@@ -287,6 +287,7 @@ function renderWorkout(){
       <div class="card" style="background:linear-gradient(135deg,#232a12,#17191e 70%)">
         <div class="row between"><span class="tiny" style="color:var(--acc)">Heute · ${dFmt(Date.now(),{weekday:'long',day:'numeric',month:'numeric'})}</span><button class="btn ghost small" id="chgDay" style="padding:4px 6px">ändern</button></div>
         <div class="big" style="margin:6px 0 2px">${today.emoji} ${esc(today.name)}</div>
+        ${today.t?`<div class="small" style="color:var(--acc);font-weight:600">${tplTime(today.t)}</div>`:''}
         ${today.t?(doneToday?`<div style="color:var(--acc);font-weight:600;margin:8px 0 12px">✅ Erledigt – stark!</div>`:exList(today.t,true))
           :'<div class="muted" style="margin:6px 0 4px">Erholung – Muskeln wachsen in der Pause.</div>'}
         ${today.t&&!doneToday?`<button class="btn acc block" data-start="${today.t.id}">Training starten</button>`:''}
@@ -294,6 +295,7 @@ function renderWorkout(){
       ${next?`<div class="card">
         <span class="tiny">Als Nächstes · ${off===1?'morgen':dFmt(nextDate,{weekday:'long',day:'numeric',month:'numeric'})}</span>
         <div style="font-size:20px;font-weight:700;margin:6px 0 0">${next.emoji} ${esc(next.name)}</div>
+        ${next.t?`<div class="muted small" style="margin-top:2px">${tplTime(next.t)}</div>`:''}
         ${next.t?exList(next.t,false):''}
         ${!today.t&&next.t?`<button class="btn block" data-start="${next.t.id}" style="margin-top:8px">Jetzt schon starten</button>`:''}
       </div>`:''}`;
@@ -496,6 +498,9 @@ function pageHeader(title,sub=''){
   $('#title').textContent=title;$('#title').style.fontSize=title.length>16?'21px':'';$('#subtitle').textContent=sub;
   $('#hdrAct').innerHTML=`<button class="btn ghost" id="back">‹ Zurück</button>`;$('#back').onclick=backPage;
 }
+// Geschätzte Trainingszeit: 1 Minute pro Satz (inkl. Dropsätze), Pausen nicht eingerechnet
+const tplSets=t=>t.items.reduce((a,i)=>a+num(i.sets)+((i.drops||[]).length),0);
+const tplTime=t=>`⏱ ca. ${tplSets(t)} min ohne Pausen · ${tplSets(t)} Sätze`;
 const itemSummary=it=>[`${it.sets}×`,it.amrap?'max. Wdh':it.rMax?(it.rMin&&it.rMin!==it.rMax?`${it.rMin}–${it.rMax} Wdh`:`${it.rMax} Wdh`):'',getWW(it.exId)!=null?`${fmt(getWW(it.exId),2)} kg`:'',(it.drops||[]).length?`Drop ${fmt(num(it.drops[0]),2)} kg`:''].filter(Boolean).join(' · ');
 const kgStr=v=>v==null||v===''?'':fmt(num(v),2).replace(/\./g,'');
 
@@ -538,7 +543,7 @@ function dayEditor(tplId){
       <label class="lbl">Name</label>
       <div class="row" style="gap:8px"><select class="f" id="dEmoji" style="width:72px;padding:12px 6px;text-align:center">${['🏋️','💪','🧱','🦵','🔥','⚡','🎯','🏃'].map(e=>`<option ${e===(t.emoji||'🏋️')?'selected':''}>${e}</option>`).join('')}</select>
         <input class="f" id="dName" value="${esc(t.name)}" placeholder="z. B. Brust & Rücken"></div>
-      <div class="sect row between"><span class="tiny">Übungen (${t.items.length})</span>${t.items.length>1?'<span class="muted small">⠿ halten & ziehen</span>':''}</div>
+      <div class="sect row between"><span class="tiny">Übungen (${t.items.length}) · ca. ${tplSets(t)} min</span>${t.items.length>1?'<span class="muted small">⠿ halten & ziehen</span>':''}</div>
       <div class="card" style="padding:4px 10px" id="dlist">${t.items.map(it=>dragRow(`<div class="drow-main" data-item="${it.id}"><div>${esc(exById(it.exId).name)}</div><div class="muted small">${esc(itemSummary(it))}</div></div><span class="muted" style="font-size:20px">›</span>`)).join('')||'<div class="muted small" style="padding:12px 2px">Noch keine Übungen.</div>'}</div>
       <button class="btn acc block" id="dAdd">${ICON.plus} Übung hinzufügen</button>
       <button class="btn red block" id="dDel" style="margin-top:28px">Trainingstag löschen</button>`;
@@ -831,7 +836,7 @@ function renderMore(){
   const v=$('#view');const ci=cycleIdx();
   v.innerHTML=`
     <div class="sect row between"><span class="tiny">Trainingsplan · ${S.cycle.days.length}-Tage-Zyklus</span>${S.cycle.days.length>1?'<span class="muted small">⠿ halten & ziehen</span>':''}</div>
-    <div class="card" style="padding:4px 10px" id="clist">${S.cycle.days.map((d,i)=>{const l=cycleLabel(d);return dragRow(`<div class="drow-main" data-day="${i}"><div><span class="muted small">Tag ${i+1}${i===ci?' · <span style="color:var(--acc)">heute</span>':''}</span><div>${l.emoji} ${esc(l.name)}</div>${l.t?`<div class="muted small">${l.t.items.length} Übungen</div>`:''}</div></div><span class="muted" style="font-size:20px">›</span>`)}).join('')}</div>
+    <div class="card" style="padding:4px 10px" id="clist">${S.cycle.days.map((d,i)=>{const l=cycleLabel(d);return dragRow(`<div class="drow-main" data-day="${i}"><div><span class="muted small">Tag ${i+1}${i===ci?' · <span style="color:var(--acc)">heute</span>':''}</span><div>${l.emoji} ${esc(l.name)}</div>${l.t?`<div class="muted small">${l.t.items.length} Übungen · ca. ${tplSets(l.t)} min</div>`:''}</div></div><span class="muted" style="font-size:20px">›</span>`)}).join('')}</div>
     <div class="grid2"><button class="btn" id="cAddT">${ICON.plus} Trainingstag</button><button class="btn" id="cAddR">${ICON.plus} Rest Day</button></div>
     <div class="sect tiny">Übungen</div>
     <div class="card" style="padding:4px 14px"><div class="list-item" id="openLib" style="cursor:pointer"><span>Alle Übungen <span class="muted">(${S.exercises.length})</span></span><span class="muted" style="font-size:20px">›</span></div></div>
