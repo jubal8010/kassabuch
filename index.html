@@ -1223,6 +1223,8 @@ function renderEntryForm(){
    ${t==='verkauf'?`<div class="grid2">
      <label class="field"><span>Versand / Service €</span><input class="inp num" type="number" inputmode="decimal" min="0" step="0.01" data-f="extra" value="${F.extra||''}" placeholder="0"></label>
      <label class="field"><span>Tatsächlich erhalten €</span><input class="inp num" type="number" inputmode="decimal" min="0" step="0.01" data-f="override" value="${F.override}" placeholder="leer = regulär"></label></div>${partnerSelect('data-f="partnerId"',F.partnerId)}`:''}
+   ${t==='einkauf'?`<label class="field"><span>Versandkosten €</span><input class="inp num" type="number" inputmode="decimal" min="0" step="0.01" data-f="extra" value="${F.extra||''}" placeholder="0"></label>
+     <label class="check"><input type="checkbox" data-f="shipToEk" ${F.shipToEk!==false?'checked':''}> Versand anteilig in den Einkaufspreis einrechnen <span class="muted" id="shipShare" style="font-size:12px"></span></label>`:''}
    ${t==='einkauf'&&!F.id?`<label class="check"><input type="checkbox" data-f="updateEk" ${F.updateEk?'checked':''}> Einkaufspreise im Produkt aktualisieren</label>`:''}
    <div class="summary" id="fsum"></div>
    ${t==='verkauf'?`<div class="field"><span>Übergabe</span></div>
@@ -1247,7 +1249,7 @@ function renderEntryForm(){
 function formCalc(){
   if(F.type==='ausgabe')return{total:r2(num(F.amount))};
   const sub=r2(F.items.reduce((s,i)=>s+num(i.qty)*num(i.price),0));
-  if(F.type==='einkauf')return{sub,total:sub};
+  if(F.type==='einkauf'){const ship=r2(num(F.extra));return{sub,ship,total:r2(sub+ship)}}
   const regular=r2(sub+num(F.extra));
   const total=String(F.override).trim()!==''?r2(num(F.override)):regular;
   const cogs=r2(F.items.reduce((s,i)=>s+num(i.qty)*num(i.ek??prodById(i.pid)?.ek),0));
@@ -1267,7 +1269,8 @@ function updateSummary(){
     ${(()=>{const pt=partnerSnap(F.partnerId,F.partner);if(!pt)return'';const pv=provAmt({total:c.total,cogs:c.cogs,partner:pt});
       return `<div class="l"><span>Provision ${provDesc(pt)}</span><span class="num neg">−${eur(pv)}</span></div><div class="l"><span><b>Dein Gewinn</b></span><span class="num pos"><b>${eur(c.total-c.cogs-pv)}</b></span></div>`})()}`;
   }else if(F.type==='einkauf'){const vw=r2(F.items.reduce((s,i)=>s+num(i.qty)*num(prodById(i.pid)?.vk),0));
-    el.innerHTML=`<div class="l big"><span>Einkaufssumme</span><span class="num">${eur(c.total)}</span></div>
+    const sh=$('#shipShare');if(sh){const q=F.items.reduce((s,i)=>s+num(i.qty),0);sh.textContent=c.ship>0&&F.shipToEk!==false&&c.sub>0?`(+${Math.round(c.ship/c.sub*1000)/10} % je Stück)`:''}
+    el.innerHTML=`${c.ship?`<div class="l"><span>Ware</span><span class="num">${eur(c.sub)}</span></div><div class="l"><span>Versandkosten</span><span class="num">${eur(c.ship)}</span></div>`:''}<div class="l big"><span>Einkaufssumme</span><span class="num">${eur(c.total)}</span></div>
     <div class="l"><span>Verkaufswert (VK)</span><span class="num">${eur(vw)}</span></div>
     <div class="l"><span>Möglicher Rohertrag</span><span class="num ${vw-c.total>=0?'pos':'neg'}">${eur(vw-c.total)}${vw>0?' · '+Math.round((vw-c.total)/vw*100)+' %':''}</span></div>`;
   }else el.innerHTML=`<div class="l big" style="border:0;margin:0;padding:0"><span>Ausgabe</span><span class="num">${eur(c.total)}</span></div>`;
@@ -1284,7 +1287,9 @@ async function saveEntry(){
   else if(F.type==='einkauf'){e.delivered=!!F.delivered;delete e.ready}
   if(F.type==='ausgabe'){e.expenseCat=F.expenseCat;delete e.items}
   else{
-    e.items=F.items.map(i=>{const p=prodById(i.pid);return{pid:i.pid,name:i.name||p?.name||'?',qty:num(i.qty),price:r2(num(i.price)),ek:r2(F.type==='verkauf'?num(i.ek??p?.ek):num(i.price)),tax:i.tax??(S.settings.kleinunternehmer?0:num(p?.tax??S.settings.defaultTax)),unit:i.unit||p?.unit||'Stk'}});
+    const shipF=F.type==='einkauf'&&F.shipToEk!==false&&c.sub>0?1+num(F.extra)/c.sub:1;
+    e.items=F.items.map(i=>{const p=prodById(i.pid);return{pid:i.pid,name:i.name||p?.name||'?',qty:num(i.qty),price:r2(num(i.price)),ek:r2(F.type==='verkauf'?num(i.ek??p?.ek):num(i.price)*shipF),tax:i.tax??(S.settings.kleinunternehmer?0:num(p?.tax??S.settings.defaultTax)),unit:i.unit||p?.unit||'Stk'}});
+    if(F.type==='einkauf'){e.extra=r2(num(F.extra));e.shipToEk=F.shipToEk!==false;if(!e.extra){delete e.extra;delete e.shipToEk}}
     if(F.type==='verkauf'){Object.assign(e,{partyAddress:F.partyAddress.trim(),extra:r2(num(F.extra)),regular:c.regular,discount:c.discount,cogs:c.cogs});const ps=partnerSnap(F.partnerId,old?.partner);if(ps)e.partner=ps;else delete e.partner}
   }
   const prev=old?paysOf(old).map(p=>({...p})):[];let pays;
@@ -1296,7 +1301,7 @@ async function saveEntry(){
   if(kind&&e.party){const r=recByName(kind,e.party);const addr=(e.partyAddress||'').trim();
     if(!r)await Store.put(KIND[kind].col,{id:newId(),name:e.party,address:addr,phone:'',email:'',note:''}).catch(()=>{});
     else if(addr&&!r.address)await Store.put(KIND[kind].col,{...r,address:addr}).catch(()=>{});}
-  if(F.type==='einkauf'&&F.updateEk){for(const i of e.items){const p=prodById(i.pid);if(p&&num(p.ek)!==i.price){try{await Store.put('products',{...p,ek:i.price})}catch{}}}}
+  if(F.type==='einkauf'&&F.updateEk){for(const i of e.items){const p=prodById(i.pid);if(p&&num(p.ek)!==i.ek){try{await Store.put('products',{...p,ek:i.ek})}catch{}}}}
   closeSheet();toast(old?'Gespeichert':e.delivered===false?'Bestellung aufgenommen':TYPES[e.type]+' gebucht');
 }
 
@@ -1305,8 +1310,8 @@ function openEntry(id){
   const e=S.entries.find(x=>x.id===id);if(!e)return;
   if(UI.pmId!==id){UI.pm=null;UI.pmId=id}
   const lines=e.type==='ausgabe'?`<div class="l"><span>${esc(e.expenseCat||'')}</span><span class="num">${eur(e.total)}</span></div>`
-   :(e.items||[]).map(i=>`<div class="l"><span>${i.qty}× ${esc(i.name)} à ${eur(i.price)}</span><span class="num">${eur(i.qty*i.price)}</span></div>`).join('')
-    +(e.extra?`<div class="l"><span>Versand / Service</span><span class="num">${eur(e.extra)}</span></div>`:'')
+   :(e.items||[]).map(i=>`<div class="l"><span>${i.qty}× ${esc(i.name)} à ${eur(i.price)}${e.type==='einkauf'&&e.extra&&Math.abs(num(i.ek)-num(i.price))>0.004?` <span class="muted">(mit Versand ${eur(i.ek)})</span>`:''}</span><span class="num">${eur(i.qty*i.price)}</span></div>`).join('')
+    +(e.extra?`<div class="l"><span>${e.type==='einkauf'?'Versandkosten':'Versand / Service'}</span><span class="num">${eur(e.extra)}</span></div>`:'')
     +(e.discount?`<div class="l"><span>${e.discount>0?'Rabatt':'Aufschlag'}</span><span class="num">${e.discount>0?'−':'+'}${eur(Math.abs(e.discount))}</span></div>`:'');
   const pays=paysOf(e),open=openAmt(e),ov=isOverdue(e),locked=!!e.invoiceNo||!!e.storno;
   const payList=pays.length?pays.map((p,i)=>`<div class="kv"><span>${fdate(p.date)} · ${METHODS[p.method]||''}${p.note?' · '+esc(p.note):''}</span><b>${eur(p.amount)}${e.cancelled||e.storno?'':` <button class="x" style="height:auto;font-size:13px;padding:0 0 0 6px" data-act="del-pay" data-id="${e.id}" data-i="${i}" aria-label="Zahlung entfernen">✕</button>`}</b></div>`).join('')
@@ -2017,13 +2022,13 @@ document.addEventListener('change',async ev=>{
   if(t.dataset.f==='party'&&F.type==='verkauf'&&!F.partnerId){const last=sorted(S.entries.filter(e=>e.type==='verkauf'&&e.partner&&norm(e.party)===norm(t.value))).pop();
     if(last&&partnerById(last.partner.id)){F.partnerId=last.partner.id;const sel=document.querySelector('[data-f="partnerId"]');if(sel)sel.value=F.partnerId;updateSummary();toast('Vermittler übernommen: '+last.partner.name)}}
   if(t.dataset.f==='party'&&F.type==='verkauf'){const c=custByName(t.value);if(c&&c.address&&!F.partyAddress.trim()){F.partyAddress=c.address;const ta=document.querySelector('[data-f="partyAddress"]');if(ta)ta.value=c.address}return}
-  if(t.type==='checkbox'&&t.dataset.f){F[t.dataset.f]=t.checked;return}
+  if(t.type==='checkbox'&&t.dataset.f){F[t.dataset.f]=t.checked;updateSummary();return}
   if(t.tagName==='SELECT'&&t.dataset.f){F[t.dataset.f]=t.value}
 });
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#sheetRoot').innerHTML)closeSheet()});
 
 render();Store.connect();
-const APP_VER='32';
+const APP_VER='33';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
