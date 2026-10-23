@@ -682,7 +682,7 @@ function vLager(){
   const v={ek:0,vk:0,stk:0,inc:0};
   l.forEach(p=>{const q=Math.max(0,sm[p.id]);v.ek+=q*num(p.ek);v.vk+=q*num(p.vk);v.stk+=q;v.inc+=(pm.inc[p.id]||0)*num(p.ek)});
   const byCat={};S.products.forEach(p=>{const k=p.cat||'Allgemein';byCat[k]=(byCat[k]||0)+Math.max(0,sm[p.id])*num(p.ek)});
-  return header('Lager','<button class="add-btn" data-act="new-product">+ Produkt</button>')+`
+  return header('Lager','<button class="add-btn" data-act="new-product">+ Produkt</button>')+`${S.products.length?`<button class="btn ghost sm" style="margin:-4px 0 12px" data-act="stock-export">⤓ Bestand exportieren</button>`:''}
   ${cats.length>2?`<div class="chips">${cats.map(c=>`<button class="chip ${UI.lagerCat===c?'on':''}" data-act="lagercat" data-v="${esc(c)}">${c==='alle'?'Alle':esc(c)}</button>`).join('')}</div>`:''}
   ${S.products.length?`<div class="kpi-main" style="margin:0 0 8px"><div class="lbl">Warenwert im Lager${UI.lagerCat!=='alle'?' · '+esc(UI.lagerCat):''} (zum Einkaufspreis)</div><div class="val">${eur(v.ek)}</div>
    <div class="sub">${v.stk} Stück auf Lager${v.inc?` · dazu ${eur(v.inc)} bestellt`:''}</div></div>
@@ -1424,6 +1424,45 @@ async function savePayout(id){
   await Store.put('entries',{id:newId(),created:new Date().toISOString(),type:'ausgabe',date,party:p.name,expenseCat:'Provision',total:amt,method,note:'Provisionsauszahlung',items:[],att:[],delivered:true,partnerPayout:id,payments:[{date,amount:amt,method}],paid:true});
   toast('Auszahlung gebucht');openPartner(id);
 }
+function stockRows(){
+  const sm=stockMap(),pm=pendingMap();
+  let l=[...S.products].sort((a,b)=>(a.cat||'Allgemein').localeCompare(b.cat||'Allgemein','de')||a.name.localeCompare(b.name,'de'));
+  if(UI.lagerCat!=='alle')l=l.filter(p=>(p.cat||'Allgemein')===UI.lagerCat);
+  return l.map(p=>{const q=sm[p.id]||0,s=Math.max(0,q);return{cat:p.cat||'Allgemein',name:p.name,sku:p.sku||'',unit:p.unit||'Stk',q,res:pm.res[p.id]||0,inc:pm.inc[p.id]||0,ek:num(p.ek),vk:num(p.vk),wEk:r2(s*num(p.ek)),wVk:r2(s*num(p.vk))}});
+}
+function stockCSV(){
+  const rows=stockRows(),d=n=>r2(n).toFixed(2).replace('.',','),q=v=>`"${String(v).replace(/"/g,'""')}"`;
+  const L=[['Kategorie','Produkt','Art.-Nr.','Einheit','Bestand','reserviert','bestellt','EK','VK','Warenwert EK','Warenwert VK'].map(q).join(';')];
+  rows.forEach(r=>L.push([q(r.cat),q(r.name),q(r.sku),q(r.unit),r.q,r.res,r.inc,d(r.ek),d(r.vk),d(r.wEk),d(r.wVk)].join(';')));
+  const t=rows.reduce((a,r)=>({q:a.q+Math.max(0,r.q),e:a.e+r.wEk,v:a.v+r.wVk}),{q:0,e:0,v:0});
+  L.push([q('Summe'),q(''),q(''),q(''),t.q,'','','','',d(t.e),d(t.v)].join(';'));
+  return Store.save(`Lagerbestand_${today()}${UI.lagerCat!=='alle'?'_'+UI.lagerCat.replace(/[^\wäöüÄÖÜß-]+/g,'-'):''}.csv`,'﻿'+L.join('\r\n'));
+}
+async function stockPDF(){
+  if(!await loadPdfLib()){toast('PDF konnte nicht geladen werden.');return}
+  const rows=stockRows(),st=S.settings;const {jsPDF}=window.jspdf;const doc=new jsPDF({unit:'mm',format:'a4'});
+  const E=n=>eur(n).replace(/ | /g,' ');const W=210,M=14;let Y=18;
+  const ink=[22,32,27],mut=[102,116,108],acc=[28,106,88],line=[212,219,211];
+  const t=rows.reduce((a,r)=>({q:a.q+Math.max(0,r.q),e:a.e+r.wEk,v:a.v+r.wVk}),{q:0,e:0,v:0});
+  doc.setFont('helvetica','bold');doc.setFontSize(17);doc.setTextColor(...ink);doc.text('Lagerbestand'+(UI.lagerCat!=='alle'?' · '+UI.lagerCat:''),M,Y);
+  doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(...mut);doc.text([st.company||st.owner||'Kassabuch',`Stand ${fdate(today())}`],W-M,Y-4,{align:'right'});Y+=9;
+  doc.text(`${rows.length} Produkte · ${t.q} Stück · Warenwert EK ${E(t.e)} · VK ${E(t.v)}`,M,Y);Y+=8;
+  const cx=[M,M+76,M+92,M+110,M+132,M+154,W-M];const hd=['Produkt','Bestand','Res.','Bestellt','EK','VK','Wert EK'];
+  const head=()=>{doc.setFont('helvetica','bold');doc.setFontSize(8);doc.setTextColor(...mut);hd.forEach((h,i)=>i?doc.text(h,cx[i]+(i<6?12:0),Y,{align:'right'}):doc.text(h,cx[0],Y));doc.setDrawColor(...line);doc.line(M,Y+1.8,W-M,Y+1.8);Y+=6.5};
+  head();let cat=null;
+  for(const r of rows){
+    if(Y>280){doc.addPage();Y=18;head();cat=null}
+    if(r.cat!==cat){cat=r.cat;doc.setFont('helvetica','bold');doc.setFontSize(9);doc.setTextColor(...acc);doc.text(cat,M,Y);Y+=5.5}
+    doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(...(r.q<=0?[173,58,45]:ink));
+    const nm=doc.splitTextToSize(r.name+(r.sku?' ('+r.sku+')':''),84)[0];
+    doc.text(nm,cx[0],Y);doc.text(String(r.q),cx[1]+12,Y,{align:'right'});doc.setTextColor(...ink);
+    doc.text(r.res?String(r.res):'–',cx[2]+12,Y,{align:'right'});doc.text(r.inc?String(r.inc):'–',cx[3]+12,Y,{align:'right'});
+    doc.text(E(r.ek),cx[4]+12,Y,{align:'right'});doc.text(E(r.vk),cx[5]+12,Y,{align:'right'});doc.text(E(r.wEk),cx[6],Y,{align:'right'});Y+=5.6}
+  doc.setDrawColor(...line);doc.line(M,Y-3.5,W-M,Y-3.5);Y+=1.5;doc.setFont('helvetica','bold');doc.setTextColor(...ink);
+  doc.text('Summe',M,Y);doc.text(String(t.q),cx[1]+12,Y,{align:'right'});doc.text(E(t.e),cx[6],Y,{align:'right'});
+  doc.setFont('helvetica','normal');doc.setFontSize(7.5);doc.setTextColor(...mut);doc.text('Bestand = Anfangsbestand + erhaltene Einkäufe - übergebene Verkäufe. Res. = offene Kundenbestellungen.',M,290);
+  await Store.save(`Lagerbestand_${today()}.pdf`,doc.output('blob'));
+}
 function openPay(id){
   const e=S.entries.find(x=>x.id===id);if(!e)return;const open=openAmt(e);
   openSheet('Zahlung erfassen',`<p class="muted" style="margin:-6px 0 12px">${esc(e.party||TYPES[e.type])} · ${open>=0?'offen':'zu viel bezahlt'} ${eur(Math.abs(open))}</p>
@@ -1855,6 +1894,8 @@ document.addEventListener('click',async ev=>{
     case'payout-partner':openPayout(id);break;
     case'save-payout':savePayout(id);break;
     case'fold':{const def=b.dataset.def==='1';UI.fold[v]=!isOpen(v,def);try{localStorage.setItem('kb_fold',JSON.stringify(UI.fold))}catch{}render();break}
+    case'stock-export':{const k=await choose(`Lagerbestand${UI.lagerCat!=='alle'?' · '+UI.lagerCat:''} exportieren`,[['pdf','PDF','Liste nach Kategorie mit Bestand, Preisen und Warenwert – zum Ausdrucken'],['csv','Excel / Numbers (CSV)','Alle Zahlen als Tabelle zum Weiterrechnen']]);
+      if(k==='pdf')stockPDF();else if(k==='csv')stockCSV();break}
     case'fcat':UI.fcat=v;renderEntryForm();break;
     case'f-add':{const p=prodById(id);if(!p||!F)break;const row=F.items.find(i=>i.pid===p.id);
       if(row)row.qty=num(row.qty)+1;else{const empty=F.items.find(i=>!i.pid);const it={pid:p.id,qty:1,price:F.type==='verkauf'?p.vk:p.ek};if(empty)Object.assign(empty,it);else F.items.push(it)}
@@ -1982,7 +2023,7 @@ document.addEventListener('change',async ev=>{
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#sheetRoot').innerHTML)closeSheet()});
 
 render();Store.connect();
-const APP_VER='31';
+const APP_VER='32';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
