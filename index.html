@@ -1147,7 +1147,8 @@ function vMehr(){
     <label class="btn ghost sm" style="text-align:center">Backup laden<input type="file" id="importFile" accept=".json,application/json" hidden></label>
    </div>
    ${hasSample?'<button class="btn danger sm" style="margin-top:10px" data-act="clear-sample">Beispieldaten entfernen</button>':''}
-  </div>`;
+  </div>
+  <button class="btn danger" style="margin-top:14px" data-act="wipe-all">Alle Daten auf diesem Gerät löschen</button>`;
 }
 
 /* ---------- sheets ---------- */
@@ -1503,6 +1504,24 @@ function dashExtras(t){
   const rb=rebuyDue();
   if(rb.length)h+=`${foldHead('rebuy',true,'Nachkauf fällig',rb.length)}${isOpen('rebuy',true)?`<div class="list">${rb.slice(0,6).map(x=>`<div class="row" style="grid-template-columns:minmax(0,1fr) auto"><button class="row-btn" data-act="party" data-kind="kunde" data-name="${esc(x.name)}" style="background:none;border:0;padding:0;text-align:left;color:inherit;min-width:0"><span class="row-title" style="display:block">${esc(x.name)}</span><span class="row-sub" style="display:block">kauft meist ${fmtEvery(x.r.every)} · zuletzt ${fmtSince(x.r.since)}</span></button><button class="btn ghost sm" data-act="rebuy-snooze" data-name="${esc(x.name)}">Später</button></div>`).join('')}</div>${rb.length>6?`<p class="hint">+ ${rb.length-6} weitere</p>`:''}`:''}`;
   return h;
+}
+function openWipe(){
+  const n=S.entries.length,pN=S.products.length;
+  openSheet('Alle Daten löschen',`
+   <div class="banner" style="background:var(--neg-soft);color:var(--neg)">Das löscht auf diesem Gerät endgültig: ${n} Buchungen, ${pN} Produkte, alle Kunden, Lieferanten, Partner, Belege und Einstellungen. Rückgängig machen geht nicht.</div>
+   <p style="margin:0 0 10px">${S.settings.lastBackup?'Letztes Backup: '+fdate(S.settings.lastBackup)+'.':'<b>Du hast noch kein Backup gespeichert.</b>'} Speichere vorher eins, falls du die Daten noch brauchst.</p>
+   <button class="btn ghost" style="margin-bottom:14px" data-act="export-json">Vorher Backup speichern</button>
+   <label class="field"><span>Zum Bestätigen LÖSCHEN eintippen</span><input class="inp" id="wipeTxt" autocomplete="off" autocapitalize="characters" placeholder="LÖSCHEN"></label>
+   <button class="btn danger" data-act="wipe-confirm">Endgültig löschen</button>`);
+}
+async function wipeAll(){
+  if(($('#wipeTxt')?.value||'').trim().toUpperCase()!=='LÖSCHEN'){toast('Bitte LÖSCHEN eintippen.');return}
+  try{Object.keys(localStorage).filter(k=>k===LKEY||k.startsWith('kb_')).forEach(k=>localStorage.removeItem(k))}catch{}
+  try{if(IDB.db){(await IDB.db).close();IDB.db=null}}catch{}
+  await new Promise(res=>{try{const r=indexedDB.deleteDatabase('kassabuch');r.onsuccess=r.onerror=r.onblocked=()=>res()}catch{res()}});
+  Store.mode='wiped';closeSheet();
+  document.body.innerHTML='<div style="padding:40px 20px;text-align:center;font-family:var(--f-ui)"><h2>Alle Daten gelöscht</h2><p class="muted">Die App startet neu …</p></div>';
+  setTimeout(()=>location.reload(),1200);
 }
 function openPay(id){
   const e=S.entries.find(x=>x.id===id);if(!e)return;const open=openAmt(e);
@@ -1941,6 +1960,8 @@ document.addEventListener('click',async ev=>{
       if(k==='pdf')stockPDF();else if(k==='csv')stockCSV();break}
     case'rebuy-snooze':{const sn={...(S.settings.rebuySnooze||{})};const ri=rebuyInfo(b.dataset.name);sn[norm(b.dataset.name)]=addDaysTo(today(),Math.max(7,Math.round((ri?.every||14)/2)));
       Object.keys(sn).forEach(k=>{if(sn[k]<today())delete sn[k]});await Store.setSettings({...S.settings,rebuySnooze:sn});toast('Erinnerung verschoben');break}
+    case'wipe-all':openWipe();break;
+    case'wipe-confirm':wipeAll();break;
     case'fcat':UI.fcat=v;renderEntryForm();break;
     case'f-add':{const p=prodById(id);if(!p||!F)break;const row=F.items.find(i=>i.pid===p.id);
       if(row)row.qty=num(row.qty)+1;else{const empty=F.items.find(i=>!i.pid);const it={pid:p.id,qty:1,price:F.type==='verkauf'?p.vk:p.ek};if(empty)Object.assign(empty,it);else F.items.push(it)}
@@ -2068,7 +2089,7 @@ document.addEventListener('change',async ev=>{
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#sheetRoot').innerHTML)closeSheet()});
 
 render();Store.connect();
-const APP_VER='34';
+const APP_VER='35';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
