@@ -120,6 +120,10 @@ button.row:hover{background:var(--surface-2)}
 .picker .chips{margin-bottom:8px}
 .tiles.mini{max-height:290px;overflow-y:auto;grid-template-columns:repeat(auto-fill,minmax(98px,1fr));padding:8px 8px 2px 2px;margin:-6px -8px 0 -2px}
 .tiles.mini .tile{min-height:76px;padding:8px}
+.summary .l .num{white-space:nowrap}
+.summary .l small{font-size:12px;font-weight:500}
+.tiles-head{grid-column:1/-1;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:6px 2px -2px}
+.tiles-head:first-child{margin-top:0}
 .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:8px}
 .tile{position:relative;display:flex;flex-direction:column;gap:4px;text-align:left;border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:10px;min-height:96px;min-width:0}
 .tile.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
@@ -355,7 +359,7 @@ const DEF={owner:'',company:'',address:'',email:'',phone:'',uidNr:'',iban:'',
   invoiceYear:new Date().getFullYear(),nextInvoice:1,partners:[],payDays:14,payTerms:'Zahlbar innerhalb von 14 Tagen ohne Abzug.'};
 
 const S={settings:{...DEF},products:[],entries:[],customers:[],suppliers:[],recurring:[]};
-const UI={lblFmt:(()=>{try{return localStorage.getItem('kb_lblfmt')||'a6'}catch{return'a6'}})(),ktab:'kunde',cart:[],kq:'',kstage:(()=>{try{return localStorage.getItem('kb_kstage')||'geplant'}catch{return'geplant'}})(),kcat:'alle',kpay:'bar',kparty:'',remTone:(()=>{try{return localStorage.getItem('kb_tone')||'du'}catch{return'du'}})(),cq:'',pq:'',pcat:'alle',psort:(()=>{try{return localStorage.getItem('kb_psort')||'kat'}catch{return'kat'}})(),screen:'start',period:'monat',filter:'alle',q:'',lagerCat:'alle',year:new Date().getFullYear(),ready:false};
+const UI={lblFmt:(()=>{try{return localStorage.getItem('kb_lblfmt')||'a6'}catch{return'a6'}})(),ktab:'kunde',cart:[],kq:'',ksort:(()=>{try{return localStorage.getItem('kb_ksort')||'az'}catch{return'az'}})(),kstage:(()=>{try{return localStorage.getItem('kb_kstage')||'geplant'}catch{return'geplant'}})(),kcat:'alle',kpay:'bar',kparty:'',remTone:(()=>{try{return localStorage.getItem('kb_tone')||'du'}catch{return'du'}})(),cq:'',pq:'',pcat:'alle',psort:(()=>{try{return localStorage.getItem('kb_psort')||'kat'}catch{return'kat'}})(),screen:'start',period:'monat',filter:'alle',q:'',lagerCat:'alle',year:new Date().getFullYear(),ready:false};
 const LKEY='kassabuch_v1';
 
 /* ---------- storage: cloud (db) with local fallback ---------- */
@@ -422,8 +426,15 @@ const BASES={roh:'vom Rohertrag',umsatz:'vom Umsatz'};
 const partners=()=>S.settings.partners||[];
 const partnerById=id=>partners().find(p=>p.id===id);
 const partnerSnap=(id,old)=>{if(!id)return null;if(old&&old.id===id)return old;const p=partnerById(id);return p?{id:p.id,name:p.name,pct:num(p.pct),base:p.base||'roh'}:null};
+/* Porto = Versandkosten, die DU für einen Verkauf zahlst. "Versand" (extra) zahlt der Kunde und reicht es an die Post weiter. */
+const portoKnown=e=>(e.porto!=null&&e.porto!=='')||num(e.ship?.porto)>0;
+const portoOf=e=>e.porto!=null&&e.porto!==''?num(e.porto):num(e.ship?.porto);
+const portoCost=e=>portoKnown(e)?portoOf(e):Math.max(0,num(e.extra)); // unbekannt: Versand vom Kunden deckt das Porto
+const shipNet=e=>r2(Math.max(0,portoCost(e)-Math.max(0,num(e.extra)))); // Porto, das der Versand des Kunden NICHT deckt
 const provBase=(e,pt)=>{const goods=num(e.total)-Math.max(0,num(e.extra));return pt.base==='umsatz'?goods:goods-num(e.cogs)};
-const provAmt=e=>{const pt=e.partner;if(!pt)return 0;return r2(Math.max(0,provBase(e,pt))*num(pt.pct)/100)};
+// Provision = % vom Gewinn der Ware (ohne Kunden-Versand) − ungedecktes Porto, das der Partner voll trägt
+const provAmt=e=>{const pt=e.partner;if(!pt)return 0;return r2(Math.max(0,Math.max(0,provBase(e,pt))*num(pt.pct)/100-shipNet(e)))};
+const saleProfit=e=>r2(num(e.total)-num(e.cogs)-portoCost(e)-provAmt(e));
 const provDesc=pt=>`${esc(pt.name)} · ${num(pt.pct)} % ${BASES[pt.base||'roh']}`;
 function partnerStats(id){
   const sales=S.entries.filter(e=>e.type==='verkauf'&&live(e)&&e.delivered!==false&&e.partner?.id===id);
@@ -542,16 +553,16 @@ function openProductStats(id){
 }
 function inPeriod(d,p){const t=today();if(p==='monat')return d.slice(0,7)===t.slice(0,7);if(p==='jahr')return d.slice(0,4)===t.slice(0,4);return true}
 function totals(pred){
-  const t={ein:0,aus:0,warenAus:0,umsatz:0,cogs:0,offenFord:0,offenVerb:0,n:0,exp:{},prov:0};
+  const t={ein:0,aus:0,warenAus:0,umsatz:0,cogs:0,offenFord:0,offenVerb:0,n:0,exp:{},prov:0,versand:0};
   S.entries.forEach(e=>{
     const del=e.delivered!==false,amt=num(e.total);
     paysOf(e).forEach(p=>{if(!pred(p.date))return;const a=num(p.amount);
       if(e.type==='verkauf')t.ein+=a;else{t.aus+=a;if(e.type==='einkauf')t.warenAus+=a;else{const k=e.expenseCat||'Sonstiges';t.exp[k]=(t.exp[k]||0)+a}}});
     if(!del||!pred(e.date))return;
-    if(e.type==='verkauf'){t.umsatz+=amt;t.cogs+=num(e.cogs);if(live(e)){t.n++;t.prov+=provAmt(e);t.offenFord+=Math.max(0,openAmt(e))}}
+    if(e.type==='verkauf'){t.umsatz+=amt;t.cogs+=num(e.cogs);if(live(e)){t.n++;t.prov+=provAmt(e);t.versand+=portoCost(e);t.offenFord+=Math.max(0,openAmt(e))}}
     else if(live(e))t.offenVerb+=Math.max(0,openAmt(e));
   });
-  t.prov=r2(t.prov);t.ueber=t.ein-t.aus;t.roh=t.umsatz-t.cogs;t.gewinn=r2(t.roh-t.prov);return t;
+  t.prov=r2(t.prov);t.versand=r2(t.versand);t.ueber=t.ein-t.aus;t.roh=t.umsatz-t.cogs;t.gewinn=r2(t.roh-t.versand-t.prov);return t;
 }
 function taxBreakdown(e){
   // prices are gross; returns [{rate,gross,net,tax}]
@@ -584,6 +595,7 @@ function renderKeep(id){
 }
 function filterPicker(){const q=norm(UI.fq||'');let n=0;
   document.querySelectorAll('.tiles.mini .tile').forEach(b=>{const ok=!q||norm(b.dataset.name||'').includes(q);b.hidden=!ok;if(ok)n++});
+  document.querySelectorAll('.tiles.mini .tiles-head').forEach(h=>{h.hidden=!!q});
   const e=$('#fqEmpty');if(e)e.hidden=n>0}
 UI.fold=(()=>{try{return JSON.parse(localStorage.getItem('kb_fold')||'{}')}catch{return{}}})();
 const isOpen=(k,def)=>UI.fold[k]??def;
@@ -642,7 +654,7 @@ function vStart(){
    <div class="sub">Einnahmen ${eur(t.ein)} · Ausgaben ${eur(t.aus)}${pt?` · ${UI.period==='monat'?'Vormonat':'Vorjahr'} ${eur(pt.ueber)}`:''}</div></div>
   <div class="kpis">
    <div class="kpi tap" role="button" data-act="kpi" data-v="umsatz"><div class="lbl">Umsatz ${pl}</div><div class="val">${eur(t.umsatz)}</div><div class="sub2">${t.n} Verkäuf${t.n===1?'':'e'}${t.n?` · Ø ${eur(avg)}`:''}${pt&&pt.umsatz?'<br>'+cmp(t.umsatz,pt.umsatz):''}</div></div>
-   <div class="kpi tap" role="button" data-act="kpi" data-v="roh"><div class="lbl">Rohertrag</div><div class="val ${t.roh>=0?'pos':'neg'}">${eur(t.roh)}</div><div class="sub2">${marge!==null?`Marge <b>${marge} %</b> · `:''}Ware ${eur(t.cogs)}${t.prov?`<br>− Provision ${eur(t.prov)} = <b class="${t.gewinn>=0?'pos':'neg'}">Gewinn ${eur(t.gewinn)}</b>`:''}</div></div>
+   <div class="kpi tap" role="button" data-act="kpi" data-v="roh"><div class="lbl">Rohertrag</div><div class="val ${t.roh>=0?'pos':'neg'}">${eur(t.roh)}</div><div class="sub2">${marge!==null?`Marge <b>${marge} %</b> · `:''}Ware ${eur(t.cogs)}${t.prov||t.versand?`<br>${t.versand?`− Versand ${eur(t.versand)} `:''}${t.prov?`− Provision ${eur(t.prov)} `:''}= <b class="${t.gewinn>=0?'pos':'neg'}">Gewinn ${eur(t.gewinn)}</b>`:''}</div></div>
    <div class="kpi tap" role="button" data-act="kpi" data-v="offen"><div class="lbl">Offen zu kassieren</div><div class="val ${all.offenFord>0.005?'warn':''}">${eur(all.offenFord)}</div><div class="sub2">${openN?`${openN} Verkäuf${openN===1?'':'e'}${od.length?` · <b class="neg">${od.length} überfällig</b>`:''}`:'alles bezahlt'} · gesamt</div></div>
    <div class="kpi tap" role="button" data-act="kpi" data-v="lager"><div class="lbl">Lagerwert (EK)</div><div class="val">${eur(lagerwert)}</div><div class="sub2">${low?`<b class="neg">${low} nachbestellen</b>`:'Bestand ok'}</div></div>
   </div>
@@ -722,7 +734,7 @@ function vAuswertung(){
   const y=String(UI.year);const ye=S.entries.filter(e=>e.date.startsWith(y));
   const months=MONTHS.map((n,i)=>({n,t:totals(d=>String(d).startsWith(y+'-'+pad(i+1)))}));
   const yt=totals(d=>String(d).startsWith(y));
-  const hasProv=S.entries.some(e=>e.partner);const CM={umsatz:'Umsatz',ueber:'Überschuss',roh:'Rohertrag',...(hasProv?{gewinn:'Gewinn'}:{})};const cm=CM[UI.cm]?UI.cm:'umsatz';
+  const hasProv=S.entries.some(e=>e.partner);const CM={umsatz:'Umsatz',ueber:'Überschuss',roh:'Rohertrag',gewinn:'Gewinn'};const cm=CM[UI.cm]?UI.cm:'umsatz';
   const val=m=>m.t[cm];const isCur=+y===new Date().getFullYear();
   const sel=UI.barSel??(isCur?new Date().getMonth():months.reduce((bi,m,i)=>val(m)?i:bi,0));
   const max=Math.max(1,...months.map(m=>Math.abs(val(m))));
@@ -756,11 +768,11 @@ function vAuswertung(){
    <div class="chart-mini">${sm.t.n} Verkäuf${sm.t.n===1?'':'e'} · Einnahmen ${eur(sm.t.ein)} · Ausgaben ${eur(sm.t.aus)}</div>
    <div class="bars"><div class="zero" style="top:${zero}%"></div>${bars}</div>
    <div class="bar-lbl">${MONTHS.map((m,i)=>`<span class="${i===sel?'on':''}">${m.slice(0,1)}</span>`).join('')}</div>
-   <p class="hint" style="margin:10px 2px 2px">${{umsatz:'Umsatz = Wert der übergebenen Verkäufe (inkl. Versand, nach Rabatt) – gezählt am Tag der Übergabe, egal ob schon bezahlt.',ueber:'Überschuss = Geld rein − Geld raus im Monat der Zahlung (Einnahmen-Ausgaben-Rechnung). Einkäufe zählen sofort, nicht erst beim Verkauf.',roh:'Rohertrag = Umsatz − Einkaufspreis der verkauften Ware. Zeigt, was der Verkauf wirklich einbringt – unabhängig davon, wann du einkaufst.',gewinn:'Gewinn = Rohertrag − Provisionen der Vermittler (fällig ab Übergabe, auch wenn noch nicht ausgezahlt).'}[cm]}</p></div>
+   <p class="hint" style="margin:10px 2px 2px">${{umsatz:'Umsatz = Wert der übergebenen Verkäufe (inkl. Versand, nach Rabatt) – gezählt am Tag der Übergabe, egal ob schon bezahlt.',ueber:'Überschuss = Geld rein − Geld raus im Monat der Zahlung (Einnahmen-Ausgaben-Rechnung). Einkäufe zählen sofort, nicht erst beim Verkauf.',roh:'Rohertrag = Umsatz − Einkaufspreis der verkauften Ware. Zeigt, was der Verkauf wirklich einbringt – unabhängig davon, wann du einkaufst.',gewinn:'Gewinn = Rohertrag − Versandkosten − Provisionen. Versand, den der Kunde zahlt, geht ans Porto und ist kein Gewinn; ungedecktes Porto trägt bei Vermittler-Verkäufen der Partner.'}[cm]}</p></div>
   <h2>Monate</h2>
-  <div class="tbl-wrap"><table><thead><tr><th>Monat</th><th>Umsatz</th><th>Einnahmen</th><th>Ausgaben</th><th>Überschuss</th><th>Rohertrag</th>${hasProv?'<th>Provision</th><th>Gewinn</th>':''}</tr></thead>
-   <tbody>${active.length?active.map(m=>`<tr><td>${m.n}</td><td>${eur(m.t.umsatz)}</td><td>${eur(m.t.ein)}</td><td>${eur(m.t.aus)}</td><td class="${m.t.ueber<0?'neg':''}">${eur(m.t.ueber)}</td><td>${eur(m.t.roh)}</td>${hasProv?`<td>${eur(m.t.prov)}</td><td>${eur(m.t.gewinn)}</td>`:''}</tr>`).join(''):'<tr><td colspan="8" class="muted" style="text-align:center;font-family:var(--f-ui)">Keine Buchungen in diesem Jahr.</td></tr>'}</tbody>
-   <tfoot><tr><td>${y}</td><td>${eur(yt.umsatz)}</td><td>${eur(yt.ein)}</td><td>${eur(yt.aus)}</td><td class="${yt.ueber<0?'neg':''}">${eur(yt.ueber)}</td><td>${eur(yt.roh)}</td>${hasProv?`<td>${eur(yt.prov)}</td><td>${eur(yt.gewinn)}</td>`:''}</tr></tfoot></table></div>${taxReserveCard(yt,y)}
+  <div class="tbl-wrap"><table><thead><tr><th>Monat</th><th>Umsatz</th><th>Einnahmen</th><th>Ausgaben</th><th>Überschuss</th><th>Rohertrag</th><th>Versand</th>${hasProv?'<th>Provision</th>':''}<th>Gewinn</th></tr></thead>
+   <tbody>${active.length?active.map(m=>`<tr><td>${m.n}</td><td>${eur(m.t.umsatz)}</td><td>${eur(m.t.ein)}</td><td>${eur(m.t.aus)}</td><td class="${m.t.ueber<0?'neg':''}">${eur(m.t.ueber)}</td><td>${eur(m.t.roh)}</td><td>${eur(m.t.versand)}</td>${hasProv?`<td>${eur(m.t.prov)}</td>`:''}<td>${eur(m.t.gewinn)}</td></tr>`).join(''):'<tr><td colspan="9" class="muted" style="text-align:center;font-family:var(--f-ui)">Keine Buchungen in diesem Jahr.</td></tr>'}</tbody>
+   <tfoot><tr><td>${y}</td><td>${eur(yt.umsatz)}</td><td>${eur(yt.ein)}</td><td>${eur(yt.aus)}</td><td class="${yt.ueber<0?'neg':''}">${eur(yt.ueber)}</td><td>${eur(yt.roh)}</td><td>${eur(yt.versand)}</td>${hasProv?`<td>${eur(yt.prov)}</td>`:''}<td>${eur(yt.gewinn)}</td></tr></tfoot></table></div>${taxReserveCard(yt,y)}
   ${st.kleinunternehmer?`<h2>Kleinunternehmergrenze</h2><div class="card"><p><span class="num">${eur(yt.umsatz)}</span> <span class="muted">von ${eur(st.limit)} Jahresumsatz</span></p><div class="meter"><i class="${pct>=80?'w':''}" style="width:${pct}%"></i></div>${pct>=80?'<p class="warn" style="margin-top:8px;font-size:13px;font-weight:600">Du näherst dich der Grenze – rechtzeitig mit Steuerberatung abklären.</p>':''}</div>`:''}
   <h2>Top-Produkte ${y}</h2>
   <div class="tbl-wrap"><table><thead><tr><th>Produkt</th><th>Menge</th><th>Umsatz</th><th>Rohertrag</th></tr></thead><tbody>
@@ -990,16 +1002,25 @@ async function saveShipment(){
   const porto=r2(num(LB.porto));
   if(e.delivered===false){const sm=stockMap();const short=(e.items||[]).filter(i=>i.pid in sm&&sm[i.pid]<num(i.qty)).map(i=>i.name);
     if(short.length&&!await ask(`Laut Lager ist nicht genug da: ${short.join(', ')}. Trotzdem versenden?`,'Trotzdem versenden'))return}
-  const ne={...e,ship:{date:today(),tracking:LB.tracking.trim(),weight:LB.weight,porto:porto||null}};
+  const ne={...e,ship:{date:today(),tracking:LB.tracking.trim(),weight:LB.weight,porto:porto||e.ship?.porto||null}};if(porto>0)ne.porto=porto;
   if(e.delivered===false){Object.assign(ne,refreshCogs({...ne,delivered:true,orderDate:e.orderDate||e.date,date:today()}));delete ne.ready}
   await Store.bulk(async()=>{
     await Store.put('entries',ne);
-    if(porto>0&&LB.bookPorto)await Store.put('entries',{id:'porto-'+e.id+'-'+Date.now().toString(36),created:new Date().toISOString(),type:'ausgabe',date:today(),party:'Porto · '+(e.party||'Versand'),expenseCat:S.settings.expenseCats.includes('Versand')?'Versand':(S.settings.expenseCats[0]||'Sonstiges'),
-      method:'karte',note:LB.tracking?'Sendung '+LB.tracking.trim():'',total:porto,payments:[{date:today(),amount:porto,method:'karte'}],paid:true,att:[],shipFor:e.id});
+    if(porto>0)await upsertPorto(ne,porto,LB.bookPorto,'karte');
   });
   toast(porto>0&&LB.bookPorto?'Versand gespeichert · Porto gebucht':'Versand gespeichert');openEntry(e.id);
 }
 /* ---------- Kasse ---------- */
+const KSORTS={az:'Name A–Z',beliebt:'Beliebtheit',preisauf:'Preis aufsteigend',preisab:'Preis absteigend',kat:'Nach Kategorie',bestand:'Bestand (viel zuerst)'};
+function popularity(){const m={},cut=addDays(-90);S.entries.forEach(e=>{if(e.type!=='verkauf'||e.delivered===false||!live(e))return;(e.items||[]).forEach(i=>{const x=m[i.pid]=m[i.pid]||[0,0];x[1]+=num(i.qty);if(e.date>=cut)x[0]+=num(i.qty)})});return m}
+function sortProducts(l,mode,sm,priceKey='vk'){
+  const nm=(a,b)=>a.name.localeCompare(b.name,'de'),pop=mode==='beliebt'?popularity():null,pz=p=>pop[p.id]||[0,0];
+  const f={az:nm,beliebt:(a,b)=>pz(b)[0]-pz(a)[0]||pz(b)[1]-pz(a)[1]||nm(a,b),preisauf:(a,b)=>num(a[priceKey])-num(b[priceKey])||nm(a,b),preisab:(a,b)=>num(b[priceKey])-num(a[priceKey])||nm(a,b),
+    kat:(a,b)=>(a.cat||'Allgemein').localeCompare(b.cat||'Allgemein','de')||nm(a,b),bestand:(a,b)=>(sm[b.id]||0)-(sm[a.id]||0)||nm(a,b)}[mode]||nm;
+  return [...l].sort(f);
+}
+const sortSelect=(id,cur)=>`<div class="sortbar"><label for="${id}">Sortieren</label><select class="inp" id="${id}">${Object.entries(KSORTS).map(([k,v])=>`<option value="${k}" ${cur===k?'selected':''}>${v}</option>`).join('')}</select></div>`;
+const withCatHeads=(l,mode,tile)=>{if(mode!=='kat')return l.map(tile).join('');let last=null;return l.map(p=>{const c=p.cat||'Allgemein';const h=c!==last?`<div class="tiles-head">${esc(c)}</div>`:'';last=c;return h+tile(p)}).join('')};
 const cartTotal=()=>r2(UI.cart.reduce((s,c)=>s+num(c.qty)*num(c.price),0));
 function cartAdd(pid,n=1){const p=prodById(pid);if(!p)return;const c=UI.cart.find(x=>x.pid===pid);if(c)c.qty+=n;else UI.cart.push({pid,qty:n,price:num(p.vk)});UI.cart=UI.cart.filter(x=>x.qty>0)}
 function vKasse(){
@@ -1008,13 +1029,14 @@ function vKasse(){
   if(UI.kcat!=='alle'&&!cats.includes(UI.kcat))UI.kcat='alle';
   let l=S.products.filter(p=>UI.kcat==='alle'||(p.cat||'Allgemein')===UI.kcat);
   const q=norm(UI.kq);if(q)l=l.filter(p=>norm(p.name+' '+(p.sku||'')+' '+(p.ean||'')).includes(q));
-  l.sort((a,b)=>a.name.localeCompare(b.name,'de'));
+  l=sortProducts(l,UI.ksort,sm);
   const n=UI.cart.reduce((s,c)=>s+c.qty,0);
   return header('Kasse',canScan()?'<button class="add-btn" data-act="scan" data-v="kasse">Scannen</button>':'')+`
   <input class="search" id="kq" type="search" placeholder="Produkt suchen …" value="${esc(UI.kq)}">
   ${cats.length>1?`<div class="chips"><button class="chip ${UI.kcat==='alle'?'on':''}" data-act="kcat" data-v="alle">Alle</button>${cats.map(c=>`<button class="chip ${UI.kcat===c?'on':''}" data-act="kcat" data-v="${esc(c)}">${esc(c)}</button>`).join('')}</div>`:''}
-  ${l.length?`<div class="tiles">${l.map(p=>{const inC=UI.cart.find(c=>c.pid===p.id);const free=(sm[p.id]||0)-(pm.res[p.id]||0)-(inC?inC.qty:0);
-    return `<button class="tile ${inC?'on':''}" data-act="cart-add" data-id="${p.id}">${inC?`<span class="tile-q">${inC.qty}</span>`:''}<span class="tile-n">${esc(p.name)}</span><span class="tile-p num">${eur(p.vk)}</span><span class="tile-s ${free<0?'neg':''}">${free<0?'zu wenig auf Lager':free+' übrig'}</span></button>`}).join('')}</div>`
+  ${S.products.length>1?sortSelect('ksort',UI.ksort):''}
+  ${l.length?`<div class="tiles">${withCatHeads(l,UI.ksort,p=>{const inC=UI.cart.find(c=>c.pid===p.id);const free=(sm[p.id]||0)-(pm.res[p.id]||0)-(inC?inC.qty:0);
+    return `<button class="tile ${inC?'on':''}" data-act="cart-add" data-id="${p.id}">${inC?`<span class="tile-q">${inC.qty}</span>`:''}<span class="tile-n">${esc(p.name)}</span><span class="tile-p num">${eur(p.vk)}</span><span class="tile-s ${free<0?'neg':''}">${free<0?'zu wenig auf Lager':free+' übrig'}</span></button>`})}</div>`
    :`<div class="list"><div class="empty"><b>${S.products.length?'Kein Produkt gefunden':'Noch keine Produkte'}</b>${S.products.length?'':'Leg zuerst unter „Mehr“ Produkte an.'}</div></div>`}
   <p class="hint" style="margin-top:12px">Tippe Produkte an, um sie in den Warenkorb zu legen. Beim Kassieren wählst du „Jetzt übergeben“ oder „Bestellung aufnehmen“ – die App merkt sich deine letzte Wahl.</p>
   ${n?`<div class="cartbar"><button data-act="cart-clear" class="cart-x" aria-label="Warenkorb leeren">✕</button><span><b>${n} Artikel</b><span class="num">${eur(cartTotal())}</span></span><button class="btn sm" data-act="checkout">Kassieren</button></div>`:''}`;
@@ -1197,6 +1219,7 @@ function openEntryForm(type,e,preset){
   F.payStatus=e?(isPaid(e)?'1':isPartial(e)?'p':'0'):(F.paid===false?'0':'1');
   F.stage=F.delivered?'uebergeben':(F.ready?'fertig':'geplant');
   F.partnerId=F.partner?.id||F.partnerId||'';
+  if(F.type==='verkauf')F.porto=F.porto!=null&&F.porto!==''?String(F.porto):(num(F.ship?.porto)>0?String(F.ship.porto):'');
   if(e){F.override=e.type==='verkauf'&&e.discount?String(e.total):'';F.amount=e.type==='ausgabe'?e.total:'';F.updateEk=false}
   if(F.type!=='ausgabe'&&!F.items.length)F.items.push({pid:'',qty:1,price:0});
   renderEntryForm();
@@ -1204,10 +1227,11 @@ function openEntryForm(type,e,preset){
 function productPicker(t){
   const sm=stockMap();const cats=[...new Set(S.products.map(p=>p.cat||'Allgemein'))].sort((a,b)=>a.localeCompare(b,'de'));
   if(!UI.fcat||(UI.fcat!=='alle'&&!cats.includes(UI.fcat)))UI.fcat='alle';
-  const l=S.products.filter(p=>UI.fcat==='alle'||(p.cat||'Allgemein')===UI.fcat).sort((a,b)=>a.name.localeCompare(b.name,'de'));
+  const l=sortProducts(S.products.filter(p=>UI.fcat==='alle'||(p.cat||'Allgemein')===UI.fcat),UI.ksort,sm,t==='verkauf'?'vk':'ek');
   return `<div class="picker"><input class="search" id="fq" type="search" placeholder="Produkt suchen …" value="${esc(UI.fq||'')}" style="margin-bottom:8px">${cats.length>1?`<div class="chips">${['alle',...cats].map(c=>`<button class="chip ${UI.fcat===c?'on':''}" data-act="fcat" data-v="${esc(c)}">${c==='alle'?'Alle':esc(c)}</button>`).join('')}</div>`:''}
-   <div class="tiles mini">${l.map(p=>{const q=F.items.filter(i=>i.pid===p.id).reduce((s,i)=>s+num(i.qty),0);
-    return `<button class="tile ${q?'on':''}" data-act="f-add" data-id="${p.id}" data-name="${esc(p.name+' '+(p.sku||'')+' '+(p.ean||''))}">${q?`<span class="tile-q">${q}</span>`:''}<span class="tile-n">${esc(p.name)}</span><span class="tile-p num">${eur(t==='verkauf'?p.vk:p.ek)}</span><span class="tile-s ${(sm[p.id]||0)<=0?'neg':''}">${sm[p.id]||0} da</span></button>`}).join('')}</div>
+   ${S.products.length>1?sortSelect('fsort',UI.ksort):''}
+   <div class="tiles mini">${withCatHeads(l,UI.ksort,p=>{const q=F.items.filter(i=>i.pid===p.id).reduce((s,i)=>s+num(i.qty),0);
+    return `<button class="tile ${q?'on':''}" data-act="f-add" data-id="${p.id}" data-name="${esc(p.name+' '+(p.sku||'')+' '+(p.ean||''))}">${q?`<span class="tile-q">${q}</span>`:''}<span class="tile-n">${esc(p.name)}</span><span class="tile-p num">${eur(t==='verkauf'?p.vk:p.ek)}</span><span class="tile-s ${(sm[p.id]||0)<=0?'neg':''}">${sm[p.id]||0} da</span></button>`})}</div>
    <p class="muted" id="fqEmpty" hidden style="font-size:13px;margin:4px 0">Kein Produkt gefunden.</p><p class="hint" style="margin:6px 0 10px">Antippen zum Hinzufügen – nochmal tippen = +1. Menge und Preis unten anpassen.</p></div>`;
 }
 function renderEntryForm(){
@@ -1237,8 +1261,9 @@ function renderEntryForm(){
      <label class="field"><span>Betrag €</span><input class="inp num" type="number" inputmode="decimal" min="0" step="0.01" data-f="amount" value="${F.amount}"></label></div>`:''}
    ${items}
    ${t==='verkauf'?`<div class="grid2">
-     <label class="field"><span>Versand / Service €</span><input class="inp num" type="number" inputmode="decimal" min="0" step="0.01" data-f="extra" value="${F.extra||''}" placeholder="0"></label>
-     <label class="field"><span>Endpreis € (bei Rabatt)</span><input class="inp num" type="number" inputmode="decimal" min="0" step="0.01" data-f="override" value="${F.override}" placeholder="leer = regulär"></label></div>${partnerSelect('data-f="partnerId"',F.partnerId)}`:''}
+     <label class="field"><span>Versand – zahlt Kunde €</span><input class="inp num" type="number" inputmode="decimal" min="0" step="0.01" data-f="extra" value="${F.extra||''}" placeholder="0"></label>
+     <label class="field"><span>Porto – zahlst du €</span><input class="inp num" type="number" inputmode="decimal" min="0" step="0.01" data-f="porto" value="${esc(F.porto??'')}" placeholder="optional"></label></div>
+   <label class="field"><span>Endpreis € (bei Rabatt)</span><input class="inp num" type="number" inputmode="decimal" min="0" step="0.01" data-f="override" value="${F.override}" placeholder="leer = regulär"></label>${partnerSelect('data-f="partnerId"',F.partnerId)}`:''}
    ${t==='einkauf'?`<label class="field"><span>Versandkosten €</span><input class="inp num" type="number" inputmode="decimal" min="0" step="0.01" data-f="extra" value="${F.extra||''}" placeholder="0"></label>
      <label class="check"><input type="checkbox" data-f="shipToEk" ${F.shipToEk!==false?'checked':''}><span>Versand anteilig in den Einkaufspreis einrechnen <small class="muted" id="shipShare"></small></span></label>`:''}
    ${t==='einkauf'&&!F.id?`<label class="check"><input type="checkbox" data-f="updateEk" ${F.updateEk?'checked':''}><span>Einkaufspreis im Produkt aktualisieren<br><small class="muted">als Durchschnitt mit dem Restbestand</small></span></label>`:''}
@@ -1277,13 +1302,12 @@ function updateSummary(){
     const m=$('#rm'+i),vk=num(prodById(it.pid)?.vk);if(m&&F.type==='einkauf'&&it.pid&&vk)m.textContent='VK '+eur(vk)+' · Marge '+Math.round((vk-num(it.price))/vk*100)+' %'});
   if(F.type==='verkauf'){
     el.innerHTML=`<div class="l"><span>Positionen</span><span class="num">${eur(c.sub)}</span></div>
-    ${num(F.extra)?`<div class="l"><span>Versand / Service</span><span class="num">${eur(F.extra)}</span></div>`:''}
+    ${num(F.extra)?`<div class="l"><span>Versand (zahlt Kunde)</span><span class="num">${eur(F.extra)}</span></div>`:''}
     ${c.discount?`<div class="l"><span>${c.discount>0?'Rabatt':'Aufschlag'}</span><span class="num ${c.discount>0?'neg':''}">${c.discount>0?'−':'+'}${eur(Math.abs(c.discount))}</span></div>`:''}
     <div class="l"><span>Wareneinsatz (EK)</span><span class="num">${eur(c.cogs)}</span></div>
     <div class="l big"><span>Gesamt</span><span class="num">${eur(c.total)}</span></div>
     <div class="l"><span>Rohertrag</span><span class="num ${c.total-c.cogs>=0?'pos':'neg'}">${eur(c.total-c.cogs)}</span></div>
-    ${(()=>{const pt=partnerSnap(F.partnerId,F.partner);if(!pt)return'';const pv=provAmt({total:c.total,cogs:c.cogs,partner:pt});
-      return `<div class="l"><span>Provision ${provDesc(pt)}</span><span class="num neg">−${eur(pv)}</span></div><div class="l"><span><b>Dein Gewinn</b></span><span class="num pos"><b>${eur(c.total-c.cogs-pv)}</b></span></div>`})()}`;
+    ${profitLines({total:c.total,cogs:c.cogs,extra:F.extra,porto:F.porto,partner:partnerSnap(F.partnerId,F.partner)})}`;
   }else if(F.type==='einkauf'){const vw=r2(F.items.reduce((s,i)=>s+num(i.qty)*num(prodById(i.pid)?.vk),0));
     const sh=$('#shipShare');if(sh){const q=F.items.reduce((s,i)=>s+num(i.qty),0);sh.textContent=c.ship>0&&F.shipToEk!==false&&c.sub>0?`(+${Math.round(c.ship/c.sub*1000)/10} % je Stück)`:''}
     el.innerHTML=`${c.ship?`<div class="l"><span>Ware</span><span class="num">${eur(c.sub)}</span></div><div class="l"><span>Versandkosten</span><span class="num">${eur(c.ship)}</span></div>`:''}<div class="l big"><span>Einkaufssumme</span><span class="num">${eur(c.total)}</span></div>
@@ -1306,7 +1330,8 @@ async function saveEntry(){
     const shipF=F.type==='einkauf'&&F.shipToEk!==false&&c.sub>0?1+num(F.extra)/c.sub:1;
     e.items=F.items.map(i=>{const p=prodById(i.pid);return{pid:i.pid,name:i.name||p?.name||'?',qty:num(i.qty),price:r2(num(i.price)),ek:r2(F.type==='verkauf'?num(i.ek??p?.ek):num(i.price)*shipF),tax:i.tax??(S.settings.kleinunternehmer?0:num(p?.tax??S.settings.defaultTax)),unit:i.unit||p?.unit||'Stk'}});
     if(F.type==='einkauf'){e.extra=r2(num(F.extra));e.shipToEk=F.shipToEk!==false;if(!e.extra){delete e.extra;delete e.shipToEk}}
-    if(F.type==='verkauf'){Object.assign(e,{partyAddress:F.partyAddress.trim(),extra:r2(num(F.extra)),regular:c.regular,discount:c.discount,cogs:c.cogs});const ps=partnerSnap(F.partnerId,old?.partner);if(ps)e.partner=ps;else delete e.partner}
+    if(F.type==='verkauf'){Object.assign(e,{partyAddress:F.partyAddress.trim(),extra:r2(num(F.extra)),regular:c.regular,discount:c.discount,cogs:c.cogs});const ps=partnerSnap(F.partnerId,old?.partner);if(ps)e.partner=ps;else delete e.partner;
+      const pStr=String(F.porto??'').trim();if(pStr===''){delete e.porto;if(e.ship)e.ship={...e.ship,porto:null}}else{e.porto=r2(num(pStr));if(e.ship)e.ship={...e.ship,porto:e.porto||null}}}
   }
   const prev=old?paysOf(old).map(p=>({...p})):[];let pays;
   if(F.payStatus==='1'){pays=prev;const rest=r2(c.total-pays.reduce((s,p)=>s+num(p.amount),0));if(Math.abs(rest)>0.005)pays.push({date:prev.length?today():F.date,amount:rest,method:F.method})}
@@ -1314,6 +1339,7 @@ async function saveEntry(){
   if(e.type==='verkauf'&&old&&old.delivered===false&&e.delivered){const rc=refreshCogs(e);e.items=rc.items;e.cogs=rc.cogs}
   e.payments=pays;e.paid=isPaid(e);
   try{await Store.put('entries',e)}catch{return}
+  if(e.type==='verkauf'){const was=old&&portoKnown(old)?portoOf(old):null,now=portoKnown(e)?portoOf(e):null;if(was!==now)await upsertPorto(e,now||0,true,'karte')}
   const kind=e.type==='verkauf'?'kunde':e.type==='einkauf'?'lieferant':null;
   if(kind&&e.party){const r=recByName(kind,e.party);const addr=(e.partyAddress||'').trim();
     if(!r)await Store.put(KIND[kind].col,{id:newId(),name:e.party,address:addr,phone:'',email:'',note:''}).catch(()=>{});
@@ -1333,7 +1359,7 @@ function openEntry(id){
   if(UI.pmId!==id){UI.pm=null;UI.pmId=id}
   const lines=e.type==='ausgabe'?`<div class="l"><span>${esc(e.expenseCat||'')}</span><span class="num">${eur(e.total)}</span></div>`
    :(e.items||[]).map(i=>`<div class="l"><span>${i.qty}× ${esc(i.name)} à ${eur(i.price)}${e.type==='einkauf'&&e.extra&&Math.abs(num(i.ek)-num(i.price))>0.004?` <span class="muted">(mit Versand ${eur(i.ek)})</span>`:''}</span><span class="num">${eur(i.qty*i.price)}</span></div>`).join('')
-    +(e.extra?`<div class="l"><span>${e.type==='einkauf'?'Versandkosten':'Versand / Service'}</span><span class="num">${eur(e.extra)}</span></div>`:'')
+    +(e.extra?`<div class="l"><span>${e.type==='einkauf'?'Versandkosten':'Versand (zahlt Kunde)'}</span><span class="num">${eur(e.extra)}</span></div>`:'')
     +(e.discount?`<div class="l"><span>${e.discount>0?'Rabatt':'Aufschlag'}</span><span class="num">${e.discount>0?'−':'+'}${eur(Math.abs(e.discount))}</span></div>`:'');
   const pays=paysOf(e),open=openAmt(e),ov=isOverdue(e),locked=!!e.invoiceNo||!!e.storno;
   const payList=pays.length?pays.map((p,i)=>`<div class="kv"><span>${fdate(p.date)} · ${METHODS[p.method]||''}${p.note?' · '+esc(p.note):''}</span><b>${eur(p.amount)}${e.cancelled||e.storno?'':` <button class="x" style="height:auto;font-size:13px;padding:0 0 0 6px" data-act="del-pay" data-id="${e.id}" data-i="${i}" aria-label="Zahlung entfernen">✕</button>`}</b></div>`).join('')
@@ -1346,7 +1372,7 @@ function openEntry(id){
    ${ov?`<div class="banner" style="display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--neg-soft);color:var(--neg)"><span>Seit ${daysBetween(dueDate(e),today())} Tag${daysBetween(dueDate(e),today())===1?'':'en'} überfällig${rem?' · erinnert am '+fdate(rem):''}</span><button class="btn sm" data-act="remind" data-id="${e.id}">Erinnern</button></div>`:''}
    <div class="summary">${lines}<div class="l big"><span>Gesamt</span><span class="num">${eur(e.total)}</span></div>
    ${e.type==='verkauf'?`<div class="l"><span>Rohertrag</span><span class="num">${eur(e.total-num(e.cogs))}</span></div>`:''}
-   ${e.type==='verkauf'&&e.partner?`<div class="l"><span>Provision ${provDesc(e.partner)}${e.delivered===false?' (fällig bei Übergabe)':''}</span><span class="num neg">−${eur(provAmt(e))}</span></div><div class="l"><span><b>Dein Gewinn</b></span><span class="num pos"><b>${eur(e.total-num(e.cogs)-provAmt(e))}</b></span></div>`:''}
+   ${e.type==='verkauf'&&!e.storno?profitLines(e,live(e)&&!e.viaKasse?e.id:null):''}
    ${e.type==='einkauf'&&!e.storno?(()=>{const vw=r2((e.items||[]).reduce((s,i)=>s+num(i.qty)*num(prodById(i.pid)?.vk),0));return vw?`<div class="l"><span>Verkaufswert (VK)</span><span class="num">${eur(vw)}</span></div><div class="l"><span>Möglicher Rohertrag</span><span class="num pos">${eur(vw-num(e.total))} · ${Math.round((vw-num(e.total))/vw*100)} %</span></div>`:''})():''}</div>
    ${(()=>{const meta=[e.orderDate?'bestellt am '+fdate(e.orderDate):'',e.invoiceNo?'Rechnung '+esc(e.invoiceNo)+(e.type==='verkauf'&&live(e)&&e.delivered!==false&&open>0.005?' · fällig '+fdate(dueDate(e)):''):'',rem&&!ov?'erinnert am '+fdate(rem):''].filter(Boolean).join(' · ');return meta?`<p class="muted" style="margin:0 0 12px;font-size:13px">${meta}</p>`:''})()}
    ${(()=>{if(!live(e))return'';
@@ -1405,7 +1431,7 @@ function openPartnerForm(id){
    <label class="field"><span>Provision %</span><input class="inp num" id="ptPct" type="number" inputmode="decimal" min="0" max="100" step="0.5" value="${p.pct}"></label>
    <div class="field"><span>Berechnet</span></div>
    <div class="seg" style="margin-bottom:8px">${Object.entries(BASES).map(([k,l])=>`<button class="${UI.pbase===k?'on':''}" data-act="pbase" data-v="${k}">${l}</button>`).join('')}</div>
-   <p class="hint" style="margin:0 0 12px">Rohertrag = Verkaufspreis − Einkaufspreis der Ware. Beispiel: Verkauf 50 €, EK 20 € → Rohertrag 30 € → bei 50 % bekommt der Partner 15 €. Versandkosten, die der Kunde zahlt, zählen nicht mit.</p>
+   <p class="hint" style="margin:0 0 12px">Rohertrag = Verkaufspreis − Einkaufspreis der Ware. Beispiel: Verkauf 50 €, EK 20 € → Rohertrag 30 € → bei 50 % bekommt der Partner 15 €. Versand, den der Kunde zahlt, zählt nicht mit. Porto, das du zahlst und das nicht vom Kunden gedeckt ist, wird voll von der Provision abgezogen.</p>
    ${id?`<label class="check"><input type="checkbox" id="ptActive" ${p.active!==false?'checked':''}> Aktiv (bei neuen Verkäufen auswählbar)</label>`:''}
    <button class="btn" data-act="save-partner" data-id="${id||''}">Speichern</button>
    ${id?`<button class="btn danger" style="margin-top:8px" data-act="del-partner" data-id="${id}">Partner löschen</button>`:''}
@@ -1536,6 +1562,39 @@ async function wipeAll(){
   Store.mode='wiped';closeSheet();
   document.body.innerHTML='<div style="padding:40px 20px;text-align:center;font-family:var(--f-ui)"><h2>Alle Daten gelöscht</h2><p class="muted">Die App startet neu …</p></div>';
   setTimeout(()=>location.reload(),1200);
+}
+/* Porto / Gewinn je Verkauf */
+function profitLines(e,editId){
+  const pt=e.partner,known=portoKnown(e),pv=pt?provAmt(e):0,sn=shipNet(e);
+  if(!pt&&!known&&!num(e.extra)&&!editId)return'';
+  const porto=`<div class="l"><span>Porto (zahlst du)${editId?` <button class="link" style="padding:0 0 0 6px;font-size:13px" data-act="porto" data-id="${editId}">${known?'ändern':'eintragen'}</button>`:''}</span><span class="num">${known?'−'+eur(portoOf(e)):num(e.extra)?'<span class="muted" style="font-family:var(--f-ui);font-size:12px">= Versand vom Kunden</span>':'–'}</span></div>`;
+  const prov=pt?`<div class="l"><span>Provision ${esc(pt.name)}<br><small class="muted">${num(pt.pct)} % ${BASES[pt.base||'roh']}${sn?`, abzgl. ${eur(sn)} Porto`:''}${e.delivered===false?' · fällig bei Übergabe':''}</small></span><span class="num neg">−${eur(pv)}</span></div>`:'';
+  const show=pt||known||num(e.extra);
+  return porto+prov+(show?`<div class="l"><span><b>Dein Gewinn</b></span><span class="num ${saleProfit(e)>=0?'pos':'neg'}"><b>${eur(saleProfit(e))}</b></span></div>`:'');
+}
+function openPorto(id){
+  const e=S.entries.find(x=>x.id===id);if(!e)return;const linked=S.entries.find(x=>x.type==='ausgabe'&&x.shipFor===id);
+  openSheet('Porto für diesen Verkauf',`<p class="muted" style="margin:-6px 0 12px">${esc(e.party||'Laufkunde')} · ${fdate(e.date)}${num(e.extra)?' · Kunde zahlt '+eur(e.extra)+' Versand':' · Kunde zahlt keinen Versand'}</p>
+   <label class="field"><span>Porto, das du zahlst €</span><input class="inp num" id="ptoAmt" type="number" inputmode="decimal" step="0.01" min="0" value="${portoKnown(e)?portoOf(e):''}" placeholder="z. B. 5,20"></label>
+   ${linked?`<p class="hint">Die verknüpfte Porto-Ausgabe vom ${fdate(linked.date)} wird angepasst.</p>`:`<label class="check"><input type="checkbox" id="ptoBook" checked><span>Als Ausgabe „Versand“ buchen<br><small class="muted">zählt dann im Überschuss</small></span></label>`}
+   ${e.partner?`<p class="hint">Was das Porto über den Versand des Kunden hinaus kostet, wird voll von der Provision für ${esc(e.partner.name)} abgezogen.</p>`:''}
+   <button class="btn" data-act="save-porto" data-id="${id}">Speichern</button>`);
+}
+async function upsertPorto(e,amt,book,method){
+  const linked=S.entries.filter(x=>x.type==='ausgabe'&&x.shipFor===e.id);
+  if(linked.length){const [first,...rest]=linked;for(const r of rest)await Store.del('entries',r.id);
+    if(amt>0){const p0=paysOf(first)[0]||{date:first.date,method:first.method||method};await Store.put('entries',{...first,total:amt,payments:[{...p0,amount:amt}],paid:true})}
+    else await Store.del('entries',first.id);
+    return}
+  if(amt>0&&book){const cat=S.settings.expenseCats.includes('Versand')?'Versand':(S.settings.expenseCats[0]||'Sonstiges');
+    await Store.put('entries',{id:'porto-'+e.id+'-'+Date.now().toString(36),created:new Date().toISOString(),type:'ausgabe',date:today(),party:'Porto · '+(e.party||'Versand'),expenseCat:cat,
+      method,note:e.ship?.tracking?'Sendung '+e.ship.tracking:'',total:amt,payments:[{date:today(),amount:amt,method}],paid:true,att:[],shipFor:e.id})}
+}
+async function savePorto(id){
+  const e=S.entries.find(x=>x.id===id);if(!e)return;const v=$('#ptoAmt').value.trim(),amt=v===''?null:r2(num(v)),book=$('#ptoBook')?$('#ptoBook').checked:true;
+  await Store.bulk(async()=>{const ne={...e};if(amt===null)delete ne.porto;else ne.porto=amt;if(ne.ship)ne.ship={...ne.ship,porto:amt||null};
+    await Store.put('entries',ne);await upsertPorto(ne,amt||0,book,'karte')});
+  toast(amt?'Porto gespeichert':'Porto entfernt');openEntry(id);
 }
 function openPay(id){
   const e=S.entries.find(x=>x.id===id);if(!e)return;const open=openAmt(e);
@@ -1879,9 +1938,9 @@ async function saveSettings(){
 /* ---------- data ---------- */
 function exportCSV(){
   const q=s=>`"${String(s??'').replace(/"/g,'""')}"`;const d=n=>r2(n).toFixed(2).replace('.',',');
-  const head=['Datum','Art','Rechnungsnr.','Kunde/Lieferant/Beschreibung','Positionen','Kategorie','Betrag','Bezahlt','Wareneinsatz','Zahlungsart','Status','Lieferung','Sendungsnr.','Belege','Notiz','Vermittler','Provision'];
+  const head=['Datum','Art','Rechnungsnr.','Kunde/Lieferant/Beschreibung','Positionen','Kategorie','Betrag','Bezahlt','Wareneinsatz','Zahlungsart','Status','Lieferung','Sendungsnr.','Belege','Notiz','Vermittler','Provision','Porto (du)'];
   const rows=sorted(S.entries).reverse().map(e=>[fdate(e.date),TYPES[e.type],e.invoiceNo||'',e.party||'',(e.items||[]).map(i=>`${i.qty}x ${i.name} à ${d(i.price)}`).join(' | '),e.expenseCat||(e.type==='einkauf'?'Wareneinkauf':''),
-    (e.type==='verkauf'?'':'-')+d(e.total),(e.type==='verkauf'?'':'-')+d(paidSum(e)),e.type==='verkauf'?d(e.cogs):'',METHODS[e.method]||'',e.cancelled?'storniert':e.storno?'Storno':isPaid(e)?'bezahlt':isPartial(e)?'teilweise':'offen',e.type==='ausgabe'?'':e.delivered===false?'bestellt':'geliefert',e.ship?.tracking||'',(e.att||[]).length,e.note||'',e.partner?.name||'',e.partner?d(provAmt(e)):''].map(q).join(';'));
+    (e.type==='verkauf'?'':'-')+d(e.total),(e.type==='verkauf'?'':'-')+d(paidSum(e)),e.type==='verkauf'?d(e.cogs):'',METHODS[e.method]||'',e.cancelled?'storniert':e.storno?'Storno':isPaid(e)?'bezahlt':isPartial(e)?'teilweise':'offen',e.type==='ausgabe'?'':e.delivered===false?'bestellt':'geliefert',e.ship?.tracking||'',(e.att||[]).length,e.note||'',e.partner?.name||'',e.partner?d(provAmt(e)):'',e.type==='verkauf'&&portoKnown(e)?d(portoOf(e)):''].map(q).join(';'));
   return Store.save(`Buchungen_${today()}.csv`,'﻿'+[head.map(q).join(';'),...rows].join('\r\n'));
 }
 async function exportJSON(){
@@ -1979,6 +2038,8 @@ document.addEventListener('click',async ev=>{
       Object.keys(sn).forEach(k=>{if(sn[k]<today())delete sn[k]});await Store.setSettings({...S.settings,rebuySnooze:sn});toast('Erinnerung verschoben');break}
     case'wipe-all':openWipe();break;
     case'wipe-confirm':wipeAll();break;
+    case'porto':openPorto(id);break;
+    case'save-porto':savePorto(id);break;
     case'fcat':UI.fcat=v;renderEntryForm();break;
     case'f-add':{const p=prodById(id);if(!p||!F)break;const row=F.items.find(i=>i.pid===p.id);
       if(row)row.qty=num(row.qty)+1;else{const empty=F.items.find(i=>!i.pid);const it={pid:p.id,qty:1,price:F.type==='verkauf'?p.vk:p.ek};if(empty)Object.assign(empty,it);else F.items.push(it)}
@@ -2096,6 +2157,7 @@ document.addEventListener('change',async ev=>{
   if(t.id==='coOpen'){UI.kopen=t.checked;return}
   if(t.id==='coParty'){UI.kparty=t.value;if(!UI.kpartner&&$('#coPartner')){const last=sorted(S.entries.filter(e=>e.type==='verkauf'&&e.partner&&norm(e.party)===norm(t.value))).pop();
     if(last&&partnerById(last.partner.id)){UI.kpartner=last.partner.id;$('#coPartner').value=UI.kpartner;coRefresh();toast('Vermittler übernommen: '+last.partner.name)}}return}
+  if(t.id==='ksort'||t.id==='fsort'){UI.ksort=t.value;try{localStorage.setItem('kb_ksort',t.value)}catch{}if(t.id==='fsort'&&F)renderEntryForm();else render();return}
   if(t.id==='psort'){UI.psort=t.value;try{localStorage.setItem('kb_psort',t.value)}catch{}render();return}
   if(t.id==='importFile'&&t.files[0]){importJSON(t.files[0]);t.value='';return}
   if(!F)return;
@@ -2112,7 +2174,7 @@ document.addEventListener('change',async ev=>{
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#sheetRoot').innerHTML)closeSheet()});
 
 render();Store.connect();
-const APP_VER='36';
+const APP_VER='37';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
