@@ -432,8 +432,8 @@ const portoOf=e=>e.porto!=null&&e.porto!==''?num(e.porto):num(e.ship?.porto);
 const portoCost=e=>portoKnown(e)?portoOf(e):Math.max(0,num(e.extra)); // unbekannt: Versand vom Kunden deckt das Porto
 const shipNet=e=>r2(Math.max(0,portoCost(e)-Math.max(0,num(e.extra)))); // Porto, das der Versand des Kunden NICHT deckt
 const provBase=(e,pt)=>{const goods=num(e.total)-Math.max(0,num(e.extra));return pt.base==='umsatz'?goods:goods-num(e.cogs)};
-// Provision = % vom Gewinn der Ware (ohne Kunden-Versand) − ungedecktes Porto, das der Partner voll trägt
-const provAmt=e=>{const pt=e.partner;if(!pt)return 0;return r2(Math.max(0,Math.max(0,provBase(e,pt))*num(pt.pct)/100-shipNet(e)))};
+// Provision = % von (Gewinn der Ware ohne Kunden-Versand − ungedecktes Porto): Porto wird VOR der Provision abgezogen
+const provAmt=e=>{const pt=e.partner;if(!pt)return 0;return r2(Math.max(0,provBase(e,pt)-shipNet(e))*num(pt.pct)/100)};
 const saleProfit=e=>r2(num(e.total)-num(e.cogs)-portoCost(e)-provAmt(e));
 const provDesc=pt=>`${esc(pt.name)} · ${num(pt.pct)} % ${BASES[pt.base||'roh']}`;
 function partnerStats(id){
@@ -768,7 +768,7 @@ function vAuswertung(){
    <div class="chart-mini">${sm.t.n} Verkäuf${sm.t.n===1?'':'e'} · Einnahmen ${eur(sm.t.ein)} · Ausgaben ${eur(sm.t.aus)}</div>
    <div class="bars"><div class="zero" style="top:${zero}%"></div>${bars}</div>
    <div class="bar-lbl">${MONTHS.map((m,i)=>`<span class="${i===sel?'on':''}">${m.slice(0,1)}</span>`).join('')}</div>
-   <p class="hint" style="margin:10px 2px 2px">${{umsatz:'Umsatz = Wert der übergebenen Verkäufe (inkl. Versand, nach Rabatt) – gezählt am Tag der Übergabe, egal ob schon bezahlt.',ueber:'Überschuss = Geld rein − Geld raus im Monat der Zahlung (Einnahmen-Ausgaben-Rechnung). Einkäufe zählen sofort, nicht erst beim Verkauf.',roh:'Rohertrag = Umsatz − Einkaufspreis der verkauften Ware. Zeigt, was der Verkauf wirklich einbringt – unabhängig davon, wann du einkaufst.',gewinn:'Gewinn = Rohertrag − Versandkosten − Provisionen. Versand, den der Kunde zahlt, geht ans Porto und ist kein Gewinn; ungedecktes Porto trägt bei Vermittler-Verkäufen der Partner.'}[cm]}</p></div>
+   <p class="hint" style="margin:10px 2px 2px">${{umsatz:'Umsatz = Wert der übergebenen Verkäufe (inkl. Versand, nach Rabatt) – gezählt am Tag der Übergabe, egal ob schon bezahlt.',ueber:'Überschuss = Geld rein − Geld raus im Monat der Zahlung (Einnahmen-Ausgaben-Rechnung). Einkäufe zählen sofort, nicht erst beim Verkauf.',roh:'Rohertrag = Umsatz − Einkaufspreis der verkauften Ware. Zeigt, was der Verkauf wirklich einbringt – unabhängig davon, wann du einkaufst.',gewinn:'Gewinn = Rohertrag − Versandkosten − Provisionen. Versand, den der Kunde zahlt, geht ans Porto und ist kein Gewinn; ungedecktes Porto wird vor der Provision abgezogen.'}[cm]}</p></div>
   <h2>Monate</h2>
   <div class="tbl-wrap"><table><thead><tr><th>Monat</th><th>Umsatz</th><th>Einnahmen</th><th>Ausgaben</th><th>Überschuss</th><th>Rohertrag</th><th>Versand</th>${hasProv?'<th>Provision</th>':''}<th>Gewinn</th></tr></thead>
    <tbody>${active.length?active.map(m=>`<tr><td>${m.n}</td><td>${eur(m.t.umsatz)}</td><td>${eur(m.t.ein)}</td><td>${eur(m.t.aus)}</td><td class="${m.t.ueber<0?'neg':''}">${eur(m.t.ueber)}</td><td>${eur(m.t.roh)}</td><td>${eur(m.t.versand)}</td>${hasProv?`<td>${eur(m.t.prov)}</td>`:''}<td>${eur(m.t.gewinn)}</td></tr>`).join(''):'<tr><td colspan="9" class="muted" style="text-align:center;font-family:var(--f-ui)">Keine Buchungen in diesem Jahr.</td></tr>'}</tbody>
@@ -1431,7 +1431,7 @@ function openPartnerForm(id){
    <label class="field"><span>Provision %</span><input class="inp num" id="ptPct" type="number" inputmode="decimal" min="0" max="100" step="0.5" value="${p.pct}"></label>
    <div class="field"><span>Berechnet</span></div>
    <div class="seg" style="margin-bottom:8px">${Object.entries(BASES).map(([k,l])=>`<button class="${UI.pbase===k?'on':''}" data-act="pbase" data-v="${k}">${l}</button>`).join('')}</div>
-   <p class="hint" style="margin:0 0 12px">Rohertrag = Verkaufspreis − Einkaufspreis der Ware. Beispiel: Verkauf 50 €, EK 20 € → Rohertrag 30 € → bei 50 % bekommt der Partner 15 €. Versand, den der Kunde zahlt, zählt nicht mit. Porto, das du zahlst und das nicht vom Kunden gedeckt ist, wird voll von der Provision abgezogen.</p>
+   <p class="hint" style="margin:0 0 12px">Rohertrag = Verkaufspreis − Einkaufspreis der Ware. Beispiel: Verkauf 50 €, EK 20 € → Rohertrag 30 € → bei 50 % bekommt der Partner 15 €. Versand, den der Kunde zahlt, zählt nicht mit. Porto, das du zahlst und das der Kunde nicht deckt, wird vorher abgezogen: mit 6 € Porto → (30 − 6) × 50 % = 12 €.</p>
    ${id?`<label class="check"><input type="checkbox" id="ptActive" ${p.active!==false?'checked':''}> Aktiv (bei neuen Verkäufen auswählbar)</label>`:''}
    <button class="btn" data-act="save-partner" data-id="${id||''}">Speichern</button>
    ${id?`<button class="btn danger" style="margin-top:8px" data-act="del-partner" data-id="${id}">Partner löschen</button>`:''}
@@ -1568,7 +1568,7 @@ function profitLines(e,editId){
   const pt=e.partner,known=portoKnown(e),pv=pt?provAmt(e):0,sn=shipNet(e);
   if(!pt&&!known&&!num(e.extra)&&!editId)return'';
   const porto=`<div class="l"><span>Porto (zahlst du)${editId?` <button class="link" style="padding:0 0 0 6px;font-size:13px" data-act="porto" data-id="${editId}">${known?'ändern':'eintragen'}</button>`:''}</span><span class="num">${known?'−'+eur(portoOf(e)):num(e.extra)?'<span class="muted" style="font-family:var(--f-ui);font-size:12px">= Versand vom Kunden</span>':'–'}</span></div>`;
-  const prov=pt?`<div class="l"><span>Provision ${esc(pt.name)}<br><small class="muted">${num(pt.pct)} % ${BASES[pt.base||'roh']}${sn?`, abzgl. ${eur(sn)} Porto`:''}${e.delivered===false?' · fällig bei Übergabe':''}</small></span><span class="num neg">−${eur(pv)}</span></div>`:'';
+  const prov=pt?`<div class="l"><span>Provision ${esc(pt.name)}<br><small class="muted">${num(pt.pct)} % ${BASES[pt.base||'roh']}${sn?` nach Abzug von ${eur(sn)} Porto`:''}${e.delivered===false?' · fällig bei Übergabe':''}</small></span><span class="num neg">−${eur(pv)}</span></div>`:'';
   const show=pt||known||num(e.extra);
   return porto+prov+(show?`<div class="l"><span><b>Dein Gewinn</b></span><span class="num ${saleProfit(e)>=0?'pos':'neg'}"><b>${eur(saleProfit(e))}</b></span></div>`:'');
 }
@@ -1577,7 +1577,7 @@ function openPorto(id){
   openSheet('Porto für diesen Verkauf',`<p class="muted" style="margin:-6px 0 12px">${esc(e.party||'Laufkunde')} · ${fdate(e.date)}${num(e.extra)?' · Kunde zahlt '+eur(e.extra)+' Versand':' · Kunde zahlt keinen Versand'}</p>
    <label class="field"><span>Porto, das du zahlst €</span><input class="inp num" id="ptoAmt" type="number" inputmode="decimal" step="0.01" min="0" value="${portoKnown(e)?portoOf(e):''}" placeholder="z. B. 5,20"></label>
    ${linked?`<p class="hint">Die verknüpfte Porto-Ausgabe vom ${fdate(linked.date)} wird angepasst.</p>`:`<label class="check"><input type="checkbox" id="ptoBook" checked><span>Als Ausgabe „Versand“ buchen<br><small class="muted">zählt dann im Überschuss</small></span></label>`}
-   ${e.partner?`<p class="hint">Was das Porto über den Versand des Kunden hinaus kostet, wird voll von der Provision für ${esc(e.partner.name)} abgezogen.</p>`:''}
+   ${e.partner?`<p class="hint">Was das Porto über den Versand des Kunden hinaus kostet, wird vom Rohertrag abgezogen, bevor die Provision für ${esc(e.partner.name)} berechnet wird.</p>`:''}
    <button class="btn" data-act="save-porto" data-id="${id}">Speichern</button>`);
 }
 async function upsertPorto(e,amt,book,method){
@@ -2174,7 +2174,7 @@ document.addEventListener('change',async ev=>{
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#sheetRoot').innerHTML)closeSheet()});
 
 render();Store.connect();
-const APP_VER='37';
+const APP_VER='38';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
