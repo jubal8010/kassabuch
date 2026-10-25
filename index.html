@@ -1413,19 +1413,40 @@ function refreshFormCust(){if(!F)return;
   const tl=$('.tiles.mini');if(tl){tl.innerHTML=pickerTiles(F.type);if(UI.fq)filterPicker()}
   F.items.forEach((it,i)=>{const el=document.querySelector(`[data-row="${i}"][data-k="price"]`);if(el&&document.activeElement!==el)el.value=it.price});
   updateSummary()}
+// Einkauf: Produkt, das es noch nicht gibt, direkt in der Bestellung anlegen
+function newProdCard(){const v=F.npv||{},cats=S.settings.categories||[];
+  return `<div class="card np-card" style="margin-bottom:12px">
+   <div class="sec-head" style="margin:0 0 8px"><b>Neues Produkt anlegen</b>${S.products.length?'<button class="link" data-act="np-close">Abbrechen</button>':''}</div>
+   <label class="field"><span>Bezeichnung</span><input class="inp" id="npName" value="${esc(v.npName||'')}" placeholder="z. B. Whey Protein Schoko"></label>
+   <div class="grid2"><label class="field"><span>Kategorie</span><select class="inp" id="npCat">${(cats.length?cats:['Allgemein']).map(c=>`<option ${c===(v.npCat||'')?'selected':''}>${esc(c)}</option>`).join('')}</select></label>
+    <label class="field"><span>Menge</span><input class="inp num" id="npQty" type="number" inputmode="decimal" min="1" step="1" value="${esc(v.npQty||'1')}"></label></div>
+   <div class="grid2"><label class="field"><span>Einkaufspreis / Stk €</span><input class="inp num" id="npEk" type="number" inputmode="decimal" min="0" step="0.01" value="${esc(v.npEk||'')}" placeholder="0,00"></label>
+    <label class="field"><span>Verkaufspreis / Stk €</span><input class="inp num" id="npVk" type="number" inputmode="decimal" min="0" step="0.01" value="${esc(v.npVk||'')}" placeholder="optional"></label></div>
+   <button class="btn" data-act="np-save">Anlegen & zur Bestellung</button>
+   <p class="hint" style="margin:8px 0 0">Das Produkt landet auch im Lager unter „Mehr → Produkte“. Details wie Barcode kannst du dort später ergänzen.</p></div>`}
+async function saveNewProd(){
+  const name=($('#npName')?.value||'').trim();if(!name){toast('Bitte eine Bezeichnung eingeben.');return}
+  const qty=Math.max(1,num($('#npQty').value)||1),ek=r2(num($('#npEk').value)),vk=r2(num($('#npVk').value)),cat=$('#npCat').value;
+  let p=S.products.find(x=>norm(x.name)===norm(name));
+  if(p)toast('Gibt es schon – zur Bestellung hinzugefügt');
+  else{p={id:newId(),name,cat,unit:'Stk',ek,vk,tax:num(S.settings.defaultTax),stockStart:0};try{await Store.put('products',p)}catch{return}toast('Produkt angelegt')}
+  const it={pid:p.id,qty,price:ek||num(p.ek)};const empty=F.items.find(i=>!i.pid);if(empty)Object.assign(empty,it);else F.items.push(it);
+  F.np=false;F.npv={};renderEntryForm();
+}
 function renderEntryForm(){
   const t=F.type,kind=t==='verkauf'?'kunde':t==='einkauf'?'lieferant':null;
   const parties=[...new Set([...(kind?S[KIND[kind].col].map(c=>c.name):[]),...S.entries.filter(e=>e.type===t&&e.party).map(e=>e.party)])].sort((a,b)=>a.localeCompare(b,'de'));
   const items=t==='ausgabe'?'':`
    <div class="sec-head" style="margin:0 0 6px"><span class="eyebrow">Positionen</span>${canScan()?'<button class="add-btn" data-act="scan" data-v="form">Scannen</button>':''}</div>
-   ${S.products.length?productPicker(t):'<div class="banner">Lege zuerst unter „Mehr → Produkte“ ein Produkt an.</div>'}
+   ${S.products.length?productPicker(t):t==='einkauf'?'':'<div class="banner">Lege zuerst unter „Mehr → Produkte“ ein Produkt an.</div>'}
    <div class="items">${F.items.map((it,i)=>`<div class="item">
      <label>Produkt<select class="inp" data-row="${i}" data-k="pid">${productOptions(it.pid)}</select></label>
      <label>Menge<input class="inp num" type="number" inputmode="decimal" min="0" step="1" data-row="${i}" data-k="qty" value="${it.qty}"></label>
      <label>${t==='verkauf'?'VK':'EK'} / Stk €<input class="inp num" type="number" inputmode="decimal" min="0" step="0.01" data-row="${i}" data-k="price" value="${it.price}"></label>
      <button class="x" data-act="rm-row" data-i="${i}" aria-label="Position entfernen">✕</button>
      <div class="sum"><span id="rm${i}">${it.pid&&t==='verkauf'?'EK '+eur(it.ek??prodById(it.pid)?.ek):it.pid&&t==='einkauf'?(()=>{const vk=num(prodById(it.pid)?.vk);return vk?'VK '+eur(vk)+' · Marge '+Math.round((vk-num(it.price))/vk*100)+' %':'kein VK hinterlegt'})():''}</span><span class="num" id="rs${i}">${eur(num(it.qty)*num(it.price))}</span></div></div>`).join('')}</div>
-   <button class="add-row" data-act="add-row">+ Position</button>`;
+   ${t==='einkauf'?`<div class="btn-row" style="margin-bottom:12px"><button class="add-row" style="flex:1;margin:0" data-act="add-row">+ Position</button><button class="add-row" style="flex:1;margin:0" data-act="np-open">+ Neues Produkt</button></div>${F.np||!S.products.length?newProdCard():''}`
+     :'<button class="add-row" data-act="add-row">+ Position</button>'}`;
   const ps=F.id?S.entries.find(x=>x.id===F.id):null;
   const body=`
    <div class="seg" style="margin-bottom:14px">${Object.keys(TYPES).map(k=>`<button class="${t===k?'on':''}" data-act="ftype" data-v="${k}" ${F.id?'disabled':''}>${TYPES[k]}</button>`).join('')}</div>
@@ -2232,6 +2253,9 @@ document.addEventListener('click',async ev=>{
       if(row)row.qty=num(row.qty)+1;else{const empty=F.items.find(i=>!i.pid);const it={pid:p.id,qty:1,price:F.type==='verkauf'?custPrice(p,F.pr):p.ek};if(empty)Object.assign(empty,it);else F.items.push(it)}
       renderEntryForm();break}
     case'ftype':if(!F.id){F.delivered=v!=='verkauf';F.ready=false;F.stage=v==='verkauf'?'geplant':'uebergeben';F.payStatus=v==='verkauf'?'0':'1'}F.type=v;F.pr=v==='verkauf'?custPr(F.party):null;F.fApplied=norm(F.party);UI.prEdit=null;F.items=v==='ausgabe'?[]:F.items.length?F.items.map(i=>{const p=prodById(i.pid);return{pid:i.pid,qty:i.qty,price:p?(v==='verkauf'?custPrice(p,F.pr):p.ek):i.price}}):[{pid:'',qty:1,price:0}];renderEntryForm();break;
+    case'np-open':F.np=true;F.npv={};renderEntryForm();setTimeout(()=>{const n=$('#npName');if(n){n.scrollIntoView({block:'center'});n.focus()}},50);break;
+    case'np-close':F.np=false;F.npv={};renderEntryForm();break;
+    case'np-save':saveNewProd();break;
     case'add-row':F.items.push({pid:'',qty:1,price:0});renderEntryForm();break;
     case'rm-row':F.items.splice(+b.dataset.i,1);if(!F.items.length)F.items.push({pid:'',qty:1,price:0});renderEntryForm();break;
     case'save-entry':saveEntry();break;
@@ -2340,6 +2364,7 @@ document.addEventListener('input',ev=>{
   if(t.id==='fq'){UI.fq=t.value;filterPicker();return}
   if(t.id==='kcust'){UI.kparty=t.value;const v=t.value.trim();if((!v&&UI.kApplied)||(isKnownCust(v)&&norm(v)!==UI.kApplied)){applyKCust();renderKeep('kcust')}return}
   if(t.id==='prPct')return;
+  if(F&&t.id&&/^np(Name|Qty|Ek|Vk|Cat)$/.test(t.id)){F.npv=F.npv||{};F.npv[t.id]=t.value;return}
   if(!F)return;
   if(t.dataset.f==='ship'){F.ship=t.value;F.shipTouched=true;updateSummary();return}
   if(t.dataset.f==='party'&&F.type==='verkauf'){F.party=t.value;const v=t.value.trim();if((!v&&F.fApplied)||(isKnownCust(v)&&norm(v)!==F.fApplied)){applyFCust();refreshFormCust()}else updateSummary();return}
@@ -2355,6 +2380,7 @@ document.addEventListener('change',async ev=>{
   if(t.id==='lb_xFrom'){try{localStorage.setItem('kb_xfrom',t.checked?'1':'0')}catch{}}
   if(t.id&&t.id.startsWith('lb_')&&LB){refreshLabel();return}
   if(t.id==='coOpen'){UI.kopen=t.checked;return}
+  if(F&&t.id==='npCat'){F.npv=F.npv||{};F.npv.npCat=t.value;return}
   if(t.id==='kcust'){UI.kparty=t.value.trim();if(norm(UI.kparty)!==UI.kApplied){applyKCust();renderKeep('kcust')}return}
   if(t.id==='prPct'){const c=t.dataset.c,cur=custPr(ctxName(c));if(cur&&t.value!=='')setCustPr(c,cur.mode,t.value);return}
   if(t.id==='coParty'){const hadP=!!UI.kpartner,oldPr=UI.kpr;coKeep();render();
@@ -2386,7 +2412,7 @@ function fitVals(){fitQ=0;document.querySelectorAll(FIT_SEL).forEach(el=>{el.sty
 const fitSoon=()=>{if(!fitQ)fitQ=requestAnimationFrame(fitVals)};
 new MutationObserver(fitSoon).observe(document.body,{childList:true,subtree:true});
 addEventListener('resize',fitSoon);document.fonts&&document.fonts.ready.then(fitSoon);
-const APP_VER='40';
+const APP_VER='41';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
