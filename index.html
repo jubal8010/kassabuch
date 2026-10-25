@@ -1328,12 +1328,13 @@ function vMehr(){
 
   <h2>Daten</h2>
   <div class="card">
-   <p class="muted">Deine Daten liegen nur auf diesem Gerät, nirgends sonst. Speichere regelmäßig ein Backup, z. B. in iCloud Drive oder per AirDrop auf den Mac. Mit „Backup laden“ überträgst du alles auf ein anderes Gerät – oder führst die Daten von Handy und Mac zusammen. Belege sind im Backup enthalten.${S.settings.lastBackup?' Letztes Backup: '+fdate(S.settings.lastBackup)+'.':' Noch kein Backup gespeichert.'}</p>
-   <div class="btn-row">
-    <button class="btn ghost sm" data-act="export-csv" ${Store.downloads?'':'disabled'}>Buchungen als CSV</button>
-    <button class="btn ghost sm" data-act="export-json" ${Store.downloads?'':'disabled'}>Backup speichern</button>
-    <label class="btn ghost sm" style="text-align:center">Backup laden<input type="file" id="importFile" accept=".json,application/json" hidden></label>
+   <p class="muted">Deine Daten liegen nur auf diesem Gerät, nirgends sonst.${S.settings.lastBackup?' Letzter Export: '+fdate(S.settings.lastBackup)+'.':' Noch nichts exportiert.'}</p>
+   <div class="btn-row" style="margin-bottom:10px">
+    <button class="btn sm" data-act="export-json" ${Store.downloads?'':'disabled'}>⤓ Alles exportieren</button>
+    <label class="btn ghost sm" style="text-align:center">⤒ Importieren<input type="file" id="importFile" accept=".json,application/json,text/plain,application/octet-stream" hidden></label>
    </div>
+   <p class="hint" style="margin:0 0 10px"><b>Auf ein anderes Handy übertragen:</b> „Alles exportieren“ tippen und die Datei per AirDrop, WhatsApp oder Mail schicken. Am anderen Handy die Datei in „Dateien“ sichern, Kassabuch öffnen, hier „Importieren“ und „Alles ersetzen“ wählen. Enthalten sind Produkte, Buchungen, Kunden mit ihren Preisen, Lieferanten, Partner, Einstellungen und Belege. Die Datei dient gleichzeitig als Backup.</p>
+   <div class="btn-row"><button class="btn ghost sm" data-act="export-csv" ${Store.downloads?'':'disabled'}>Buchungen als CSV</button></div>
    ${hasSample?'<button class="btn danger sm" style="margin-top:10px" data-act="clear-sample">Beispieldaten entfernen</button>':''}
   </div>
   <button class="btn danger" style="margin-top:14px" data-act="wipe-all">Alle Daten auf diesem Gerät löschen</button>`;
@@ -2412,7 +2413,7 @@ function fitVals(){fitQ=0;document.querySelectorAll(FIT_SEL).forEach(el=>{el.sty
 const fitSoon=()=>{if(!fitQ)fitQ=requestAnimationFrame(fitVals)};
 new MutationObserver(fitSoon).observe(document.body,{childList:true,subtree:true});
 addEventListener('resize',fitSoon);document.fonts&&document.fonts.ready.then(fitSoon);
-const APP_VER='41';
+const APP_VER='42';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
