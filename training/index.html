@@ -144,7 +144,7 @@ label.lbl{display:block;font-size:13px;color:var(--muted);margin:10px 0 6px}
 
 <script>
 'use strict';
-const APP_VERSION='2.11';
+const APP_VERSION='2.12';
 /* ================= Daten ================= */
 const KEY='training.v1';
 const MUSCLES=['Brust','Obere Brust','Rücken','Latissimus','Unterer Rücken','Schultern','Hintere Schulter','Bizeps','Trizeps','Quadrizeps','Beinbeuger','Adduktoren','Po','Waden','Bauch','Unterarme','Ganzkörper','Cardio'];
@@ -269,6 +269,7 @@ function render(){
   document.body.className='tab-'+tab;
   $('#title').style.fontSize='';
   $('#title').textContent=TITLES[tab];$('#subtitle').textContent='';$('#hdrAct').innerHTML='';
+  if(PAGES.length){clearInterval(tick);return PAGES[PAGES.length-1]()}
   ({workout:renderWorkout,history:renderHistory,progress:renderProgress,more:renderMore})[tab]();
 }
 
@@ -314,9 +315,10 @@ function renderWorkout(){
   $('#hdrAct').innerHTML=`<button class="btn acc" id="finish" style="min-height:38px;padding:8px 14px">Fertig</button>`;
   $('#finish').onclick=finishWorkout;
   v.innerHTML=A.exercises.map((ex,ei)=>exerciseCard(ex,ei)).join('')+`
-    <button class="btn block" id="addEx" style="margin-bottom:10px">${ICON.plus} Übung hinzufügen</button>
+    <div class="grid2" style="margin-bottom:10px"><button class="btn" id="addEx">${ICON.plus} Übung</button><button class="btn" id="orderEx">⇅ Reihenfolge</button></div>
     <textarea class="f" id="wnote" rows="2" placeholder="Notiz zum Training (optional)">${esc(A.note||'')}</textarea>
     <button class="btn red block" id="cancelW" style="margin-top:14px">Training verwerfen</button>`;
+  $('#orderEx').onclick=()=>openPage(workoutOrderPage());
   $('#addEx').onclick=()=>pickExercise(id=>{A.exercises.push(newExEntry(id));save();renderWorkout();setTimeout(()=>window.scrollTo(0,document.body.scrollHeight),50)});
   $('#cancelW').onclick=()=>{if(confirm('Training wirklich verwerfen? Die Einträge gehen verloren.')){S.active=null;save();stopTimer();renderWorkout()}};
   $('#wnote').oninput=e=>{A.note=e.target.value;save()};
@@ -349,7 +351,7 @@ function exerciseCard(ex,ei){
   const e=exById(ex.exId);const prev=lastSets(ex.exId,S.active.start);
   let n=0;
   return `<div class="ex" data-ei="${ei}">
-    <div class="row between"><div><h3>${esc(e.name)}</h3><div class="muted small">${esc(e.muscle)}${ex.target&&targetTxt({...ex.target,kg:''})?` · Ziel ${targetTxt({...ex.target,kg:''})}`:''}</div></div><button class="btn ghost" data-exmenu="${ei}">${ICON.dots}</button></div>
+    <div class="row between"><div data-exmenu2="${ei}" style="cursor:pointer"><h3>${esc(e.name)} <span class="muted" style="font-size:14px;font-weight:500">✎</span></h3><div class="muted small">${esc(e.muscle)}${ex.target&&targetTxt({...ex.target,kg:''})?` · Ziel ${targetTxt({...ex.target,kg:''})}`:''}</div></div><button class="btn ghost" data-exmenu="${ei}">${ICON.dots}</button></div>
     <div class="row" style="gap:8px;margin-top:8px;background:var(--card2);border-radius:12px;padding:6px 10px">
       <span class="small" style="flex:1">Arbeitsgewicht</span>
       <input class="wwin" data-ww="${ei}" inputmode="decimal" value="${getWW(ex.exId)!=null?fmt(getWW(ex.exId),2).replace(/\./g,''):''}" placeholder="–" style="width:78px;text-align:center;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 4px;font-weight:700;color:var(--acc);outline:none">
@@ -397,33 +399,98 @@ function bindWorkout(v){
     });
     card.querySelectorAll('[data-type]').forEach(b=>b.onclick=()=>{const s=ex.sets[+b.dataset.type];s.type=s.type==='w'?'d':s.type==='d'?'n':'w';save();renderWorkout()});
     card.querySelector('[data-addset]').onclick=()=>{const last=ex.sets[ex.sets.length-1];ex.sets.push({kg:last?last.kg:'',reps:last?last.reps:'',done:false,type:'n',ph:last?last.ph:null});save();renderWorkout()};
-    card.querySelector('[data-exmenu]').onclick=()=>exerciseMenu(ei);
+    card.querySelector('[data-exmenu]').onclick=()=>exerciseMenu(ei);card.querySelector('[data-exmenu2]').onclick=()=>exerciseMenu(ei);
     const wi=card.querySelector('[data-ww]');wi.onfocus=()=>wi.select();
     wi.onchange=()=>{const v=num(wi.value);if(!(v>0)){wi.value=getWW(ex.exId)!=null?fmt(getWW(ex.exId),2).replace(/\./g,''):'';return}
       if(setWW(ex.exId,v)){ex.sets.forEach(x=>{if(!x.done&&isW(x)){x.ph=Object.assign({reps:''},x.ph||{},{kg:getWW(ex.exId)})}});save();toast(`Arbeitsgewicht: ${fmt(getWW(ex.exId),2)} kg`);renderWorkout()}};
     wi.onkeydown=e=>{if(e.key==='Enter')wi.blur()};
   });
 }
-function exerciseMenu(ei){
-  const A=S.active,ex=A.exercises[ei];
-  sheet(`<h2>${esc(exById(ex.exId).name)}</h2>
-    <label class="lbl">Notiz zur Übung</label><input class="f" id="exnote" value="${esc(ex.note||'')}" placeholder="z. B. Sitzposition 4">
-    <div style="display:grid;gap:8px;margin-top:14px">
-      <button class="btn" id="m_rmset">Letzten Satz entfernen</button>
-      <button class="btn" id="m_up">Nach oben</button>
-      <button class="btn" id="m_down">Nach unten</button>
-      <button class="btn" id="m_swap">Übung ersetzen</button>
-      <button class="btn" id="m_hist">Verlauf dieser Übung</button>
-      <button class="btn red" id="m_del">Übung entfernen</button>
-    </div>`);
-  $('#exnote').oninput=e=>{ex.note=e.target.value;save()};
-  const done=()=>{closeSheet();save();renderWorkout()};
-  $('#m_rmset').onclick=()=>{if(ex.sets.length>1)ex.sets.pop();done()};
-  $('#m_up').onclick=()=>{if(ei>0)[A.exercises[ei-1],A.exercises[ei]]=[A.exercises[ei],A.exercises[ei-1]];done()};
-  $('#m_down').onclick=()=>{if(ei<A.exercises.length-1)[A.exercises[ei+1],A.exercises[ei]]=[A.exercises[ei],A.exercises[ei+1]];done()};
-  $('#m_swap').onclick=()=>pickExercise(id=>{const n=newExEntry(id,ex.sets.length);A.exercises[ei]=n;save();renderWorkout()});
-  $('#m_hist').onclick=()=>{closeSheet();openExercise(ex.exId)};
-  $('#m_del').onclick=()=>{if(confirm('Übung entfernen?')){A.exercises.splice(ei,1);done()}};
+function exerciseMenu(ei){const ex=S.active&&S.active.exercises[ei];if(ex)openPage(workoutExPage(ex))}
+/* Übung während des Trainings komplett bearbeiten */
+function workoutExPage(ex){
+  return ()=>{
+    const A=S.active;if(!A||!A.exercises.includes(ex)){PAGES=[];return render()}
+    const e=exById(ex.exId);pageHeader(e.name,'Im Training bearbeiten');
+    if(!ex.target)ex.target={rMin:'',rMax:'',kg:'',amrap:false,drops:[]};
+    const tg=ex.target,ww=getWW(ex.exId);
+    const tpl=A.tplId&&S.templates.find(t=>t.id===A.tplId);
+    let n=0;
+    const v=$('#view');
+    v.innerHTML=`
+      <div class="card"><div class="tiny">Arbeitsgewicht</div>
+        <div class="row" style="gap:8px;margin-top:10px"><button class="btn" data-wwstep="-2.5" style="width:64px">−2,5</button>
+          <input class="f" id="wWW" inputmode="decimal" value="${kgStr(ww)}" placeholder="–" style="flex:1;text-align:center;font-size:24px;font-weight:800;color:var(--acc)">
+          <button class="btn" data-wwstep="2.5" style="width:64px">+2,5</button></div></div>
+      <div class="card"><div class="row between"><span class="tiny">Sätze</span><span class="muted small">Typ antippen: Satz → W → D</span></div>
+        <table class="sets" style="margin-top:4px"><thead><tr><th></th><th>kg</th><th>Wdh</th><th></th><th></th></tr></thead><tbody>
+        ${ex.sets.map((x,i)=>`<tr class="${x.done?'done':''}">
+          <td class="n"><button data-wtype="${i}" class="chk" style="width:38px;height:38px">${x.type==='w'?'<span class="settype w">W</span>':x.type==='d'?'<span class="settype d">D</span>':`<span class="settype">${++n}</span>`}</button></td>
+          <td><input inputmode="decimal" data-wf="kg" data-i="${i}" value="${esc(String(x.kg).replace('.',','))}" placeholder="${x.ph?esc(String(x.ph.kg).replace('.',',')):''}"></td>
+          <td><input inputmode="numeric" data-wf="reps" data-i="${i}" value="${esc(x.reps)}" placeholder="${x.ph?esc(x.ph.reps):''}"></td>
+          <td><button class="chk ${x.done?'on':''}" data-wdone="${i}">${ICON.check}</button></td>
+          <td><button class="btn ghost" data-wrm="${i}" style="color:var(--red);padding:8px">✕</button></td></tr>`).join('')}
+        </tbody></table>
+        <div class="grid2" style="margin-top:6px"><button class="btn" id="wAddSet">${ICON.plus} Satz</button><button class="btn" id="wAddDrop">${ICON.plus} Dropsatz</button></div></div>
+      <div class="card"><div class="row between"><span class="tiny">Ziel-Wiederholungen</span>
+        <div class="row small" style="gap:8px">so oft wie möglich <label class="switch"><input type="checkbox" id="wAmrap" ${tg.amrap?'checked':''}><span></span></label></div></div>
+        ${tg.amrap?'':`<div class="row" style="gap:10px;margin-top:12px;justify-content:center"><input class="f" id="wRMin" inputmode="numeric" value="${esc(tg.rMin??'')}" placeholder="8" style="width:80px;text-align:center;font-size:20px;font-weight:700"><span class="muted">bis</span><input class="f" id="wRMax" inputmode="numeric" value="${esc(tg.rMax??'')}" placeholder="10" style="width:80px;text-align:center;font-size:20px;font-weight:700"><span class="muted">Wdh</span></div>`}</div>
+      <div class="card"><div class="tiny">Notiz</div><input class="f" id="wNote" value="${esc(ex.note||'')}" placeholder="z. B. Sitzposition 4" style="margin-top:8px"></div>
+      ${tpl?`<button class="btn acc block" id="wToPlan">Im Trainingsplan „${esc(tpl.name)}“ übernehmen</button>
+        <div class="muted small" style="margin:6px 2px 0">Übernimmt Satzanzahl, Dropsatz und Ziel-Wdh dauerhaft. Sonst gilt die Änderung nur für dieses Training.</div>`:''}
+      <div style="display:grid;gap:8px;margin-top:16px">
+        <button class="btn" id="wOrder">Reihenfolge der Übungen ändern</button>
+        <button class="btn" id="wSwap">Übung austauschen</button>
+        <button class="btn red" id="wDel">Übung aus diesem Training entfernen</button></div>`;
+    const sv=re=>{save();if(re)render()};
+    // Arbeitsgewicht
+    const upPh=()=>ex.sets.forEach(x=>{if(!x.done&&isW(x))x.ph=Object.assign({reps:''},x.ph||{},{kg:getWW(ex.exId)})});
+    const wi=$('#wWW');wi.onfocus=()=>wi.select();
+    wi.onchange=()=>{const k=num(wi.value);if(k>0){setWW(ex.exId,k);upPh();sv(true)}else wi.value=kgStr(getWW(ex.exId))};
+    v.querySelectorAll('[data-wwstep]').forEach(b=>b.onclick=()=>{const k=(getWW(ex.exId)||0)+num(b.dataset.wwstep);if(k>0){setWW(ex.exId,k);upPh();sv(true)}});
+    // Sätze
+    v.querySelectorAll('[data-wf]').forEach(i=>{i.onfocus=()=>i.select();i.oninput=()=>{ex.sets[+i.dataset.i][i.dataset.wf]=i.value.replace(',','.');sv()}});
+    v.querySelectorAll('[data-wtype]').forEach(b=>b.onclick=()=>{const x=ex.sets[+b.dataset.wtype];x.type=!x.type||x.type==='n'?'w':x.type==='w'?'d':'n';sv(true)});
+    v.querySelectorAll('[data-wdone]').forEach(b=>b.onclick=()=>{const x=ex.sets[+b.dataset.wdone];
+      if(!x.done){if(x.kg===''&&x.ph)x.kg=x.ph.kg;if(x.reps===''&&x.ph)x.reps=x.ph.reps;if(x.reps==='')return toast('Bitte Wiederholungen eintragen')}
+      x.done=!x.done;sv(true);
+      if(x.done&&A.exercises.every(q=>q.sets.every(y=>y.done))){stopTimer();setTimeout(()=>{if(S.active===A){PAGES=[];finishWorkout()}},600)}});
+    v.querySelectorAll('[data-wrm]').forEach(b=>b.onclick=()=>{if(ex.sets.length<=1)return toast('Mindestens ein Satz – sonst Übung entfernen');ex.sets.splice(+b.dataset.wrm,1);sv(true)});
+    $('#wAddSet').onclick=()=>{const work=ex.sets.filter(isW),last=work[work.length-1];const idx=ex.sets.findIndex(x=>x.type==='d');
+      const ns={kg:'',reps:'',done:false,type:'n',ph:last?(last.ph||{kg:last.kg,reps:last.reps}):getWW(ex.exId)!=null?{kg:getWW(ex.exId),reps:tg.rMax||''}:null};
+      if(idx>=0)ex.sets.splice(idx,0,ns);else ex.sets.push(ns);sv(true)};
+    $('#wAddDrop').onclick=()=>{const base=getWW(ex.exId)||num((ex.sets.find(isW)||{}).kg)||20;ex.sets.push({kg:'',reps:'',done:false,type:'d',ph:{kg:Math.round(base*0.5/2.5)*2.5||base,reps:''}});sv(true)};
+    // Ziel
+    $('#wAmrap').onchange=e=>{tg.amrap=e.target.checked;if(!tg.amrap&&!tg.rMax){tg.rMin=8;tg.rMax=10}sv(true)};
+    const rmin=$('#wRMin'),rmax=$('#wRMax');
+    if(rmin){rmin.onchange=()=>{tg.rMin=rmin.value.trim()===''?'':num(rmin.value);sv()};rmax.onchange=()=>{tg.rMax=rmax.value.trim()===''?'':num(rmax.value);sv()}}
+    $('#wNote').oninput=e=>{ex.note=e.target.value;sv()};
+    // Plan übernehmen
+    const tp=$('#wToPlan');if(tp)tp.onclick=()=>{
+      let it=tpl.items.find(i=>i.exId===ex.exId);
+      if(!it){it={id:uid(),exId:ex.exId};const pos=A.exercises.indexOf(ex);const before=A.exercises.slice(0,pos).map(x=>x.exId);let at=0;tpl.items.forEach((i,k)=>{if(before.includes(i.exId))at=k+1});tpl.items.splice(at,0,it)}
+      it.sets=Math.max(1,ex.sets.filter(isW).length);it.amrap=!!tg.amrap;it.rMin=tg.rMin;it.rMax=tg.rMax;
+      it.drops=ex.sets.filter(x=>x.type==='d').map(x=>num(x.kg!==''?x.kg:x.ph?x.ph.kg:0)).filter(k=>k>0);it.kg=getWW(ex.exId)??'';
+      save();toast(`In „${tpl.name}“ übernommen`)};
+    $('#wOrder').onclick=()=>openPage(workoutOrderPage());
+    $('#wSwap').onclick=()=>pickExercise(id=>{if(!id)return;const ne=newExEntry(id,Math.max(1,ex.sets.filter(isW).length),Object.assign({},tg,{kg:getWW(id)??''}));const i=A.exercises.indexOf(ex);A.exercises[i]=ne;save();PAGES.pop();openPage(workoutExPage(ne))});
+    $('#wDel').onclick=()=>{if(confirm(`${e.name} aus diesem Training entfernen?`)){A.exercises.splice(A.exercises.indexOf(ex),1);save();backPage()}};
+  };
+}
+function workoutOrderPage(){
+  return ()=>{
+    const A=S.active;if(!A){PAGES=[];return render()}
+    pageHeader('Reihenfolge','Im Training');
+    const tpl=A.tplId&&S.templates.find(t=>t.id===A.tplId);
+    const v=$('#view');
+    v.innerHTML=`<div class="muted small" style="margin:4px 2px 8px">⠿ halten & ziehen</div>
+      <div class="card" style="padding:4px 10px" id="olist">${A.exercises.map(x=>{const d=x.sets.filter(s=>s.done).length;return dragRow(`<div class="drow-main"><div>${esc(exById(x.exId).name)}</div><div class="muted small">${d}/${x.sets.length} Sätze erledigt</div></div>`)}).join('')}</div>
+      ${tpl?`<button class="btn block" id="oPlan">Reihenfolge im Plan „${esc(tpl.name)}“ übernehmen</button>`:''}
+      <button class="btn acc block" id="oDone" style="margin-top:8px">Fertig</button>`;
+    sortable($('#olist'),(a,b)=>{const [m]=A.exercises.splice(a,1);A.exercises.splice(b,0,m);save();render()});
+    const op=$('#oPlan');if(op)op.onclick=()=>{const order=A.exercises.map(x=>x.exId);tpl.items.sort((a,b)=>{const ia=order.indexOf(a.exId),ib=order.indexOf(b.exId);return (ia<0?999:ia)-(ib<0?999:ib)});save();toast('Reihenfolge übernommen')};
+    $('#oDone').onclick=()=>{PAGES=[];render()};
+  };
 }
 function startWorkout(tplId){
   if(S.active&&!confirm('Es läuft schon ein Training. Ersetzen?'))return;
