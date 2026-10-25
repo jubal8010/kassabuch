@@ -144,7 +144,7 @@ label.lbl{display:block;font-size:13px;color:var(--muted);margin:10px 0 6px}
 
 <script>
 'use strict';
-const APP_VERSION='2.12';
+const APP_VERSION='2.13';
 /* ================= Daten ================= */
 const KEY='training.v1';
 const MUSCLES=['Brust','Obere Brust','Rücken','Latissimus','Unterer Rücken','Schultern','Hintere Schulter','Bizeps','Trizeps','Quadrizeps','Beinbeuger','Adduktoren','Po','Waden','Bauch','Unterarme','Ganzkörper','Cardio'];
@@ -399,7 +399,7 @@ function bindWorkout(v){
     });
     card.querySelectorAll('[data-type]').forEach(b=>b.onclick=()=>{const s=ex.sets[+b.dataset.type];s.type=s.type==='w'?'d':s.type==='d'?'n':'w';save();renderWorkout()});
     card.querySelector('[data-addset]').onclick=()=>{const last=ex.sets[ex.sets.length-1];ex.sets.push({kg:last?last.kg:'',reps:last?last.reps:'',done:false,type:'n',ph:last?last.ph:null});save();renderWorkout()};
-    card.querySelector('[data-exmenu]').onclick=()=>exerciseMenu(ei);card.querySelector('[data-exmenu2]').onclick=()=>exerciseMenu(ei);
+    card.querySelector('[data-exmenu]').onclick=()=>exerciseQuickMenu(ei);card.querySelector('[data-exmenu2]').onclick=()=>exerciseMenu(ei);
     const wi=card.querySelector('[data-ww]');wi.onfocus=()=>wi.select();
     wi.onchange=()=>{const v=num(wi.value);if(!(v>0)){wi.value=getWW(ex.exId)!=null?fmt(getWW(ex.exId),2).replace(/\./g,''):'';return}
       if(setWW(ex.exId,v)){ex.sets.forEach(x=>{if(!x.done&&isW(x)){x.ph=Object.assign({reps:''},x.ph||{},{kg:getWW(ex.exId)})}});save();toast(`Arbeitsgewicht: ${fmt(getWW(ex.exId),2)} kg`);renderWorkout()}};
@@ -407,6 +407,32 @@ function bindWorkout(v){
   });
 }
 function exerciseMenu(ei){const ex=S.active&&S.active.exercises[ei];if(ex)openPage(workoutExPage(ex))}
+/* Schnellmenü über ⋯ */
+function exerciseQuickMenu(ei){
+  const A=S.active,ex=A&&A.exercises[ei];if(!ex)return;
+  sheet(`<h2>${esc(exById(ex.exId).name)}</h2>
+    <label class="lbl">Notiz zur Übung</label><input class="f" id="qNote" value="${esc(ex.note||'')}" placeholder="z. B. Sitzposition 4">
+    <div style="display:grid;gap:8px;margin-top:14px">
+      <button class="btn acc" id="qEdit">✎ Übung bearbeiten</button>
+      <div class="grid2"><button class="btn" id="qAdd">${ICON.plus} Satz</button><button class="btn" id="qRm">− Letzter Satz</button></div>
+      <div class="grid2"><button class="btn" id="qUp" ${ei===0?'disabled style="opacity:.4"':''}>↑ Nach oben</button><button class="btn" id="qDown" ${ei===A.exercises.length-1?'disabled style="opacity:.4"':''}>↓ Nach unten</button></div>
+      <button class="btn" id="qOrder">⇅ Reihenfolge ändern</button>
+      <button class="btn" id="qSwap">Übung austauschen</button>
+      <button class="btn" id="qStats">Statistik dieser Übung</button>
+      <button class="btn red" id="qDel">Übung entfernen</button></div>`);
+  const done=()=>{closeSheet();save();renderWorkout()};
+  $('#qNote').oninput=e=>{ex.note=e.target.value;save()};
+  $('#qEdit').onclick=()=>{closeSheet();openPage(workoutExPage(ex))};
+  $('#qAdd').onclick=()=>{const work=ex.sets.filter(isW),last=work[work.length-1];const idx=ex.sets.findIndex(x=>x.type==='d');
+    const ns={kg:'',reps:'',done:false,type:'n',ph:last?(last.ph||{kg:last.kg,reps:last.reps}):null};if(idx>=0)ex.sets.splice(idx,0,ns);else ex.sets.push(ns);done()};
+  $('#qRm').onclick=()=>{if(ex.sets.length>1){const i=[...ex.sets.keys()].reverse().find(i=>!ex.sets[i].done);ex.sets.splice(i!=null?i:ex.sets.length-1,1)}else toast('Mindestens ein Satz – sonst Übung entfernen');done()};
+  $('#qUp').onclick=()=>{if(ei>0){[A.exercises[ei-1],A.exercises[ei]]=[A.exercises[ei],A.exercises[ei-1]];done()}};
+  $('#qDown').onclick=()=>{if(ei<A.exercises.length-1){[A.exercises[ei+1],A.exercises[ei]]=[A.exercises[ei],A.exercises[ei+1]];done()}};
+  $('#qOrder').onclick=()=>{closeSheet();openPage(workoutOrderPage())};
+  $('#qSwap').onclick=()=>pickExercise(id=>{if(!id)return;const ne=newExEntry(id,Math.max(1,ex.sets.filter(isW).length),Object.assign({},ex.target||{},{kg:getWW(id)??''}));A.exercises[ei]=ne;save();renderWorkout()});
+  $('#qStats').onclick=()=>{closeSheet();openExercise(ex.exId)};
+  $('#qDel').onclick=()=>{if(confirm('Übung aus diesem Training entfernen?')){A.exercises.splice(ei,1);done()}};
+}
 /* Übung während des Trainings komplett bearbeiten */
 function workoutExPage(ex){
   return ()=>{
@@ -471,7 +497,7 @@ function workoutExPage(ex){
       if(!it){it={id:uid(),exId:ex.exId};const pos=A.exercises.indexOf(ex);const before=A.exercises.slice(0,pos).map(x=>x.exId);let at=0;tpl.items.forEach((i,k)=>{if(before.includes(i.exId))at=k+1});tpl.items.splice(at,0,it)}
       it.sets=Math.max(1,ex.sets.filter(isW).length);it.amrap=!!tg.amrap;it.rMin=tg.rMin;it.rMax=tg.rMax;
       it.drops=ex.sets.filter(x=>x.type==='d').map(x=>num(x.kg!==''?x.kg:x.ph?x.ph.kg:0)).filter(k=>k>0);it.kg=getWW(ex.exId)??'';
-      save();toast(`In „${tpl.name}“ übernommen`)};
+      save();toast(`In „${tpl.name}“ übernommen`);backPage()};
     $('#wOrder').onclick=()=>openPage(workoutOrderPage());
     $('#wSwap').onclick=()=>pickExercise(id=>{if(!id)return;const ne=newExEntry(id,Math.max(1,ex.sets.filter(isW).length),Object.assign({},tg,{kg:getWW(id)??''}));const i=A.exercises.indexOf(ex);A.exercises[i]=ne;save();PAGES.pop();openPage(workoutExPage(ne))});
     $('#wDel').onclick=()=>{if(confirm(`${e.name} aus diesem Training entfernen?`)){A.exercises.splice(A.exercises.indexOf(ex),1);save();backPage()}};
@@ -488,7 +514,7 @@ function workoutOrderPage(){
       ${tpl?`<button class="btn block" id="oPlan">Reihenfolge im Plan „${esc(tpl.name)}“ übernehmen</button>`:''}
       <button class="btn acc block" id="oDone" style="margin-top:8px">Fertig</button>`;
     sortable($('#olist'),(a,b)=>{const [m]=A.exercises.splice(a,1);A.exercises.splice(b,0,m);save();render()});
-    const op=$('#oPlan');if(op)op.onclick=()=>{const order=A.exercises.map(x=>x.exId);tpl.items.sort((a,b)=>{const ia=order.indexOf(a.exId),ib=order.indexOf(b.exId);return (ia<0?999:ia)-(ib<0?999:ib)});save();toast('Reihenfolge übernommen')};
+    const op=$('#oPlan');if(op)op.onclick=()=>{const order=A.exercises.map(x=>x.exId);tpl.items.sort((a,b)=>{const ia=order.indexOf(a.exId),ib=order.indexOf(b.exId);return (ia<0?999:ia)-(ib<0?999:ib)});save();toast('Reihenfolge übernommen');PAGES=[];render()};
     $('#oDone').onclick=()=>{PAGES=[];render()};
   };
 }
