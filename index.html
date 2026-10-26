@@ -148,6 +148,8 @@ button.row:hover{background:var(--surface-2)}
 .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:8px}
 .tile{position:relative;display:flex;flex-direction:column;gap:4px;text-align:left;border:1px solid var(--line);background:var(--surface);border-radius:var(--r);padding:11px;min-height:98px;min-width:0;color:var(--ink)}
 .tile.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.tile{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+.tile.lp{transform:scale(.96);transition:transform .15s}
 .tile-n{font-weight:600;font-size:14px;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .tile-p{font-size:16px;font-weight:650;margin-top:auto;letter-spacing:-.015em}
 .tile-s{font-size:12px;color:var(--muted)}
@@ -1197,7 +1199,7 @@ function vKasse(){
   ${S.products.length>1?sortSelect('ksort',UI.ksort):''}
   ${l.length?`<div class="tiles">${cf.top.length?`<div class="tiles-head">Schon gekauft von ${esc(UI.kparty.trim())}</div>${cf.top.map(tile).join('')}${cf.rest.length&&UI.ksort!=='kat'?'<div class="tiles-head">Alle anderen</div>':''}`:''}${withCatHeads(cf.rest,UI.ksort,tile)}</div>`
    :`<div class="list"><div class="empty"><b>${S.products.length?'Kein Produkt gefunden':'Noch keine Produkte'}</b>${S.products.length?'':'Leg zuerst unter „Mehr“ Produkte an.'}</div></div>`}
-  <p class="hint" style="margin-top:12px">Tippe Produkte an, um sie in den Warenkorb zu legen. Beim Kassieren wählst du „Jetzt übergeben“ oder „Bestellung aufnehmen“ – die App merkt sich deine letzte Wahl.</p>
+  <p class="hint" style="margin-top:12px">Tippe Produkte an, um sie in den Warenkorb zu legen – lange drücken nimmt eins wieder weg. Beim Kassieren wählst du „Jetzt übergeben“ oder „Bestellung aufnehmen“ – die App merkt sich deine letzte Wahl.</p>
   ${n?`<div class="cartbar"><button data-act="cart-clear" class="cart-x" aria-label="Warenkorb leeren">✕</button><span><b>${n} Artikel</b><span class="num">${eur(cartTotal())}</span></span><button class="btn sm" data-act="checkout">Kassieren</button></div>`:''}`;
 }
 function openCheckout(){
@@ -1405,7 +1407,7 @@ function productPicker(t){
   return `<div class="picker"><input class="search" id="fq" type="search" placeholder="Produkt suchen …" value="${esc(UI.fq||'')}" style="margin-bottom:8px">${cats.length>1?`<div class="chips">${['alle',...cats].map(c=>`<button class="chip ${UI.fcat===c?'on':''}" data-act="fcat" data-v="${esc(c)}">${c==='alle'?'Alle':esc(c)}</button>`).join('')}</div>`:''}
    ${S.products.length>1?sortSelect('fsort',UI.ksort):''}
    <div class="tiles mini">${pickerTiles(t)}</div>
-   <p class="muted" id="fqEmpty" hidden style="font-size:13px;margin:4px 0">Kein Produkt gefunden.</p><p class="hint" style="margin:6px 0 10px">Antippen zum Hinzufügen – nochmal tippen = +1. Menge und Preis unten anpassen.</p></div>`;
+   <p class="muted" id="fqEmpty" hidden style="font-size:13px;margin:4px 0">Kein Produkt gefunden.</p><p class="hint" style="margin:6px 0 10px">Antippen = +1, lange drücken = −1. Menge und Preis unten anpassen.</p></div>`;
 }
 function pickerTiles(t){
   const sm=stockMap();
@@ -2368,6 +2370,20 @@ document.addEventListener('click',async ev=>{
     case'clear-sample':clearSample();break;
   }
 });
+/* Langes Antippen einer Kachel = 1 Stück weniger (bei 1 Stück: abwählen) */
+const LP={t:null,el:null,x:0,y:0,skip:false};
+function tileMinus(el){const id=el.dataset.id,p=prodById(id);if(!p)return;
+  if(el.dataset.act==='cart-add'){const c=UI.cart.find(x=>x.pid===id);if(!c)return;cartAdd(id,-1);render();toast(c.qty>0?`${p.name}: noch ${c.qty}`:`${p.name} abgewählt`)}
+  else if(el.dataset.act==='f-add'&&F){const i=F.items.findIndex(x=>x.pid===id);if(i<0)return;const it=F.items[i];it.qty=num(it.qty)-1;
+    if(it.qty<=0){F.items.splice(i,1);if(!F.items.length)F.items.push({pid:'',qty:1,price:0})}renderEntryForm();toast(it.qty>0?`${p.name}: noch ${it.qty}`:`${p.name} abgewählt`)}
+  try{navigator.vibrate&&navigator.vibrate(15)}catch{}}
+const lpEnd=()=>{clearTimeout(LP.t);LP.t=null;if(LP.el)LP.el.classList.remove('lp');LP.el=null};
+document.addEventListener('pointerdown',ev=>{LP.skip=false;const el=ev.target.closest('.tile[data-act="cart-add"],.tile[data-act="f-add"]');if(!el)return;
+  lpEnd();LP.el=el;LP.x=ev.clientX;LP.y=ev.clientY;if(el.classList.contains('on'))el.classList.add('lp');LP.t=setTimeout(()=>{const e=LP.el;lpEnd();if(e){LP.skip=true;if(e.classList.contains('on'))tileMinus(e)}},500)});
+document.addEventListener('pointermove',ev=>{if(LP.t&&Math.hypot(ev.clientX-LP.x,ev.clientY-LP.y)>10)lpEnd()});
+['pointerup','pointercancel','scroll'].forEach(n=>document.addEventListener(n,()=>{if(LP.t)lpEnd()},true));
+document.addEventListener('click',ev=>{if(LP.skip){LP.skip=false;if(ev.target.closest('.tile')){ev.stopPropagation();ev.preventDefault()}}},true);
+document.addEventListener('contextmenu',ev=>{if(ev.target.closest('.tile'))ev.preventDefault()});
 document.addEventListener('input',ev=>{
   const t=ev.target;
   if(t.dataset.cartPrice!==undefined){const c=UI.cart[+t.dataset.cartPrice];if(c)c.price=num(t.value);coRefresh();return}
@@ -2429,7 +2445,7 @@ function fitVals(){fitQ=0;document.querySelectorAll(FIT_SEL).forEach(el=>{el.sty
 const fitSoon=()=>{if(!fitQ)fitQ=requestAnimationFrame(fitVals)};
 new MutationObserver(fitSoon).observe(document.body,{childList:true,subtree:true});
 addEventListener('resize',fitSoon);document.fonts&&document.fonts.ready.then(fitSoon);
-const APP_VER='43';
+const APP_VER='44';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
