@@ -881,7 +881,7 @@ function vKunden(){
   ${offen||best?`<p class="hint" style="margin:0 0 10px">${offen?`${kd?'Offen zu zahlen':'Du schuldest noch'}: <b class="warn">${eur(offen)}</b>`:''}${offen&&best?' · ':''}${best?`<b class="pos">${best} Bestellung${best>1?'en':''}</b> ${kd?'noch nicht geliefert':'unterwegs'}`:''}</p>`:''}
   <div class="list">${l.length?l.map(c=>`<button class="row" data-act="party" data-kind="${kind}" data-name="${esc(c.name)}"><span class="tag ${kd?'vk':'ek'}">${esc(initials(c.name))}</span>
     <span style="min-width:0"><span class="row-title" style="display:block">${esc(c.name)}</span>
-    <span class="row-sub" style="display:block">${c.n} ${kd?(c.n===1?'Kauf':'Käufe'):(c.n===1?'Lieferung':'Lieferungen')}${c.last?', zuletzt '+fdShort(c.last):''}${kd&&custPr(c.name)?` · <b class="pos">${prLabel(custPr(c.name))}</b>`:''}</span></span>
+    <span class="row-sub" style="display:block">${c.n} ${kd?(c.n===1?'Kauf':'Käufe'):(c.n===1?'Lieferung':'Lieferungen')}${c.last?', zuletzt '+fdShort(c.last):''}${kd&&hasDisc(custPr(c.name))?` · <b class="pos">${prLabel(custPr(c.name))}</b>`:''}</span></span>
     <span class="row-amt"><span class="num">${eur(c.umsatz)}</span>${c.bestellt?`<span class="pill ord">${c.bestellt} bestellt</span>`:c.offen>0.005?`<span class="pill open">${eur(c.offen)} offen</span>`:''}</span></button>`).join('')
     :`<div class="empty"><b>${q?'Nichts gefunden':'Noch keine '+K.many}</b>${q?'':`${K.many} entstehen automatisch bei der ersten Buchung – oder du legst sie hier an.`}</div>`}</div>`;
 }
@@ -916,7 +916,7 @@ function openParty(kind,name){
     ${r.address?`<p>${esc(r.address).replace(/\n/g,'<br>')}</p>`:'<p class="muted">Keine Adresse hinterlegt</p>'}
     ${r.phone||r.email?`<p class="muted" style="user-select:text">${esc([r.phone,r.email].filter(Boolean).join(' · '))}</p>`:''}
     ${r.note?`<p class="muted">${esc(r.note)}</p>`:''}
-    ${kd?`<p>Preise: <b class="${custPr(c.name)?'pos':''}">${prLabel(custPr(c.name))}</b></p>`:''}
+    ${kd?`<p>Preise: <b class="${hasDisc(custPr(c.name))?'pos':''}">${prLabel(custPr(c.name))}</b></p>`:''}
     ${kd?detail:''}
     <button class="btn ghost sm" data-act="edit-party" data-kind="${kind}" data-name="${esc(c.name)}">${kd?'Kontakt & Preise bearbeiten':'Kontaktdaten bearbeiten'}</button>
    </div>
@@ -1115,14 +1115,19 @@ const cartTotal=()=>r2(UI.cart.reduce((s,c)=>s+num(c.qty)*num(c.price),0));
 function cartAdd(pid,n=1){const p=prodById(pid);if(!p)return;const c=UI.cart.find(x=>x.pid===pid);if(c)c.qty+=n;else UI.cart.push({pid,qty:n,price:custPrice(p,UI.kpr)});UI.cart=UI.cart.filter(x=>x.qty>0)}
 /* ---------- Kundenpreise & Kaufhistorie ---------- */
 // Preis-Regel je Kunde: null = Normalpreis, {mode:'rabatt',pct} = % weniger als VK, {mode:'ek',pct} = Einkaufspreis + % (nie über VK)
-const custPr=name=>{const c=name&&custByName(name);const p=c&&c.price;return p&&(p.mode==='rabatt'||p.mode==='ek')?{mode:p.mode,pct:Math.max(0,num(p.pct))}:null};
+const validPr=p=>p&&(p.mode==='rabatt'||p.mode==='ek'||p.mode==='vk')?{mode:p.mode,pct:p.mode==='vk'?0:Math.max(0,num(p.pct))}:null;
+const custPr=name=>{const c=name&&custByName(name);return validPr(c&&c.price)};
+// Rabatt, den ein Provisionspartner seinen Kunden mitgibt (gilt, wenn der Kunde selbst keine Preisregel hat)
+const partnerPr=id=>{const p=id&&partnerById(id);const r=validPr(p&&p.price);return r&&r.mode!=='vk'?r:null};
+const hasDisc=pr=>!!pr&&pr.mode!=='vk';
+const effPr=(name,pid)=>custPr(name)||partnerPr(pid);
 function custPrice(p,pr){const vk=num(p.vk);if(!pr)return vk;
   if(pr.mode==='rabatt')return r2(Math.max(0,vk*(1-num(pr.pct)/100)));
   if(pr.mode==='ek'){const ek=num(p.ek);if(!(ek>0))return vk;const x=r2(ek*(1+num(pr.pct)/100));return vk>0?Math.min(vk,x):x}
   return vk}
 const fmtPct=x=>String(Math.round(num(x)*10)/10).replace('.',',');
-const prLabel=pr=>!pr?'Normalpreis':pr.mode==='rabatt'?`${fmtPct(pr.pct)} % Rabatt`:num(pr.pct)?`Einkaufspreis + ${fmtPct(pr.pct)} %`:'Einkaufspreis';
-const samePr=(a,b)=>(!a&&!b)||(!!a&&!!b&&a.mode===b.mode&&num(a.pct)===num(b.pct));
+const prLabel=pr=>!pr||pr.mode==='vk'?'Normalpreis':pr.mode==='rabatt'?`${fmtPct(pr.pct)} % Rabatt`:num(pr.pct)?`Einkaufspreis + ${fmtPct(pr.pct)} %`:'Einkaufspreis';
+const samePr=(a,b)=>{const k=x=>!x||x.mode==='vk'?'vk':x.mode+num(x.pct);return k(a)===k(b)};
 // Zeilen mit dem automatischen Preis der alten Regel bekommen den Preis der neuen; von Hand geänderte Preise bleiben
 function reprice(lines,from,to){if(samePr(from,to))return;lines.forEach(l=>{const p=prodById(l.pid);if(p&&Math.abs(num(l.price)-custPrice(p,from))<0.005)l.price=custPrice(p,to)})}
 function custHistory(name){const k=norm(name);if(!k)return null;
@@ -1140,11 +1145,12 @@ const tilePrice=(p,pr)=>{const cp=custPrice(p,pr),vk=num(p.vk);return `<span cla
 const ctxName=ctx=>String(ctx==='f'?(F&&F.party)||'':UI.kparty||'').trim();
 function custBox(ctx){
   const name=ctxName(ctx);if(!name)return'';
-  const h=custHistory(name),pr=custPr(name),open=UI.prEdit===ctx,last=h&&h.last;
+  const pid=ctx==='f'?F&&F.partnerId:UI.kpartner,own=custPr(name),pr=effPr(name,pid),open=UI.prEdit===ctx,h=custHistory(name),last=h&&h.last;
+  const via=!own&&pr?` <span class="muted" style="font-weight:500">über ${esc(partnerById(pid)?.name||'Partner')}</span>`:'';
   return `<div class="cust-box">
    ${last?`<div class="cb-row"><span class="cb-t"><span class="cb-l">Zuletzt gekauft am ${fdShort(last.date)}</span>${last.items.filter(i=>prodById(i.pid)).map(i=>`${num(i.qty)}× ${esc(i.name)}`).join(', ')}</span><button class="btn ghost sm" data-act="cust-again" data-v="${ctx}">Nochmal</button></div>`:''}
-   <div class="cb-row"><span class="cb-t"><span class="cb-l">Preise für ${esc(name)}</span><b class="${pr?'pos':''}">${prLabel(pr)}</b></span><button class="link" data-act="pr-edit" data-v="${ctx}">${open?'Fertig':pr?'Ändern':'Rabatt geben'}</button></div>
-   ${open?prEditor(ctx,name,pr):''}</div>`;
+   <div class="cb-row"><span class="cb-t"><span class="cb-l">Preise für ${esc(name)}</span><b class="${hasDisc(pr)?'pos':''}">${prLabel(pr)}</b>${via}</span><button class="link" data-act="pr-edit" data-v="${ctx}">${open?'Fertig':hasDisc(pr)?'Ändern':'Rabatt geben'}</button></div>
+   ${open?prEditor(ctx,name,hasDisc(pr)?pr:null):''}</div>`;
 }
 function prEditor(ctx,name,pr){
   const mode=pr?pr.mode:'vk',chips=mode==='rabatt'?[5,10,15,20,25]:mode==='ek'?[0,10,20,30,50]:[];
@@ -1157,17 +1163,19 @@ function prEditor(ctx,name,pr){
 }
 async function setCustPr(ctx,mode,pct){
   const name=ctxName(ctx);if(!name)return;const c=custByName(name);
-  const price=mode==='rabatt'||mode==='ek'?{mode,pct:Math.max(0,r2(num(pct)))}:null;
+  const pid=ctx==='f'?F.partnerId:UI.kpartner;
+  const price=mode==='rabatt'||mode==='ek'?{mode,pct:Math.max(0,r2(num(pct)))}:partnerPr(pid)?{mode:'vk',pct:0}:null;
   const rec=c?{...c}:{id:newId(),name,address:'',phone:'',email:'',note:''};
   if(price)rec.price=price;else delete rec.price;
-  if(ctx==='f'){reprice(F.items,F.pr,price);F.pr=price}else{reprice(UI.cart,UI.kpr,price);UI.kpr=price}
   try{await Store.put('customers',rec)}catch{return}
+  if(ctx==='f')applyFCust();else{const pr=effPr(name,UI.kpartner);reprice(UI.cart,UI.kpr,pr);UI.kpr=pr}
   if(ctx==='f')refreshFormCust();else render();
 }
 function lastPartnerFor(name){const l=sorted(S.entries.filter(e=>e.type==='verkauf'&&e.partner&&norm(e.party)===norm(name)))[0];return l&&partnerById(l.partner.id)?l.partner:null}
 // Schnellkasse: Kunde übernehmen → Preise anpassen, Vermittler vorschlagen
-function applyKCust(){const name=(UI.kparty||'').trim(),pr=custPr(name);reprice(UI.cart,UI.kpr,pr);UI.kpr=pr;UI.kApplied=norm(name);
-  if(name&&!UI.kpartner){const lp=lastPartnerFor(name);if(lp)UI.kpartner=lp.id}}
+function applyKCust(){const name=(UI.kparty||'').trim();UI.kApplied=norm(name);
+  if(name&&!UI.kpartner){const lp=lastPartnerFor(name);if(lp)UI.kpartner=lp.id}
+  const pr=effPr(name,UI.kpartner);reprice(UI.cart,UI.kpr,pr);UI.kpr=pr}
 function coKeep(){const p=$('#coParty');if(p&&p.value!==UI.kparty){UI.kparty=p.value;applyKCust()}UI.krecv=$('#coRecv')?.value??'';UI.knote=$('#coNote')?.value||''}
 const custNames=()=>[...new Set([...S.customers.map(c=>c.name),...S.entries.filter(e=>e.type==='verkauf'&&e.party).map(e=>e.party)])].sort((a,b)=>a.localeCompare(b,'de'));
 const isKnownCust=n=>{const k=norm(n);return !!k&&custNames().some(x=>norm(x)===k)};
@@ -1202,7 +1210,7 @@ function openCheckout(){
    <div class="summary" id="coSum"></div>
    <label class="field"><span>Endpreis € (bei Rabatt)</span><input class="inp num" id="coRecv" type="number" inputmode="decimal" step="0.01" min="0" value="${UI.krecv??''}" placeholder="leer = ${eur(cartTotal())}"></label>
    <label class="field"><span>Kunde (optional)</span><input class="inp" id="coParty" list="coList" value="${esc(UI.kparty||'')}" placeholder="Laufkunde"></label>
-   ${kpr?`<p class="hint">Kundenpreis: <b>${prLabel(kpr)}</b> – ist in den Preisen oben schon drin.</p>`:''}
+   ${hasDisc(kpr)?`<p class="hint">Kundenpreis: <b>${prLabel(kpr)}</b>${!custPr(UI.kparty)&&partnerPr(UI.kpartner)?' über '+esc(partnerById(UI.kpartner)?.name||''):''} – ist in den Preisen oben schon drin.</p>`:''}
    ${partnerSelect('id="coPartner"',UI.kpartner||'')}
    <datalist id="coList">${custs.map(p=>`<option value="${esc(p)}">`).join('')}</datalist>
    <div class="field"><span>Zahlung</span></div>
@@ -1218,7 +1226,7 @@ function openCheckout(){
 const coFinal=()=>{const r=$('#coRecv');return r&&String(r.value).trim()!==''?r2(num(r.value)):cartTotal()};
 function coRefresh(){
   const reg=cartTotal(),t=coFinal(),d=r2(reg-t),cogs=r2(UI.cart.reduce((s,c)=>s+c.qty*num(prodById(c.pid)?.ek),0));
-  const vkT=r2(UI.cart.reduce((s,c)=>s+c.qty*num(prodById(c.pid)?.vk),0)),kd=UI.kpr?r2(vkT-reg):0;
+  const vkT=r2(UI.cart.reduce((s,c)=>s+c.qty*num(prodById(c.pid)?.vk),0)),kd=hasDisc(UI.kpr)?r2(vkT-reg):0;
   const el=$('#coSum');if(el)el.innerHTML=`<div class="l"><span>Regulär${kd>0.004?`<br><small class="muted">mit Kundenpreis ${prLabel(UI.kpr)} (−${eur(kd)})</small>`:''}</span><span class="num">${eur(reg)}</span></div>
     ${d?`<div class="l"><span>${d>0?'Rabatt':'Aufschlag'}${reg>0?' ('+Math.round(Math.abs(d)/reg*100)+' %)':''}</span><span class="num ${d>0?'neg':'pos'}">${d>0?'−':'+'}${eur(Math.abs(d))}</span></div>`:''}
     <div class="l big"><span>Gesamt</span><span class="num">${eur(t)}</span></div>
@@ -1317,7 +1325,7 @@ function vMehr(){
 
   <div class="sec-head"><h2>Provisionspartner</h2><button class="add-btn" data-act="new-partner">+ Partner</button></div>
   <div class="list">${partners().length?partners().map(p=>{const ps=partnerStats(p.id);return `<button class="row" data-act="open-partner" data-id="${p.id}"><span class="tag vk">%</span>
-    <span style="min-width:0"><span class="row-title" style="display:block">${esc(p.name)}${p.active===false?'<span class="pill slow">inaktiv</span>':''}</span><span class="row-sub" style="display:block">${num(p.pct)} % ${BASES[p.base||'roh']} · ${ps.n} ${ps.n===1?'Verkauf':'Verkäufe'}</span></span>
+    <span style="min-width:0"><span class="row-title" style="display:block">${esc(p.name)}${p.active===false?'<span class="pill slow">inaktiv</span>':''}</span><span class="row-sub" style="display:block">${num(p.pct)} % ${BASES[p.base||'roh']} · ${ps.n} ${ps.n===1?'Verkauf':'Verkäufe'}${partnerPr(p.id)?` · <b class="pos">Kunden: ${prLabel(partnerPr(p.id))}</b>`:''}</span></span>
     <span class="row-amt"><span class="num ${ps.open>0.005?'warn':''}">${eur(ps.open)}</span><span class="row-sub">offen</span>${ps.pendAmt>0.005?`<span class="row-sub">+ ${eur(ps.pendAmt)} ausstehend</span>`:''}</span></button>`}).join('')
     :'<div class="empty">Leg Personen an, die dir Kunden vermitteln – z. B. 50 % vom Rohertrag. Beim Verkauf wählst du dann „Vermittelt durch“ aus.</div>'}</div>
 
@@ -1373,7 +1381,7 @@ function openEntryForm(type,e,preset){
   F.payStatus=e?(isPaid(e)?'1':isPartial(e)?'p':'0'):(F.paid===false?'0':'1');
   F.stage=F.delivered?'uebergeben':(F.ready?'fertig':'geplant');
   F.partnerId=F.partner?.id||F.partnerId||'';
-  UI.prEdit=null;initShip(e);F.pr=F.type==='verkauf'?custPr(F.party):null;F.fApplied=norm(F.party);
+  UI.prEdit=null;initShip(e);F.pr=F.type==='verkauf'?effPr(F.party,F.partnerId):null;F.fApplied=norm(F.party);
   if(e){F.override=e.type==='verkauf'&&e.discount?String(e.total):'';F.amount=e.type==='ausgabe'?e.total:'';F.updateEk=false}
   if(F.type!=='ausgabe'&&!F.items.length)F.items.push({pid:'',qty:1,price:0});
   renderEntryForm();
@@ -1407,11 +1415,13 @@ function pickerTiles(t){
     return `<button class="tile ${q?'on':''}" data-act="f-add" data-id="${p.id}" data-name="${esc(p.name+' '+(p.sku||'')+' '+(p.ean||''))}">${q?`<span class="tile-q">${q}</span>`:''}<span class="tile-n">${esc(p.name)}</span>${hx?histLine(hx):''}${t==='verkauf'?tilePrice(p,F.pr):`<span class="tile-p num">${eur(p.ek)}</span>`}<span class="tile-s ${(sm[p.id]||0)<=0?'neg':''}">${sm[p.id]||0} da</span></button>`};
   return (cf.top.length?`<div class="tiles-head">Schon gekauft von ${esc(F.party.trim())}</div>${cf.top.map(tile).join('')}${cf.rest.length&&UI.ksort!=='kat'?'<div class="tiles-head">Alle anderen</div>':''}`:'')+withCatHeads(cf.rest,UI.ksort,tile);
 }
-function applyFCust(){if(F.type!=='verkauf')return;const pr=custPr(F.party);reprice(F.items,F.pr,pr);F.pr=pr;F.fApplied=norm(F.party)}
+function applyFCust(){if(F.type!=='verkauf')return;const pr=effPr(F.party,F.partnerId);reprice(F.items,F.pr,pr);F.pr=pr;F.fApplied=norm(F.party)}
 // Kunde im Formular geändert: nur Kundenbox, Kacheln und Preise neu – das Namensfeld bleibt (Tastatur bleibt offen)
 function refreshFormCust(){if(!F)return;
-  const cb=$('#custBox');if(cb)cb.innerHTML=F.type==='verkauf'?custBox('f'):'';
-  const tl=$('.tiles.mini');if(tl){tl.innerHTML=pickerTiles(F.type);if(UI.fq)filterPicker()}
+  // nur ersetzen, was sich wirklich geändert hat – sonst geht ein gleichzeitiger Tipp auf eine Kachel verloren
+  const ser=h=>{const t=document.createElement('template');t.innerHTML=h;return t.innerHTML};
+  const cb=$('#custBox');if(cb){const h=ser(F.type==='verkauf'?custBox('f'):'');if(cb.innerHTML!==h)cb.innerHTML=h}
+  const tl=$('.tiles.mini');if(tl){const h=ser(pickerTiles(F.type));if(tl._h!==h){tl.innerHTML=h;tl._h=tl.innerHTML;if(UI.fq)filterPicker()}}
   F.items.forEach((it,i)=>{const el=document.querySelector(`[data-row="${i}"][data-k="price"]`);if(el&&document.activeElement!==el)el.value=it.price});
   updateSummary()}
 // Einkauf: Produkt, das es noch nicht gibt, direkt in der Bestellung anlegen
@@ -1487,6 +1497,7 @@ function renderEntryForm(){
    <button class="btn" data-act="save-entry">${F.id?'Änderungen speichern':!F.delivered?'Bestellung speichern':TYPES[t]+' buchen'}</button>`;
   if($('#sheetBody'))$('#sheetBody').innerHTML=body;else openSheet(F.id?TYPES[t]+' bearbeiten':'Neue Buchung',body);
   if(UI.fq)filterPicker();
+  {const tl=$('.tiles.mini');if(tl)tl._h=tl.innerHTML}
   if($('.sheet-head h3'))$('.sheet-head h3').textContent=F.id?TYPES[t]+' bearbeiten':'Neue Buchung';
   updateSummary();fillThumbs();
 }
@@ -1504,7 +1515,7 @@ function updateSummary(){
   F.items.forEach((it,i)=>{const r=$('#rs'+i);if(r)r.textContent=eur(num(it.qty)*num(it.price));
     const m=$('#rm'+i),vk=num(prodById(it.pid)?.vk);if(m&&F.type==='einkauf'&&it.pid&&vk)m.textContent='VK '+eur(vk)+' · Marge '+Math.round((vk-num(it.price))/vk*100)+' %'});
   if(F.type==='verkauf'){
-    const sv=shipVals(),vkS=r2(F.items.reduce((s,i)=>s+num(i.qty)*num(prodById(i.pid)?.vk),0)),kd=F.pr?r2(vkS-c.sub):0;
+    const sv=shipVals(),vkS=r2(F.items.reduce((s,i)=>s+num(i.qty)*num(prodById(i.pid)?.vk),0)),kd=hasDisc(F.pr)?r2(vkS-c.sub):0;
     const sh=$('#shipHint');if(sh){const A=num(F.ship);sh.innerHTML=F.shipPartial!=null&&F.shipPays?`Kunde zahlt ${eur(sv.extra)} – dein Porto war ${eur(F.shipPartial)}. Mit dem Schalter setzt du beides gleich.`:!(A>0)?'Kein Versand, z. B. Abholung.':F.shipPays?'Wird zum Preis dazugerechnet – das Porto zahlst du, gleicht sich aus.':'Gratis für den Kunden – das Porto zahlst du.'}
     el.innerHTML=`<div class="l"><span>Positionen${kd>0.004?`<br><small class="muted">mit Kundenpreis ${prLabel(F.pr)} (−${eur(kd)})</small>`:''}</span><span class="num">${eur(c.sub)}</span></div>
     ${sv.extra?`<div class="l"><span>Versand (zahlt Kunde)</span><span class="num">${eur(sv.extra)}</span></div>`:''}
@@ -1637,6 +1648,10 @@ function openPartnerForm(id){
    <div class="field"><span>Berechnet</span></div>
    <div class="seg" style="margin-bottom:8px">${Object.entries(BASES).map(([k,l])=>`<button class="${UI.pbase===k?'on':''}" data-act="pbase" data-v="${k}">${l}</button>`).join('')}</div>
    <p class="hint" style="margin:0 0 12px">Rohertrag = Verkaufspreis − Einkaufspreis der Ware. Beispiel: Verkauf 50 €, EK 20 € → Rohertrag 30 € → bei 50 % bekommt der Partner 15 €. Versand, den der Kunde zahlt, zählt nicht mit. Porto, das du zahlst und das der Kunde nicht deckt, wird vorher abgezogen: mit 6 € Porto → (30 − 6) × 50 % = 12 €.</p>
+   ${(()=>{const pr=partnerPr(id);return `<div class="field"><span>Rabatt für seine Kunden</span><div class="grid2">
+     <select class="inp" id="ptPrMode"><option value="vk">Kein Rabatt</option><option value="rabatt" ${pr?.mode==='rabatt'?'selected':''}>Rabatt %</option><option value="ek" ${pr?.mode==='ek'?'selected':''}>Einkaufspreis + %</option></select>
+     <input class="inp num" id="ptPrPct" type="number" inputmode="decimal" min="0" step="1" placeholder="%" value="${pr?num(pr.pct):''}" aria-label="Prozent"></div></div>
+   <p class="hint" style="margin:0 0 12px">Wählst du diesen Partner bei einem Verkauf aus, bekommt der Kunde diese Preise automatisch – außer der Kunde hat eigene Preise.</p>`})()}
    ${id?`<label class="check"><input type="checkbox" id="ptActive" ${p.active!==false?'checked':''}> Aktiv (bei neuen Verkäufen auswählbar)</label>`:''}
    <button class="btn" data-act="save-partner" data-id="${id||''}">Speichern</button>
    ${id?`<button class="btn danger" style="margin-top:8px" data-act="del-partner" data-id="${id}">Partner löschen</button>`:''}
@@ -1647,6 +1662,7 @@ async function savePartner(id){
   if(!name){toast('Bitte einen Namen eingeben.');return}if(!(pct>=0&&pct<=100)){toast('Prozent zwischen 0 und 100.');return}
   const list=[...partners()];const i=list.findIndex(x=>x.id===id);
   const p={...(i>=0?list[i]:{id:newId()}),name,pct,base:UI.pbase||'roh',active:$('#ptActive')?$('#ptActive').checked:true};
+  const pm=$('#ptPrMode').value;if(pm==='rabatt'||pm==='ek')p.price={mode:pm,pct:Math.max(0,r2(num($('#ptPrPct').value)))};else delete p.price;
   if(i>=0)list[i]=p;else list.push(p);
   await Store.setSettings({...S.settings,partners:list});closeSheet();toast('Partner gespeichert');
 }
@@ -2253,7 +2269,7 @@ document.addEventListener('click',async ev=>{
     case'f-add':{const p=prodById(id);if(!p||!F)break;const row=F.items.find(i=>i.pid===p.id);
       if(row)row.qty=num(row.qty)+1;else{const empty=F.items.find(i=>!i.pid);const it={pid:p.id,qty:1,price:F.type==='verkauf'?custPrice(p,F.pr):p.ek};if(empty)Object.assign(empty,it);else F.items.push(it)}
       renderEntryForm();break}
-    case'ftype':if(!F.id){F.delivered=v!=='verkauf';F.ready=false;F.stage=v==='verkauf'?'geplant':'uebergeben';F.payStatus=v==='verkauf'?'0':'1'}F.type=v;F.pr=v==='verkauf'?custPr(F.party):null;F.fApplied=norm(F.party);UI.prEdit=null;F.items=v==='ausgabe'?[]:F.items.length?F.items.map(i=>{const p=prodById(i.pid);return{pid:i.pid,qty:i.qty,price:p?(v==='verkauf'?custPrice(p,F.pr):p.ek):i.price}}):[{pid:'',qty:1,price:0}];renderEntryForm();break;
+    case'ftype':if(!F.id){F.delivered=v!=='verkauf';F.ready=false;F.stage=v==='verkauf'?'geplant':'uebergeben';F.payStatus=v==='verkauf'?'0':'1'}F.type=v;F.pr=v==='verkauf'?effPr(F.party,F.partnerId):null;F.fApplied=norm(F.party);UI.prEdit=null;F.items=v==='ausgabe'?[]:F.items.length?F.items.map(i=>{const p=prodById(i.pid);return{pid:i.pid,qty:i.qty,price:p?(v==='verkauf'?custPrice(p,F.pr):p.ek):i.price}}):[{pid:'',qty:1,price:0}];renderEntryForm();break;
     case'np-open':F.np=true;F.npv={};renderEntryForm();setTimeout(()=>{const n=$('#npName');if(n){n.scrollIntoView({block:'center'});n.focus()}},50);break;
     case'np-close':F.np=false;F.npv={};renderEntryForm();break;
     case'np-save':saveNewProd();break;
@@ -2308,8 +2324,8 @@ document.addEventListener('click',async ev=>{
     case'cart-inc':case'cart-dec':{coKeep();const c=UI.cart[+b.dataset.i];if(c)c.qty+=a==='cart-inc'?1:-1;UI.cart=UI.cart.filter(x=>x.qty>0);render();openCheckout();break}
     case'kpay':coKeep();UI.kpay=v;openCheckout();break;
     case'pr-edit':UI.prEdit=UI.prEdit===v?null:v;if(v==='f')refreshFormCust();else render();break;
-    case'pr-mode':{const c=b.dataset.c,cur=custPr(ctxName(c));if(v==='vk')setCustPr(c,'vk',0);else setCustPr(c,v,cur&&cur.mode===v?cur.pct:(v==='ek'?0:10));break}
-    case'pr-pct':setCustPr(b.dataset.c,custPr(ctxName(b.dataset.c))?.mode||'rabatt',v);break;
+    case'pr-mode':{const c=b.dataset.c,cur=custPr(ctxName(c))||(c==='f'?partnerPr(F&&F.partnerId):partnerPr(UI.kpartner));if(v==='vk')setCustPr(c,'vk',0);else setCustPr(c,v,cur&&cur.mode===v?cur.pct:(v==='ek'?0:10));break}
+    case'pr-pct':{const c=b.dataset.c,m=(custPr(ctxName(c))||(c==='f'?partnerPr(F&&F.partnerId):partnerPr(UI.kpartner)))?.mode;setCustPr(c,m&&m!=='vk'?m:'rabatt',v);break}
     case'cust-again':{const h=custHistory(ctxName(v));if(!h)break;const its=h.last.items.filter(i=>prodById(i.pid));
       if(v==='k'){its.forEach(i=>cartAdd(i.pid,num(i.qty)));render()}
       else if(F){F.items=F.items.filter(i=>i.pid);its.forEach(i=>{const row=F.items.find(x=>x.pid===i.pid);if(row)row.qty=num(row.qty)+num(i.qty);else F.items.push({pid:i.pid,qty:num(i.qty),price:custPrice(prodById(i.pid),F.pr)})});renderEntryForm()}
@@ -2359,7 +2375,7 @@ document.addEventListener('input',ev=>{
   if(t.id==='coGiven'){UI.kgiven=t.value;coRefresh();return}
   if(t.id==='coRecv'){coRefresh();return}
   if(t.id==='coOpen'){UI.kopen=t.checked;return}
-  if(t.id==='coPartner'){UI.kpartner=t.value;coRefresh();return}
+  if(t.id==='coPartner'){coKeep();UI.kpartner=t.value;const pr=effPr(UI.kparty,UI.kpartner);if(!samePr(pr,UI.kpr)){reprice(UI.cart,UI.kpr,pr);UI.kpr=pr;render();openCheckout()}else coRefresh();return}
   if(t.id&&t.id.startsWith('lb_')&&LB){refreshLabel();return}
   if(t.id==='q'||t.id==='cq'||t.id==='pq'||t.id==='kq'){UI[t.id]=t.value;renderKeep(t.id);return}
   if(t.id==='fq'){UI.fq=t.value;filterPicker();return}
@@ -2383,7 +2399,7 @@ document.addEventListener('change',async ev=>{
   if(t.id==='coOpen'){UI.kopen=t.checked;return}
   if(F&&t.id==='npCat'){F.npv=F.npv||{};F.npv.npCat=t.value;return}
   if(t.id==='kcust'){UI.kparty=t.value.trim();if(norm(UI.kparty)!==UI.kApplied){applyKCust();renderKeep('kcust')}return}
-  if(t.id==='prPct'){const c=t.dataset.c,cur=custPr(ctxName(c));if(cur&&t.value!=='')setCustPr(c,cur.mode,t.value);return}
+  if(t.id==='prPct'){const c=t.dataset.c,cur=custPr(ctxName(c))||(c==='f'?partnerPr(F&&F.partnerId):partnerPr(UI.kpartner));if(cur&&t.value!=='')setCustPr(c,cur.mode,t.value);return}
   if(t.id==='coParty'){const hadP=!!UI.kpartner,oldPr=UI.kpr;coKeep();render();
     if(!samePr(oldPr,UI.kpr)||(!hadP&&UI.kpartner)){if(!hadP&&UI.kpartner)toast('Vermittler übernommen: '+(partnerById(UI.kpartner)?.name||''));openCheckout()}return}
   if(t.id==='ksort'||t.id==='fsort'){UI.ksort=t.value;try{localStorage.setItem('kb_ksort',t.value)}catch{}if(t.id==='fsort'&&F)renderEntryForm();else render();return}
@@ -2393,12 +2409,12 @@ document.addEventListener('change',async ev=>{
   if(t.dataset.k==='pid'){const it=F.items[+t.dataset.row];it.pid=t.value;delete it.ek;delete it.name;delete it.tax;delete it.unit;const p=prodById(t.value);if(p)it.price=F.type==='verkauf'?custPrice(p,F.pr):p.ek;renderEntryForm();return}
   if(t.dataset.f==='paid'){F.payStatus=t.value;return}
   if(t.dataset.f==='delivered'){F.delivered=t.value==='1';if(!F.id)F.payStatus=F.delivered?'1':'0';renderEntryForm();return}
-  if(t.dataset.f==='partnerId'){F.partnerId=t.value;updateSummary();return}
+  if(t.dataset.f==='partnerId'){F.partnerId=t.value;applyFCust();refreshFormCust();return}
   if(t.dataset.f==='shipPays'){F.shipPays=t.checked;F.shipTouched=true;if(F.shipPartial!=null){F.ship=String(F.shipPartial);F.shipPartial=null;const el=document.querySelector('[data-f="ship"]');if(el)el.value=F.ship}
     try{localStorage.setItem('kb_shippays',t.checked?'1':'0')}catch{}updateSummary();return}
   if(t.dataset.f==='party'&&F.type==='verkauf'){F.party=t.value;if(norm(t.value)!==F.fApplied){applyFCust();refreshFormCust()}}
   if(t.dataset.f==='party'&&F.type==='verkauf'&&!F.partnerId){const lp=lastPartnerFor(t.value);
-    if(lp){F.partnerId=lp.id;const sel=document.querySelector('[data-f="partnerId"]');if(sel)sel.value=F.partnerId;updateSummary();toast('Vermittler übernommen: '+lp.name)}}
+    if(lp){F.partnerId=lp.id;const sel=document.querySelector('[data-f="partnerId"]');if(sel)sel.value=F.partnerId;applyFCust();refreshFormCust();toast('Vermittler übernommen: '+lp.name)}}
   if(t.dataset.f==='party'&&F.type==='verkauf'){const c=custByName(t.value);if(c&&c.address&&!F.partyAddress.trim()){F.partyAddress=c.address;const ta=document.querySelector('[data-f="partyAddress"]');if(ta)ta.value=c.address}return}
   if(t.type==='checkbox'&&t.dataset.f){F[t.dataset.f]=t.checked;updateSummary();return}
   if(t.tagName==='SELECT'&&t.dataset.f){F[t.dataset.f]=t.value}
@@ -2413,7 +2429,7 @@ function fitVals(){fitQ=0;document.querySelectorAll(FIT_SEL).forEach(el=>{el.sty
 const fitSoon=()=>{if(!fitQ)fitQ=requestAnimationFrame(fitVals)};
 new MutationObserver(fitSoon).observe(document.body,{childList:true,subtree:true});
 addEventListener('resize',fitSoon);document.fonts&&document.fonts.ready.then(fitSoon);
-const APP_VER='42';
+const APP_VER='43';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
