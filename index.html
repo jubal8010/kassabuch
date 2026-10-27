@@ -149,6 +149,9 @@ button.row:hover{background:var(--surface-2)}
 .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:8px}
 .tile{position:relative;display:flex;flex-direction:column;gap:4px;text-align:left;border:1px solid var(--line);background:var(--surface);border-radius:var(--r);padding:11px;min-height:98px;min-width:0;color:var(--ink)}
 .tile.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.row[data-swipe]{touch-action:pan-y;position:relative;transition:transform .18s,background .18s}
+.row[data-swipe].sw-go{background:var(--accent-soft)}.row[data-swipe].sw-back{background:var(--warn-soft)}
+.row[data-swipe].sw-move{transition:none}
 .tile{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 .tile.lp{transform:scale(.96);transition:transform .15s}
 .tile-n{font-weight:600;font-size:14px;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
@@ -511,12 +514,17 @@ const needsOrderNo=e=>e.type==='verkauf'&&!e.storno&&!e.sample&&(!e.orderNo||!e.
 // Abholcode: zufällige 5-stellige Zahl, eindeutig. Kommt NICHT aufs Paket – der Kunde nennt ihn bei der Abholung.
 function newPickupCode(used){const u=used||new Set(S.entries.map(e=>e.pickupCode).filter(Boolean));let c;
   do{const r=new Uint32Array(1);crypto.getRandomValues(r);c=String(10000+r[0]%90000)}while(u.has(c));u.add(c);return c}
-function nextOrderNo(){return Math.max(num(S.settings.lastOrder),...S.entries.map(e=>num(e.orderNo)),0)+1}
+// Neue Bestellnummern: zufällig, 4-stellig (#1000–#9999), nie doppelt und nie wiederverwendet.
+// Sind 80 % der 4-stelligen Nummern vergeben, geht es automatisch 5-stellig weiter.
+function nextOrderNo(){const used=new Set([...S.entries.map(e=>num(e.orderNo)),...(S.settings.usedOrders||[])].filter(Boolean));
+  const four=[...used].filter(n=>n>=1000&&n<=9999).length,lo=four<7200?1000:10000,hi=four<7200?9999:99999;let n;
+  do{const r=new Uint32Array(1);crypto.getRandomValues(r);n=lo+r[0]%(hi-lo+1)}while(used.has(n));return n}
+const noteOrder=n=>Store.setSettings({...S.settings,usedOrders:[...(S.settings.usedOrders||[]),n].slice(-20000)});
 // Fehlende Nummern nach Datum vergeben (alte Bestellungen einmalig, danach nur Sicherheitsnetz)
 async function ensureOrderNos(){const miss=S.entries.filter(needsOrderNo).sort((a,b)=>(a.date+(a.created||'')).localeCompare(b.date+(b.created||'')));if(!miss.length)return;
-  let n=nextOrderNo();const used=new Set(S.entries.map(e=>e.pickupCode).filter(Boolean));
-  await Store.bulk(async()=>{for(const e of miss)await Store.put('entries',{...e,orderNo:e.orderNo||n++,pickupCode:e.pickupCode||newPickupCode(used)},true)});
-  await Store.setSettings({...S.settings,lastOrder:Math.max(num(S.settings.lastOrder),n-1)})}
+  const used=new Set(S.entries.map(e=>e.pickupCode).filter(Boolean)),got=[];
+  await Store.bulk(async()=>{for(const e of miss){const no=e.orderNo||nextOrderNo();if(!e.orderNo)got.push(no);await Store.put('entries',{...e,orderNo:no,pickupCode:e.pickupCode||newPickupCode(used)},true)}});
+  if(got.length)await Store.setSettings({...S.settings,usedOrders:[...(S.settings.usedOrders||[]),...got]})}
 /* ---------- Provision ---------- */
 const BASES={roh:'vom Rohertrag',umsatz:'vom Umsatz'};
 const partners=()=>S.settings.partners||[];
@@ -727,7 +735,7 @@ function entryRow(e){
   else if(isOverdue(e))status='<span class="pill low">Überfällig</span>';
   else if(isPartial(e))status=`<span class="pill open">Offen ${eur(openAmt(e))}</span>`;
   else status='<span class="pill open">Offen</span>';
-  return `<button class="row" data-act="open-entry" data-id="${e.id}"><span class="tag ${tagCls}">${tagTxt}</span>
+  return `<button class="row" data-act="open-entry" data-id="${e.id}"${e.type==='verkauf'&&e.delivered===false&&live(e)?' data-swipe="1"':''}><span class="tag ${tagCls}">${tagTxt}</span>
    <span style="min-width:0"><span class="row-title" style="display:block">${esc(title)}${e.sample?'<span class="pill ex">Beispiel</span>':''}</span>
    <span class="row-sub" style="display:block"><span class="d">${e.orderNo?fmtOrder(e.orderNo)+' · ':''}${fdShort(e.date)}</span>${e.partner?`<span class="pos" style="font-weight:600">über ${esc(e.partner.name)}</span>, `:''}${[what,e.invoiceNo?'Nr. '+e.invoiceNo:'',(e.att||[]).length?'mit Beleg':''].filter(Boolean).map(esc).join(', ')}</span>${e.note&&e.note!=='Kasse'&&!e.recurringId?`<span class="row-sub" style="display:block;color:var(--ink);opacity:.75">✎ ${esc(e.note)}</span>`:''}</span>
    <span class="row-amt"><span class="num ${cls}">${sign}${eur(e.total)}</span>${status}</span></button>`;
@@ -780,7 +788,7 @@ function vStart(){
   </div>
   ${S.products.length?`<button class="kasse-btn" data-go="kasse"><span class="kb-ic">${ICON.kasse}</span><span class="kb-t">Schnellkasse<small>Produkte antippen und kassieren</small></span><span class="chev"></span></button>`:''}
   ${orders.length?`<button class="kasse-btn" data-act="pickup"><span class="kb-ic">${ICON.box}</span><span class="kb-t">Abholung prüfen<small>Bestellnummer und Abholcode vergleichen</small></span><span class="chev"></span></button><div class="linkrow" style="margin:4px 0 0"><button class="link" data-act="codes">Alle Bestellnummern & Codes</button></div>`:''}
-  ${orders.length?`<h2>Offene Bestellungen <span class="h-n">${orders.length}</span>${orders.some(e=>e.ready)?`<span class="h-x">${orders.filter(e=>e.ready).length} abgepackt</span>`:''}</h2><div class="list">${orders.map(entryRow).join('')}</div>`:''}
+  ${orders.length?`<h2>Offene Bestellungen <span class="h-n">${orders.length}</span>${orders.some(e=>e.ready)?`<span class="h-x">${orders.filter(e=>e.ready).length} abgepackt</span>`:''}</h2><div class="list">${orders.map(entryRow).join('')}</div><p class="hint" style="margin:6px 2px 0">Nach links wischen = nächster Schritt, nach rechts = zurück.</p>`:''}
   ${dashExtras(t)}
   ${topP||topC||proj?`<div class="card" style="margin-top:8px;padding:6px 14px">
    ${topP?`<div class="kv"><span>Bestseller ${pl}</span><b style="font-family:var(--f-ui)">${esc(topP.n)} · ${topP.q}×</b></div>`:''}
@@ -1276,7 +1284,7 @@ async function doCheckout(){
     payments:open?[]:[{date:today(),amount:total,method}]};
   e.paid=isPaid(e);e.orderNo=nextOrderNo();e.pickupCode=newPickupCode();
   try{await Store.put('entries',e)}catch{return}
-  await Store.setSettings({...S.settings,lastOrder:e.orderNo});
+  await noteOrder(e.orderNo);
   if(party&&!custByName(party))await Store.put('customers',{id:newId(),name:party,address:'',phone:'',email:'',note:''}).catch(()=>{});
   UI.cart=[];UI.kparty='';UI.kpr=null;UI.kApplied='';UI.prEdit=null;UI.krecv='';UI.knote='';UI.kpartner='';UI.kopen=undefined;UI.kgiven='';closeSheet();render();toast(fmtOrder(e.orderNo)+' '+(planned?'Bestellung aufgenommen · ':'Verkauf gebucht · ')+eur(total)+(discount>0?' (Rabatt '+eur(discount)+')':''));
 }
@@ -1594,7 +1602,7 @@ async function saveEntry(){
   e.payments=pays;e.paid=isPaid(e);
   if(needsOrderNo(e)){e.orderNo=e.orderNo||nextOrderNo();e.pickupCode=e.pickupCode||newPickupCode()}
   try{await Store.put('entries',e)}catch{return}
-  if(e.orderNo>num(S.settings.lastOrder))await Store.setSettings({...S.settings,lastOrder:e.orderNo});
+  if(e.orderNo&&!(S.settings.usedOrders||[]).includes(e.orderNo))await noteOrder(e.orderNo);
   if(e.type==='verkauf'){const was=old&&portoKnown(old)?portoOf(old):null,now=portoKnown(e)?portoOf(e):null;if(was!==now)await upsertPorto(e,now||0,true,'karte')}
   const kind=e.type==='verkauf'?'kunde':e.type==='einkauf'?'lieferant':null;
   if(kind&&e.party){const r=recByName(kind,e.party);const addr=(e.partyAddress||'').trim();
@@ -2550,6 +2558,21 @@ document.addEventListener('click',async ev=>{
     case'clear-sample':clearSample();break;
   }
 });
+/* Offene Bestellung wischen: nach links = nächster Schritt, nach rechts = zurück (Abholen ↔ Abpacken ↔ Abgepackt) */
+const SW={el:null,x:0,y:0,dx:0,on:false,skip:false};const PREP=['geplant','abpacken','fertig'];
+document.addEventListener('pointerdown',ev=>{SW.skip=false;const el=ev.target.closest('.row[data-swipe]');if(!el)return;Object.assign(SW,{el,x:ev.clientX,y:ev.clientY,dx:0,on:false})});
+document.addEventListener('pointermove',ev=>{if(!SW.el)return;const dx=ev.clientX-SW.x,dy=ev.clientY-SW.y;
+  if(!SW.on){if(Math.abs(dy)>12&&Math.abs(dy)>Math.abs(dx)){SW.el=null;return}if(Math.abs(dx)<12)return;SW.on=true}
+  SW.dx=dx;const el=SW.el;el.classList.add('sw-move');el.style.transform=`translateX(${Math.max(-110,Math.min(110,dx))}px)`;el.classList.toggle('sw-go',dx<-70);el.classList.toggle('sw-back',dx>70)});
+const swEnd=async()=>{const el=SW.el;SW.el=null;if(!el||!SW.on)return;SW.skip=true;el.classList.remove('sw-move','sw-go','sw-back');el.style.transform='';
+  if(Math.abs(SW.dx)<70)return;const e=S.entries.find(x=>x.id===el.dataset.id);if(!e||e.delivered!==false)return;
+  const i=PREP.indexOf(stage(e)),j=i+(SW.dx<0?1:-1);
+  if(j<0){toast('Schon beim ersten Schritt');return}
+  if(j>=PREP.length){openEntry(e.id);toast('Abgepackt – zum Übergeben hier abschließen');return}
+  await Store.put('entries',setStage(e,PREP[j])).catch(()=>{});try{navigator.vibrate&&navigator.vibrate(12)}catch{}
+  toast(`${fmtOrder(e.orderNo)||e.party||'Bestellung'}: ${STAGES.find(x=>x[0]===PREP[j])[1]}`)};
+document.addEventListener('pointerup',swEnd);document.addEventListener('pointercancel',()=>{if(SW.el){SW.el.classList.remove('sw-move','sw-go','sw-back');SW.el.style.transform='';SW.el=null}});
+document.addEventListener('click',ev=>{if(SW.skip&&ev.target.closest('.row[data-swipe]')){SW.skip=false;ev.stopPropagation();ev.preventDefault()}},true);
 /* Langes Antippen einer Kachel = 1 Stück weniger (bei 1 Stück: abwählen) */
 const LP={t:null,el:null,x:0,y:0,skip:false};
 function tileMinus(el){const id=el.dataset.id,p=prodById(id);if(!p)return;
@@ -2626,7 +2649,7 @@ function fitVals(){fitQ=0;document.querySelectorAll(FIT_SEL).forEach(el=>{el.sty
 const fitSoon=()=>{if(!fitQ)fitQ=requestAnimationFrame(fitVals)};
 new MutationObserver(fitSoon).observe(document.body,{childList:true,subtree:true});
 addEventListener('resize',fitSoon);document.fonts&&document.fonts.ready.then(fitSoon);
-const APP_VER='52';
+const APP_VER='54';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
