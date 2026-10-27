@@ -68,6 +68,7 @@ h2{font-size:18px;font-weight:650;letter-spacing:-.015em;color:var(--ink);margin
 /* period segmented */
 .seg{display:flex;background:var(--surface-2);border-radius:12px;padding:3px;gap:2px}
 .seg button{flex:1;border:0;background:none;padding:8px 6px;border-radius:9px;font-size:14px;font-weight:600;color:var(--muted)}
+.seg4 button{font-size:13px;padding:8px 2px}
 .seg button.on{background:var(--raised);color:var(--ink);box-shadow:var(--shadow)}
 
 /* KPI */
@@ -539,8 +540,12 @@ function partnerStats(id){
 }
 const partnerSelect=(attr,sel)=>partners().length?`<label class="field"><span>Vermittelt durch (Provision)</span><select class="inp" ${attr}><option value="">— niemand —</option>${partners().filter(p=>p.active!==false||p.id===sel).map(p=>`<option value="${p.id}" ${p.id===sel?'selected':''}>${esc(p.name)} · ${num(p.pct)} % ${BASES[p.base||'roh']}</option>`).join('')}</select></label>`:'';
 const pf=e=>{const sub=(e.items||[]).reduce((s,i)=>s+num(i.qty)*num(i.price),0);if(Math.abs(sub)<0.005)return 1;const f=(num(e.total)-num(e.extra))/sub;return isFinite(f)?Math.max(0,f):1};
-const stage=e=>e.delivered===false?(e.ready?'fertig':'geplant'):'uebergeben';
-const STAGE_PILL=e=>e.type==='verkauf'?(e.ready?'<span class="pill top">Fertig</span>':'<span class="pill ord">Geplant</span>'):'<span class="pill ord">Bestellt</span>';
+// Bestell-Ablauf: Abholen (Ware holen) → Abpacken → Abgepackt → Übergeben
+const stage=e=>e.delivered===false?(e.ready?'fertig':e.packing?'abpacken':'geplant'):'uebergeben';
+const STAGES=[['geplant','Abholen'],['abpacken','Abpacken'],['fertig','Abgepackt'],['uebergeben','Übergeben']];
+const STAGE_TXT={geplant:'abzuholen',abpacken:'abzupacken',fertig:'abgepackt',uebergeben:'übergeben'};
+const STAGE_PILL=e=>e.type==='verkauf'?({geplant:'<span class="pill ord">Abzuholen</span>',abpacken:'<span class="pill open">Abzupacken</span>',fertig:'<span class="pill top">Abgepackt</span>'}[stage(e)]||''):'<span class="pill ord">Bestellt</span>';
+const setStage=(e,k)=>{const n={...e,delivered:k==='uebergeben'};delete n.ready;delete n.packing;if(k==='fertig')n.ready=true;if(k==='abpacken')n.packing=true;return n};
 const norm=n=>String(n||'').trim().toLowerCase();
 const recByName=(kind,n)=>S[KIND[kind].col].find(c=>norm(c.name)===norm(n));
 const custByName=n=>recByName('kunde',n);
@@ -775,7 +780,7 @@ function vStart(){
   </div>
   ${S.products.length?`<button class="kasse-btn" data-go="kasse"><span class="kb-ic">${ICON.kasse}</span><span class="kb-t">Schnellkasse<small>Produkte antippen und kassieren</small></span><span class="chev"></span></button>`:''}
   ${orders.length?`<button class="kasse-btn" data-act="pickup"><span class="kb-ic">${ICON.box}</span><span class="kb-t">Abholung prüfen<small>Bestellnummer und Abholcode vergleichen</small></span><span class="chev"></span></button><div class="linkrow" style="margin:4px 0 0"><button class="link" data-act="codes">Alle Bestellnummern & Codes</button></div>`:''}
-  ${orders.length?`<h2>Offene Bestellungen <span class="h-n">${orders.length}</span>${orders.some(e=>e.ready)?`<span class="h-x">${orders.filter(e=>e.ready).length} fertig</span>`:''}</h2><div class="list">${orders.map(entryRow).join('')}</div>`:''}
+  ${orders.length?`<h2>Offene Bestellungen <span class="h-n">${orders.length}</span>${orders.some(e=>e.ready)?`<span class="h-x">${orders.filter(e=>e.ready).length} abgepackt</span>`:''}</h2><div class="list">${orders.map(entryRow).join('')}</div>`:''}
   ${dashExtras(t)}
   ${topP||topC||proj?`<div class="card" style="margin-top:8px;padding:6px 14px">
    ${topP?`<div class="kv"><span>Bestseller ${pl}</span><b style="font-family:var(--f-ui)">${esc(topP.n)} · ${topP.q}×</b></div>`:''}
@@ -1122,7 +1127,7 @@ async function saveShipment(){
   if(e.delivered===false){const sm=stockMap();const short=(e.items||[]).filter(i=>i.pid in sm&&sm[i.pid]<num(i.qty)).map(i=>i.name);
     if(short.length&&!await ask(`Laut Lager ist nicht genug da: ${short.join(', ')}. Trotzdem versenden?`,'Trotzdem versenden'))return}
   const ne={...e,ship:{date:today(),tracking:LB.tracking.trim(),weight:LB.weight,porto:porto||e.ship?.porto||null}};if(porto>0)ne.porto=porto;
-  if(e.delivered===false){Object.assign(ne,refreshCogs({...ne,delivered:true,orderDate:e.orderDate||e.date,date:today()}));delete ne.ready}
+  if(e.delivered===false){Object.assign(ne,refreshCogs({...ne,delivered:true,orderDate:e.orderDate||e.date,date:today()}));delete ne.ready;delete ne.packing}
   await Store.bulk(async()=>{
     await Store.put('entries',ne);
     if(porto>0)await upsertPorto(ne,porto,LB.bookPorto,'karte');
@@ -1411,7 +1416,7 @@ function openEntryForm(type,e,preset){
   if(preset)Object.assign(F,preset);
   ['party','partyAddress','note'].forEach(k=>F[k]=F[k]||'');F.items=F.items||[];F.att=F.att||[];F.delivered=F.type==='ausgabe'||F.delivered!==false;
   F.payStatus=e?(isPaid(e)?'1':isPartial(e)?'p':'0'):(F.paid===false?'0':'1');
-  F.stage=F.delivered?'uebergeben':(F.ready?'fertig':'geplant');
+  F.stage=F.delivered?'uebergeben':(F.ready?'fertig':F.packing?'abpacken':'geplant');
   F.partnerId=F.partner?.id||F.partnerId||'';
   UI.prEdit=null;initShip(e);F.pr=F.type==='verkauf'?effPr(F.party,F.partnerId):null;F.fApplied=norm(F.party);
   if(e){F.override=e.type==='verkauf'&&e.discount?String(e.total):'';F.amount=e.type==='ausgabe'?e.total:'';F.updateEk=false}
@@ -1514,8 +1519,8 @@ function renderEntryForm(){
    ${t==='einkauf'&&!F.id?`<label class="check"><input type="checkbox" data-f="updateEk" ${F.updateEk?'checked':''}><span>Einkaufspreis im Produkt aktualisieren<br><small class="muted">als Durchschnitt mit dem Restbestand</small></span></label>`:''}
    <div class="summary" id="fsum"></div>
    ${t==='verkauf'?`<div class="field"><span>Übergabe</span></div>
-   <div class="seg" style="margin-bottom:8px">${[['geplant','Geplant'],['fertig','Fertig'],['uebergeben','Übergeben']].map(([k,l])=>`<button class="${F.stage===k?'on':''}" data-act="fstage" data-v="${k}">${l}</button>`).join('')}</div>
-   <p class="hint" style="margin:0 0 12px">${{geplant:'Bestellung aufgenommen, muss noch vorbereitet werden.',fertig:'Vorbereitet, wartet auf Übergabe oder Versand.',uebergeben:'Kunde hat die Ware.'}[F.stage]}${F.stage!=='uebergeben'?' Zählt erst im Lager und Umsatz, wenn übergeben.':''}</p>`
+   <div class="seg seg4" style="margin-bottom:8px">${STAGES.map(([k,l])=>`<button class="${F.stage===k?'on':''}" data-act="fstage" data-v="${k}">${l}</button>`).join('')}</div>
+   <p class="hint" style="margin:0 0 12px">${{geplant:'Ware muss erst noch geholt werden.',abpacken:'Ware ist da, muss noch abgepackt werden.',fertig:'Abgepackt – wartet auf Abholung oder Versand.',uebergeben:'Kunde hat die Ware.'}[F.stage]}${F.stage!=='uebergeben'?' Zählt erst im Lager und Umsatz, wenn übergeben.':''}</p>`
    :t==='einkauf'?`<label class="field"><span>Lieferung</span><select class="inp" data-f="delivered"><option value="1" ${F.delivered?'selected':''}>Ware erhalten</option><option value="0" ${!F.delivered?'selected':''}>Bestellt – noch nicht da</option></select></label>
    ${!F.delivered?'<p class="hint">Zählt erst im Lager, wenn du die Ware als erhalten markierst.</p>':''}`:''}
    <div class="grid2">
@@ -1572,8 +1577,8 @@ async function saveEntry(){
   const old=F.id?S.entries.find(e=>e.id===F.id):null;
   const e={...(old||{}),id:F.id||F.newId,created:old?.created||new Date().toISOString(),type:F.type,date:F.date,party:F.party.trim(),
     method:F.method,note:F.note.trim(),total:c.total,sample:old?.sample||false,att:F.att||[]};
-  if(F.type==='verkauf'){e.delivered=F.stage==='uebergeben';e.ready=F.stage==='fertig';if(!e.ready)delete e.ready}
-  else if(F.type==='einkauf'){e.delivered=!!F.delivered;delete e.ready}
+  if(F.type==='verkauf'){e.delivered=F.stage==='uebergeben';e.ready=F.stage==='fertig';if(!e.ready)delete e.ready;e.packing=F.stage==='abpacken';if(!e.packing)delete e.packing}
+  else if(F.type==='einkauf'){e.delivered=!!F.delivered;delete e.ready;delete e.packing}
   if(F.type==='ausgabe'){e.expenseCat=F.expenseCat;delete e.items}
   else{
     const shipF=F.type==='einkauf'&&F.shipToEk!==false&&c.sub>0?1+num(F.extra)/c.sub:1;
@@ -1623,7 +1628,7 @@ function codesTable(){const all=codesAll(),mode=UI.codesAll?'alle':'offen',q=nor
   let l=mode==='offen'?all.filter(e=>e.delivered===false&&live(e)):all;
   if(q)l=l.filter(e=>(String(e.orderNo)+' '+fmtOrder(e.orderNo)+' '+norm(e.party)+' '+e.pickupCode).includes(q));
   return `<table><thead><tr><th style="text-align:left">Bestellnr.</th><th style="text-align:left">Kunde</th><th>Abholcode</th></tr></thead><tbody>
-   ${l.length?l.map(e=>`<tr data-act="open-entry" data-id="${e.id}" style="cursor:pointer"><td style="text-align:left">${fmtOrder(e.orderNo)}</td><td style="text-align:left;font-family:var(--f-ui);font-weight:500;white-space:normal">${esc(e.party||'Laufkunde')}<br><small class="muted">${e.cancelled?'storniert':e.delivered===false?(e.ready?'fertig':'geplant'):'übergeben'} · ${fdShort(e.date)}</small></td><td style="font-weight:650;letter-spacing:.08em">${e.pickupCode}</td></tr>`).join('')
+   ${l.length?l.map(e=>`<tr data-act="open-entry" data-id="${e.id}" style="cursor:pointer"><td style="text-align:left">${fmtOrder(e.orderNo)}</td><td style="text-align:left;font-family:var(--f-ui);font-weight:500;white-space:normal">${esc(e.party||'Laufkunde')}<br><small class="muted">${e.cancelled?'storniert':STAGE_TXT[stage(e)]} · ${fdShort(e.date)}</small></td><td style="font-weight:650;letter-spacing:.08em">${e.pickupCode}</td></tr>`).join('')
      :`<tr><td colspan="3" class="muted" style="text-align:center;font-family:var(--f-ui)">${mode==='offen'&&!q?'Keine offenen Bestellungen.':'Nichts gefunden.'}</td></tr>`}</tbody></table>`}
 function openCodes(){
   const all=codesAll(),mode=UI.codesAll?'alle':'offen';
@@ -1677,8 +1682,9 @@ function openEntry(id){
    ${(()=>{const meta=[e.orderDate?'bestellt am '+fdate(e.orderDate):'',e.invoiceNo?'Rechnung '+esc(e.invoiceNo)+(e.type==='verkauf'&&live(e)&&e.delivered!==false&&open>0.005?' · fällig '+fdate(dueDate(e)):''):'',rem&&!ov?'erinnert am '+fdate(rem):''].filter(Boolean).join(' · ');return meta?`<p class="muted" style="margin:0 0 12px;font-size:13px">${meta}</p>`:''})()}
    ${(()=>{if(!live(e))return'';
      const isV=e.type==='verkauf',hasFlow=e.type!=='ausgabe',pending=e.delivered===false,due=open>0.005,over=open<-0.005;
-     const steps=isV?['Geplant','Fertig','Übergeben']:['Bestellt','Erhalten'];
-     const cur=isV?(pending?(e.ready?1:0):2):(pending?0:1);
+     const steps=isV?STAGES.map(x=>x[1]):['Bestellt','Erhalten'];
+     const cur=isV?{geplant:0,abpacken:1,fertig:2,uebergeben:3}[stage(e)]:(pending?0:1);
+     const nextLink=isV&&pending&&!e.ready?`<button class="link" data-act="mark-stage" data-v="${e.packing?'fertig':'abpacken'}" data-id="${e.id}">${e.packing?'Als abgepackt markieren':'Ware geholt – jetzt abpacken'}</button>`:'';
      const stepper=hasFlow?`<div class="steps">${steps.map((s,i)=>`<div class="st${i<=cur?' done':''}"><i>${i<=cur?'✓':i+1}</i><span>${s}</span></div>`).join('')}</div>`:'';
      const payRow=`<div class="kv"><span>Zahlung</span><b class="${due?'warn':'pos'}">${due?'offen · '+eur(open):over?'zu viel · '+eur(-open):'bezahlt ✓'}</b></div>`;
      const pm=UI.pm||e.method||'bar';
@@ -1687,10 +1693,10 @@ function openEntry(id){
      if(pending&&due){
        acts=`${mseg}<button class="btn big" style="margin-bottom:8px" data-act="complete" data-id="${e.id}">✓ Abschließen<span class="sub">${isV?'übergeben':'erhalten'} + ${eur(open)} bezahlt</span></button>
        <div class="btn-row" style="margin-bottom:4px"><button class="btn ghost" data-act="deliver" data-id="${e.id}">Nur ${isV?'übergeben':'erhalten'}</button><button class="btn ghost" data-act="pay-rest" data-id="${e.id}">Nur bezahlt</button></div>
-       <div class="linkrow">${isV&&!e.ready?`<button class="link" data-act="mark-ready" data-id="${e.id}">Als fertig markieren</button>`:''}<button class="link" data-act="pay-part" data-id="${e.id}">Anderer Betrag / Rabatt</button></div>`;
+       <div class="linkrow" style="flex-wrap:wrap;gap:4px 18px">${nextLink}<button class="link" data-act="pay-part" data-id="${e.id}">Anderer Betrag / Rabatt</button></div>`;
      }else if(pending){
        acts=`<button class="btn big" style="margin-bottom:8px" data-act="deliver" data-id="${e.id}">✓ ${isV?'Als übergeben markieren':'Ware erhalten – ins Lager'}<span class="sub">bereits bezahlt</span></button>
-       ${isV&&!e.ready?`<div class="linkrow"><button class="link" data-act="mark-ready" data-id="${e.id}">Als fertig markieren</button></div>`:'<div style="height:6px"></div>'}`;
+       ${nextLink?`<div class="linkrow">${nextLink}</div>`:'<div style="height:6px"></div>'}`;
      }else if(due){
        acts=`${mseg}<button class="btn big" style="margin-bottom:4px" data-act="pay-rest" data-id="${e.id}">✓ Als bezahlt markieren<span class="sub">${eur(open)}</span></button>
        <div class="linkrow"><button class="link" data-act="pay-part" data-id="${e.id}">Anderer Betrag / Rabatt</button></div>`;
@@ -2005,7 +2011,7 @@ async function deliverEntry(id){
   const e=S.entries.find(x=>x.id===id);if(!e)return false;
   if(e.type==='verkauf'){const sm=stockMap();const short=(e.items||[]).filter(i=>i.pid in sm&&sm[i.pid]<num(i.qty)).map(i=>i.name);
     if(short.length&&!await ask(`Laut Lager ist nicht genug da: ${short.join(', ')}. Trotzdem als geliefert markieren?`,'Trotzdem liefern'))return false}
-  const ne=refreshCogs({...e,delivered:true,orderDate:e.orderDate||e.date,date:today()});delete ne.ready;await Store.put('entries',ne).catch(()=>{});
+  const ne=refreshCogs({...e,delivered:true,orderDate:e.orderDate||e.date,date:today()});delete ne.ready;delete ne.packing;await Store.put('entries',ne).catch(()=>{});
   return true;
 }
 async function addPayment(id,amount,date,method){
@@ -2465,7 +2471,8 @@ document.addEventListener('click',async ev=>{
     case'pcat':UI.pcat=v;render();break;
     case'hide-stock-hint':await Store.setSettings({...S.settings,hideStockHint:true});break;
     case'fstage':F.stage=v;F.delivered=v==='uebergeben';if(!F.id)F.payStatus=v==='uebergeben'?'1':'0';renderEntryForm();break;
-    case'mark-ready':{const e=S.entries.find(x=>x.id===id);await Store.put('entries',{...e,ready:true}).catch(()=>{});closeSheet();toast('Als fertig markiert');break}
+    case'mark-ready':{const e=S.entries.find(x=>x.id===id);await Store.put('entries',setStage(e,'fertig')).catch(()=>{});closeSheet();toast('Als abgepackt markiert');break}
+    case'mark-stage':{const e=S.entries.find(x=>x.id===id);await Store.put('entries',setStage(e,v)).catch(()=>{});toast(v==='fertig'?'Als abgepackt markiert':'Jetzt abpacken');openEntry(id);break}
     case'save-note':{const e=S.entries.find(x=>x.id===id);await Store.put('entries',{...e,note:$('#noteEdit').value.trim()}).catch(()=>{});toast('Notiz gespeichert');openEntry(id);break}
     case'kstage':coKeep();UI.kstage=v;UI.kopen=undefined;try{localStorage.setItem('kb_kstage',v)}catch{}openCheckout();break;
     case'party':openParty(b.dataset.kind,b.dataset.name);break;
@@ -2619,7 +2626,7 @@ function fitVals(){fitQ=0;document.querySelectorAll(FIT_SEL).forEach(el=>{el.sty
 const fitSoon=()=>{if(!fitQ)fitQ=requestAnimationFrame(fitVals)};
 new MutationObserver(fitSoon).observe(document.body,{childList:true,subtree:true});
 addEventListener('resize',fitSoon);document.fonts&&document.fonts.ready.then(fitSoon);
-const APP_VER='51';
+const APP_VER='52';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
