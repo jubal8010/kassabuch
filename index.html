@@ -556,6 +556,11 @@ function partyList(kind){
   return Object.values(m);
 }
 const customerList=()=>partyList('kunde');
+// Umsatz im Schnitt pro Monat: vom Monat des ersten Kaufs bis heute (inkl. laufendem Monat)
+function custMonthly(c){const ds=c.entries.filter(e=>e.delivered!==false&&live(e)).map(e=>e.date).sort();if(!ds.length)return null;
+  const [y0,m0]=ds[0].split('-').map(Number),[y1,m1]=today().split('-').map(Number),months=Math.max(1,(y1-y0)*12+(m1-m0)+1);
+  const roh=r2(c.entries.filter(e=>e.delivered!==false&&live(e)).reduce((s,e)=>s+num(e.total)-num(e.cogs),0));
+  return{months,avg:r2(c.umsatz/months),roh,avgRoh:r2(roh/months),since:ds[0]}}
 /* payments */
 const paysOf=e=>Array.isArray(e.payments)?e.payments:(e.paid?[{date:e.date,amount:num(e.total),method:e.method}]:[]);
 const paidSum=e=>r2(paysOf(e).reduce((s,p)=>s+num(p.amount),0));
@@ -903,7 +908,7 @@ function vKunden(){
   ${offen||best?`<p class="hint" style="margin:0 0 10px">${offen?`${kd?'Offen zu zahlen':'Du schuldest noch'}: <b class="warn">${eur(offen)}</b>`:''}${offen&&best?' · ':''}${best?`<b class="pos">${best} Bestellung${best>1?'en':''}</b> ${kd?'noch nicht geliefert':'unterwegs'}`:''}</p>`:''}
   <div class="list">${l.length?l.map(c=>`<button class="row" data-act="party" data-kind="${kind}" data-name="${esc(c.name)}"><span class="tag ${kd?'vk':'ek'}">${esc(initials(c.name))}</span>
     <span style="min-width:0"><span class="row-title" style="display:block">${esc(c.name)}</span>
-    <span class="row-sub" style="display:block">${c.n} ${kd?(c.n===1?'Kauf':'Käufe'):(c.n===1?'Lieferung':'Lieferungen')}${c.last?', zuletzt '+fdShort(c.last):''}${kd&&hasDisc(custPr(c.name))?` · <b class="pos">${prLabel(custPr(c.name))}</b>`:''}</span></span>
+    <span class="row-sub" style="display:block">${c.n} ${kd?(c.n===1?'Kauf':'Käufe'):(c.n===1?'Lieferung':'Lieferungen')}${c.last?', zuletzt '+fdShort(c.last):''}</span>${kd&&(custMonthly(c)||hasDisc(custPr(c.name)))?`<span class="row-sub" style="display:block">${custMonthly(c)?`Ø ${eur(custMonthly(c).avg)} pro Monat`:''}${custMonthly(c)&&hasDisc(custPr(c.name))?' · ':''}${hasDisc(custPr(c.name))?`<b class="pos">${prLabel(custPr(c.name))}</b>`:''}</span>`:''}</span>
     <span class="row-amt"><span class="num">${eur(c.umsatz)}</span>${c.bestellt?`<span class="pill ord">${c.bestellt} bestellt</span>`:c.offen>0.005?`<span class="pill open">${eur(c.offen)} offen</span>`:''}</span></button>`).join('')
     :`<div class="empty"><b>${q?'Nichts gefunden':'Noch keine '+K.many}</b>${q?'':`${K.many} entstehen automatisch bei der ersten Buchung – oder du legst sie hier an.`}</div>`}</div>`;
 }
@@ -929,6 +934,8 @@ function openParty(kind,name){
    <div class="kpis" style="margin:0 0 12px">
     <div class="kpi"><div class="lbl">${kd?'Umsatz gesamt':'Eingekauft gesamt'}</div><div class="val">${eur(c.umsatz)}</div></div>
     <div class="kpi"><div class="lbl">${kd?'Käufe':'Lieferungen'}</div><div class="val">${c.n}</div></div>
+    ${kd&&custMonthly(c)?(()=>{const mo=custMonthly(c);return `<div class="kpi"><div class="lbl">Ø Umsatz pro Monat</div><div class="val">${eur(mo.avg)}</div><div class="sub2">über ${mo.months} ${mo.months===1?'Monat':'Monate'} seit ${fdShort(mo.since)}</div></div>
+    <div class="kpi"><div class="lbl">Rohertrag gesamt</div><div class="val ${mo.roh>=0?'pos':'neg'}">${eur(mo.roh)}</div><div class="sub2">Ø ${eur(mo.avgRoh)} pro Monat</div></div>`})():''}
     <div class="kpi"><div class="lbl">${kd?'Offen zu zahlen':'Du schuldest noch'}</div><div class="val ${c.offen>0.005?'warn':''}">${eur(c.offen)}</div></div>
     <div class="kpi"><div class="lbl">${kd?'Bestellt, nicht geliefert':'Bestellt, unterwegs'}</div><div class="val ${c.bestellt?'pos':''}">${c.bestellt}</div></div>
    </div>
@@ -2526,7 +2533,7 @@ function fitVals(){fitQ=0;document.querySelectorAll(FIT_SEL).forEach(el=>{el.sty
 const fitSoon=()=>{if(!fitQ)fitQ=requestAnimationFrame(fitVals)};
 new MutationObserver(fitSoon).observe(document.body,{childList:true,subtree:true});
 addEventListener('resize',fitSoon);document.fonts&&document.fonts.ready.then(fitSoon);
-const APP_VER='48';
+const APP_VER='49';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
