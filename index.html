@@ -817,7 +817,7 @@ function vLager(){
   const v={ek:0,vk:0,stk:0,inc:0};
   l.forEach(p=>{const q=Math.max(0,sm[p.id]);v.ek+=q*num(p.ek);v.vk+=q*num(p.vk);v.stk+=q;v.inc+=(pm.inc[p.id]||0)*num(p.ek)});
   const byCat={};S.products.forEach(p=>{const k=p.cat||'Allgemein';byCat[k]=(byCat[k]||0)+Math.max(0,sm[p.id])*num(p.ek)});
-  return header('Lager','<button class="add-btn" data-act="new-product">+ Produkt</button>')+`${S.products.length?`<button class="btn ghost sm" style="margin:-4px 0 12px" data-act="stock-export">⤓ Bestand exportieren</button>`:''}
+  return header('Lager','<button class="add-btn" data-act="new-product">+ Produkt</button>')+`${S.products.length?`<div class="btn-row" style="margin:-4px 0 12px"><button class="btn ghost sm" style="flex:0 1 auto;min-width:0" data-act="stock-export">⤓ Bestand exportieren</button><button class="btn ghost sm" style="flex:0 1 auto;min-width:0" data-act="price-pdf" data-name="">⤓ Preisliste</button></div>`:''}
   ${cats.length>2?`<div class="chips">${cats.map(c=>`<button class="chip ${UI.lagerCat===c?'on':''}" data-act="lagercat" data-v="${esc(c)}">${c==='alle'?'Alle':esc(c)}</button>`).join('')}</div>`:''}
   ${S.products.length?`<div class="kpi-main" style="margin:0 0 8px"><div class="lbl">Warenwert im Lager${UI.lagerCat!=='alle'?' · '+esc(UI.lagerCat):''} (zum Einkaufspreis)</div><div class="val">${eur(v.ek)}</div>
    <div class="sub">${v.stk} Stück auf Lager${v.inc?` · dazu ${eur(v.inc)} bestellt`:''}</div></div>
@@ -939,7 +939,7 @@ function openParty(kind,name){
     <div class="kpi"><div class="lbl">${kd?'Offen zu zahlen':'Du schuldest noch'}</div><div class="val ${c.offen>0.005?'warn':''}">${eur(c.offen)}</div></div>
     <div class="kpi"><div class="lbl">${kd?'Bestellt, nicht geliefert':'Bestellt, unterwegs'}</div><div class="val ${c.bestellt?'pos':''}">${c.bestellt}</div></div>
    </div>
-   ${kd?`<button class="btn ghost" style="margin-bottom:8px" data-act="label" data-name="${esc(c.name)}">Versandlabel erstellen</button>`:''}<div class="btn-row" style="margin-bottom:14px"><button class="btn" data-act="party-order" data-kind="${kind}" data-name="${esc(c.name)}" data-v="0">+ Neue Bestellung</button><button class="btn ghost" data-act="party-order" data-kind="${kind}" data-name="${esc(c.name)}" data-v="1">${kd?'+ Sofort-Verkauf':'+ Wareneingang'}</button></div>
+   ${kd?`<div class="btn-row" style="margin-bottom:8px"><button class="btn ghost" data-act="label" data-name="${esc(c.name)}">Versandlabel</button><button class="btn ghost" data-act="price-pdf" data-name="${esc(c.name)}">⤓ Preisliste</button></div>`:''}<div class="btn-row" style="margin-bottom:14px"><button class="btn" data-act="party-order" data-kind="${kind}" data-name="${esc(c.name)}" data-v="0">+ Neue Bestellung</button><button class="btn ghost" data-act="party-order" data-kind="${kind}" data-name="${esc(c.name)}" data-v="1">${kd?'+ Sofort-Verkauf':'+ Wareneingang'}</button></div>
    ${kd?'':detail}
    <div class="card" style="margin-bottom:14px">
     ${r.address?`<p>${esc(r.address).replace(/\n/g,'<br>')}</p>`:'<p class="muted">Keine Adresse hinterlegt</p>'}
@@ -1761,8 +1761,8 @@ function openPartner(id){
     <div class="kpi"><div class="lbl">In offenen Bestellungen</div><div class="val">${eur(ps.pendAmt)}</div><div class="sub2">${ps.pend.length} noch nicht übergeben</div></div>
    </div>
    ${ps.open>0.005?`<button class="btn" style="margin-bottom:8px" data-act="payout-partner" data-id="${id}">${eur(ps.open)} auszahlen</button>`:''}
-   <button class="btn ghost" style="margin-bottom:14px" data-act="edit-partner" data-id="${id}">Partner bearbeiten</button>
-   ${ps.sales.length?`<div class="eyebrow" style="margin-bottom:6px">Vermittelte Verkäufe</div><div class="list" style="margin-bottom:14px">${sorted(ps.sales).reverse().slice(0,30).map(e=>`<button class="row" data-act="open-entry" data-id="${e.id}"><span class="tag vk">VK</span><span style="min-width:0"><span class="row-title" style="display:block">${esc(e.party||'Laufkunde')}</span><span class="row-sub" style="display:block">${fdate(e.date)} · ${eur(e.total)}</span></span><span class="row-amt"><span class="num">${eur(provAmt(e))}</span><span class="row-sub">Provision</span></span></button>`).join('')}</div>`:''}
+   <div class="btn-row" style="margin-bottom:14px"><button class="btn ghost" data-act="partner-pdf" data-id="${id}">⤓ Abrechnung als PDF</button><button class="btn ghost" data-act="edit-partner" data-id="${id}">Bearbeiten</button></div>
+   ${ps.sales.length?`<div class="eyebrow" style="margin-bottom:6px">Vermittelte Verkäufe</div><div class="list" style="margin-bottom:14px">${sorted(ps.sales).reverse().slice(0,30).map(e=>`<button class="row" data-act="open-entry" data-id="${e.id}"><span class="tag vk">${ICON.in}</span><span style="min-width:0"><span class="row-title" style="display:block">${esc(e.party||'Laufkunde')}</span><span class="row-sub" style="display:block">${fdate(e.date)} · ${eur(e.total)}</span></span><span class="row-amt"><span class="num">${eur(provAmt(e))}</span><span class="row-sub">Provision</span></span></button>`).join('')}</div>`:''}
    ${pays.length?`<div class="eyebrow" style="margin-bottom:6px">Auszahlungen</div><div class="card" style="padding:4px 14px">${pays.map(e=>`<div class="kv"><span>${fdate(e.date)} · ${METHODS[e.method]||''}</span><b>${eur(e.total)}</b></div>`).join('')}</div>`:''}`);
 }
 function openPayout(id){
@@ -1819,6 +1819,77 @@ async function stockPDF(){
   doc.text('Summe',M,Y);doc.text(String(t.q),cx[1]+12,Y,{align:'right'});doc.text(E(t.e),cx[6],Y,{align:'right'});
   doc.setFont('helvetica','normal');doc.setFontSize(7.5);doc.setTextColor(...mut);doc.text('Bestand = Anfangsbestand + erhaltene Einkäufe - übergebene Verkäufe. Res. = offene Kundenbestellungen.',M,290);
   await Store.save(`Lagerbestand_${today()}.pdf`,doc.output('blob'));
+}
+/* ---------- PDF: Preisliste für einen Kunden ---------- */
+const pdfE=n=>eur(n).replace(/\u00a0|\u202f/g,' ');
+const pdfSafe=t=>String(t||'').replace(/[„“”]/g,'"').replace(/[‚‘’]/g,"'").replace(/[–—]/g,'-').replace(/…/g,'...').replace(/[^\x00-\xff€]/g,'');
+const fileSafe=t=>String(t||'').trim().replace(/[^\wäöüÄÖÜß-]+/g,'_').replace(/^_+|_+$/g,'');
+function pdfHead(doc,title,sub,right){const st=S.settings,W=210,M=14;
+  doc.setFont('helvetica','bold');doc.setFontSize(19);doc.setTextColor(22,32,27);doc.text(pdfSafe(title),M,20);
+  doc.setFont('helvetica','normal');doc.setFontSize(10.5);doc.setTextColor(28,106,88);if(sub)doc.text(pdfSafe(sub),M,27);
+  doc.setFontSize(8.5);doc.setTextColor(102,116,108);doc.text([st.company||st.owner||'Kassabuch',...String(st.address||'').split('\n').filter(Boolean),[st.phone,st.email].filter(Boolean).join(' · '),...(right||[])].filter(Boolean).map(pdfSafe),W-M,15,{align:'right'});
+  return 40}
+async function priceListPDF(name){
+  if(!await loadPdfLib()){toast('PDF konnte nicht geladen werden.');return}
+  const st=S.settings,pr=name?custPr(name):null,disc=hasDisc(pr);const {jsPDF}=window.jspdf;const doc=new jsPDF({unit:'mm',format:'a4'});const W=210,M=14;
+  const ink=[22,32,27],mut=[102,116,108],acc=[28,106,88],line=[212,219,211];
+  const l=S.products.filter(p=>num(p.vk)>0).sort((a,b)=>(a.cat||'Allgemein').localeCompare(b.cat||'Allgemein','de')||a.name.localeCompare(b.name,'de'));
+  let Y=pdfHead(doc,'Preisliste',name?'für '+name:'',[`Stand ${fdate(today())}`]);
+  if(disc){doc.setFillColor(232,242,236);doc.roundedRect(M,Y-5,W-2*M,10,2,2,'F');doc.setFontSize(9.5);doc.setTextColor(...acc);doc.setFont('helvetica','bold');
+    doc.text(pdfSafe(pr.mode==='rabatt'?`Deine persönlichen Preise: ${fmtPct(pr.pct)} % Rabatt auf alle Produkte`:'Deine persönlichen Sonderpreise'),M+4,Y+1.5);Y+=12}
+  const cx=disc?[M,W-M-34,W-M]:[M,W-M];
+  const head=()=>{doc.setFont('helvetica','bold');doc.setFontSize(8);doc.setTextColor(...mut);doc.text('PRODUKT',cx[0],Y);
+    if(disc){doc.text('NORMAL',cx[1],Y,{align:'right'});doc.text('DEIN PREIS',cx[2],Y,{align:'right'})}else doc.text('PREIS',cx[1],Y,{align:'right'});
+    doc.setDrawColor(...line);doc.line(M,Y+2,W-M,Y+2);Y+=7.5};
+  head();let cat=null;
+  for(const p of l){
+    if(Y>275){doc.addPage();Y=20;head();cat=null}
+    const c=p.cat||'Allgemein';if(c!==cat){cat=c;if(Y>30)Y+=1.5;doc.setFont('helvetica','bold');doc.setFontSize(10);doc.setTextColor(...acc);doc.text(pdfSafe(c),M,Y);Y+=6}
+    const cp=custPrice(p,pr);doc.setFont('helvetica','normal');doc.setFontSize(10);doc.setTextColor(...ink);
+    doc.text(doc.splitTextToSize(pdfSafe(p.name)+(p.unit&&p.unit!=='Stk'?' ('+pdfSafe(p.unit)+')':''),disc?120:150)[0],cx[0],Y);
+    if(disc){doc.setTextColor(...mut);if(Math.abs(cp-num(p.vk))>0.004){doc.text(pdfE(p.vk),cx[1],Y,{align:'right'});const w=doc.getTextWidth(pdfE(p.vk));doc.setDrawColor(...mut);doc.line(cx[1]-w,Y-1.2,cx[1],Y-1.2)}
+      doc.setFont('helvetica','bold');doc.setTextColor(...acc);doc.text(pdfE(cp),cx[2],Y,{align:'right'})}
+    else{doc.setFont('helvetica','bold');doc.text(pdfE(cp),cx[1],Y,{align:'right'})}
+    doc.setDrawColor(236,240,235);doc.line(M,Y+2.2,W-M,Y+2.2);Y+=7.2}
+  doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(...mut);
+  doc.text(pdfSafe(`Preise in Euro je Stück${st.kleinunternehmer?', Kleinunternehmer – keine Umsatzsteuer ausgewiesen':', inkl. USt'}. Änderungen vorbehalten.`),M,287);
+  await Store.save(`Preisliste${name?'_'+fileSafe(name):''}_${today()}.pdf`,doc.output('blob'));
+}
+/* ---------- PDF: Provisionsabrechnung für einen Partner ---------- */
+function periodRange(k){const t=today(),y=+t.slice(0,4),m=+t.slice(5,7);
+  if(k==='monat')return{from:t.slice(0,8)+'01',to:t,label:MONTHS_FULL[m-1]+' '+y};
+  if(k==='vormonat'){const py=m===1?y-1:y,pm=m===1?12:m-1;return{from:`${py}-${pad(pm)}-01`,to:`${py}-${pad(pm)}-31`,label:MONTHS_FULL[pm-1]+' '+py}}
+  if(k==='jahr')return{from:y+'-01-01',to:t,label:'Jahr '+y};return{from:'0000',to:'9999',label:'Gesamter Zeitraum'}}
+async function partnerPDF(id,k){
+  if(!await loadPdfLib()){toast('PDF konnte nicht geladen werden.');return}
+  const pt=partnerById(id);if(!pt)return;const ps=partnerStats(id),rg=periodRange(k),inR=d=>d>=rg.from&&d<=rg.to;
+  const sales=ps.sales.filter(e=>inR(e.date)).sort((a,b)=>(a.date+(a.created||'')).localeCompare(b.date+(b.created||'')));
+  const pays=S.entries.filter(e=>e.type==='ausgabe'&&e.partnerPayout===id&&inR(e.date)).sort((a,b)=>a.date.localeCompare(b.date));
+  const {jsPDF}=window.jspdf;const doc=new jsPDF({unit:'mm',format:'a4'});const W=210,M=14;const ink=[22,32,27],mut=[102,116,108],acc=[28,106,88],line=[212,219,211],neg=[173,58,45];
+  let Y=pdfHead(doc,'Provisionsabrechnung',`${pt.name} · ${rg.label}`,[`Erstellt ${fdate(today())}`]);
+  doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(...mut);
+  doc.text(pdfSafe(`Vereinbarung: ${fmtPct(pt.pct)} % ${BASES[pt.base||'roh']}. Versand, den der Kunde zahlt, zählt nicht mit; ungedecktes Porto wird vorher abgezogen.`),M,Y);Y+=9;
+  const cx=[M,M+22,M+40,W-M-56,W-M-28,W-M];const hd=['DATUM','NR.','KUNDE','UMSATZ',pt.base==='umsatz'?'BASIS':'ROHERTRAG','PROVISION'];
+  const head=()=>{doc.setFont('helvetica','bold');doc.setFontSize(8);doc.setTextColor(...mut);hd.forEach((h,i)=>i>=3?doc.text(h,cx[i],Y,{align:'right'}):doc.text(h,cx[i],Y));doc.setDrawColor(...line);doc.line(M,Y+2,W-M,Y+2);Y+=7};
+  head();let sU=0,sB=0,sP=0;
+  if(!sales.length){doc.setFont('helvetica','normal');doc.setFontSize(10);doc.setTextColor(...mut);doc.text('Keine vermittelten Verkäufe in diesem Zeitraum.',M,Y);Y+=8}
+  for(const e of sales){if(Y>262){doc.addPage();Y=20;head()}
+    const p=e.partner,base=r2(Math.max(0,provBase(e,p)-shipNet(e))),pv=provAmt(e),um=r2(num(e.total)-Math.max(0,num(e.extra)));sU+=um;sB+=base;sP+=pv;
+    doc.setFont('helvetica','normal');doc.setFontSize(9.5);doc.setTextColor(...ink);
+    doc.text(fdate(e.date),cx[0],Y);doc.text(fmtOrder(e.orderNo)||'-',cx[1],Y);doc.text(doc.splitTextToSize(pdfSafe(e.party||'Laufkunde'),cx[3]-cx[2]-24)[0],cx[2],Y);
+    doc.text(pdfE(um),cx[3],Y,{align:'right'});doc.text(pdfE(base),cx[4],Y,{align:'right'});doc.setFont('helvetica','bold');doc.text(pdfE(pv),cx[5],Y,{align:'right'});
+    doc.setDrawColor(236,240,235);doc.line(M,Y+2.2,W-M,Y+2.2);Y+=6.8}
+  doc.setDrawColor(...ink);doc.line(M,Y-2.6,W-M,Y-2.6);Y+=2;doc.setFont('helvetica','bold');doc.setFontSize(10);doc.setTextColor(...ink);
+  doc.text(`Summe (${sales.length} ${sales.length===1?'Verkauf':'Verkäufe'})`,M,Y);doc.text(pdfE(sU),cx[3],Y,{align:'right'});doc.text(pdfE(sB),cx[4],Y,{align:'right'});doc.setTextColor(...acc);doc.text(pdfE(sP),cx[5],Y,{align:'right'});Y+=12;
+  const box=(lines)=>{if(Y>250){doc.addPage();Y=20}const h=lines.length*6.5+6;doc.setFillColor(243,246,242);doc.roundedRect(M,Y-5,W-2*M,h,2,2,'F');
+    lines.forEach(([l,v,c,b])=>{doc.setFont('helvetica',b?'bold':'normal');doc.setFontSize(10);doc.setTextColor(...ink);doc.text(pdfSafe(l),M+5,Y);doc.setTextColor(...(c||ink));doc.text(v,W-M-5,Y,{align:'right'});Y+=6.5});Y+=8};
+  if(pays.length){doc.setFont('helvetica','bold');doc.setFontSize(10.5);doc.setTextColor(...ink);doc.text('Auszahlungen in diesem Zeitraum',M,Y);Y+=6;
+    pays.forEach(e=>{doc.setFont('helvetica','normal');doc.setFontSize(9.5);doc.text(pdfSafe(`${fdate(e.date)} · ${METHODS[e.method]||''}`),M,Y);doc.text(pdfE(e.total),W-M,Y,{align:'right'});Y+=6});Y+=4}
+  box([['Provision in diesem Zeitraum',pdfE(sP),acc,true],['Ausgezahlt in diesem Zeitraum',pdfE(pays.reduce((s,e)=>s+num(e.total),0))],
+    ['Provision gesamt (seit Beginn)',pdfE(ps.earned)],['Ausgezahlt gesamt',pdfE(ps.paid)],['Offener Betrag heute',pdfE(ps.open),ps.open>0.005?neg:ink,true]]);
+  if(ps.pend.length){doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(...mut);
+    doc.text(pdfSafe(`Noch nicht fällig: ${pdfE(ps.pendAmt)} aus ${ps.pend.length} offenen ${ps.pend.length===1?'Bestellung':'Bestellungen'} (${ps.pend.map(e=>fmtOrder(e.orderNo)).filter(Boolean).join(', ')}) – fällig bei Übergabe.`),M,Y,{maxWidth:W-2*M});}
+  await Store.save(`Provision_${fileSafe(pt.name)}_${fileSafe(rg.label)}.pdf`,doc.output('blob'));
 }
 /* ---------- Steuer-Rücklage, Nachkauf ---------- */
 function taxReserveCard(t,label){const pc=num(S.settings.taxReserve);if(!pc)return'';const base=Math.max(0,t.ueber);
@@ -2368,6 +2439,8 @@ document.addEventListener('click',async ev=>{
     case'deliver':{const e=S.entries.find(x=>x.id===id);if(!await deliverEntry(id))break;
       closeSheet();toast(e.type==='verkauf'?'Als übergeben markiert':'Ware ist im Lager');break}
     case'pickup':openPickup(id||null);break;
+    case'price-pdf':toast('Preisliste wird erstellt …');priceListPDF(b.dataset.name||'');break;
+    case'partner-pdf':{const k=await choose('Provisionsabrechnung – welcher Zeitraum?',[['monat',periodRange('monat').label,'Laufender Monat bis heute'],['vormonat',periodRange('vormonat').label,'Ganzer letzter Monat'],['jahr',periodRange('jahr').label,'Seit 1. Jänner'],['alle','Gesamter Zeitraum','Alle vermittelten Verkäufe']]);if(k)partnerPDF(id,k);break}
     case'codes':UI.codesQ='';openCodes();break;
     case'codes-mode':UI.codesAll=v==='alle';openCodes();break;
     case'pickup-check':checkPickup();break;
@@ -2533,7 +2606,7 @@ function fitVals(){fitQ=0;document.querySelectorAll(FIT_SEL).forEach(el=>{el.sty
 const fitSoon=()=>{if(!fitQ)fitQ=requestAnimationFrame(fitVals)};
 new MutationObserver(fitSoon).observe(document.body,{childList:true,subtree:true});
 addEventListener('resize',fitSoon);document.fonts&&document.fonts.ready.then(fitSoon);
-const APP_VER='49';
+const APP_VER='50';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
