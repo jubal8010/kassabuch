@@ -19,13 +19,14 @@
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;background:var(--bg);color:var(--text);font:16px/1.4 -apple-system,BlinkMacSystemFont,"SF Pro Text","Inter",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
-body{padding-top:var(--safe-t);padding-bottom:calc(76px + var(--safe-b));min-height:100vh;overscroll-behavior-y:none}
+html,body{height:100%;overflow:hidden;overscroll-behavior:none}
+body{display:flex;flex-direction:column;height:100vh;height:100dvh;padding-top:var(--safe-t)}
 button,input,select,textarea{font:inherit;color:inherit}
 button{cursor:pointer;border:0;background:none}
-header.top{position:sticky;top:0;z-index:20;background:rgba(14,15,18,.92);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);padding:14px 16px 10px;display:flex;align-items:center;justify-content:space-between;gap:10px;border-bottom:1px solid transparent}
+header.top{flex:none;position:relative;z-index:20;background:rgba(14,15,18,.92);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);padding:14px 16px 10px;display:flex;align-items:center;justify-content:space-between;gap:10px;border-bottom:1px solid transparent}
 header.top h1{font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0}
 header.top .sub{color:var(--muted);font-size:13px}
-main{padding:8px 16px 24px;max-width:640px;margin:0 auto}
+main{flex:1;min-height:0;width:100%;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:8px max(16px,calc((100% - 608px)/2)) 96px}
 .card{background:var(--card);border-radius:var(--r);padding:14px;margin:0 0 12px}
 .row{display:flex;align-items:center;gap:10px}
 .between{justify-content:space-between}
@@ -49,7 +50,7 @@ input.f:focus,select.f:focus,textarea.f:focus{border-color:var(--acc)}
 .stat b{display:block;font-size:20px;letter-spacing:-.01em}
 .stat b.small{font-size:16px;margin-top:3px}
 /* nav */
-nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:30;background:rgba(18,20,24,.96);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);padding:6px 4px calc(6px + var(--safe-b))}
+nav.tabs{flex:none;position:relative;z-index:30;background:rgba(18,20,24,.96);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);padding:6px 4px calc(6px + var(--safe-b))}
 nav.tabs button{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11px;color:var(--muted);padding:6px 0}
 nav.tabs button svg{width:24px;height:24px}
 nav.tabs button.on{color:var(--acc)}
@@ -86,7 +87,7 @@ tr.done input{background:rgba(198,244,50,.10);color:var(--acc)}
 .empty{text-align:center;padding:40px 20px;color:var(--muted)}
 .empty svg{width:56px;height:56px;opacity:.5;margin-bottom:8px}
 /* timer */
-#timer{position:fixed;left:12px;right:12px;bottom:calc(84px + var(--safe-b));z-index:40;background:var(--acc);color:var(--acc-ink);border-radius:16px;padding:10px 14px;display:none;align-items:center;justify-content:space-between;box-shadow:0 10px 30px rgba(0,0,0,.45);max-width:616px;margin:0 auto}
+#timer{position:fixed;left:12px;right:12px;bottom:calc(78px + var(--safe-b));z-index:40;background:var(--acc);color:var(--acc-ink);border-radius:16px;padding:10px 14px;display:none;align-items:center;justify-content:space-between;box-shadow:0 10px 30px rgba(0,0,0,.45);max-width:616px;margin:0 auto}
 #timer.show{display:flex}
 body:not(.tab-workout) #timer.show{display:none}
 :root{--cw:54px}
@@ -144,7 +145,7 @@ label.lbl{display:block;font-size:13px;color:var(--muted);margin:10px 0 6px}
 
 <script>
 'use strict';
-const APP_VERSION='2.13';
+const APP_VERSION='2.14';
 /* ================= Daten ================= */
 const KEY='training.v1';
 const MUSCLES=['Brust','Obere Brust','Rücken','Latissimus','Unterer Rücken','Schultern','Hintere Schulter','Bizeps','Trizeps','Quadrizeps','Beinbeuger','Adduktoren','Po','Waden','Bauch','Unterarme','Ganzkörper','Cardio'];
@@ -262,7 +263,7 @@ function workoutStats(w){
 /* ================= Navigation ================= */
 let tab='workout';
 const TITLES={workout:'Training',history:'Verlauf',progress:'Statistik',more:'Mehr'};
-function go(t){if(t==='progress'&&tab==='progress')progressEx=null;PAGES=[];tab=t;try{sessionStorage.setItem('tab',t)}catch(e){}render();window.scrollTo(0,0)}
+function go(t){if(t==='progress'&&tab==='progress')progressEx=null;PAGES=[];tab=t;try{sessionStorage.setItem('tab',t)}catch(e){}render();$('#view').scrollTop=0}
 $('#tabs').addEventListener('click',e=>{const b=e.target.closest('button[data-tab]');if(b)go(b.dataset.tab)});
 function render(){
   document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===tab));
@@ -319,7 +320,7 @@ function renderWorkout(){
     <textarea class="f" id="wnote" rows="2" placeholder="Notiz zum Training (optional)">${esc(A.note||'')}</textarea>
     <button class="btn red block" id="cancelW" style="margin-top:14px">Training verwerfen</button>`;
   $('#orderEx').onclick=()=>openPage(workoutOrderPage());
-  $('#addEx').onclick=()=>pickExercise(id=>{A.exercises.push(newExEntry(id));save();renderWorkout();setTimeout(()=>window.scrollTo(0,document.body.scrollHeight),50)});
+  $('#addEx').onclick=()=>pickExercise(id=>{A.exercises.push(newExEntry(id));save();renderWorkout();setTimeout(()=>$('#view').scrollTop=$('#view').scrollHeight,50)});
   $('#cancelW').onclick=()=>{if(confirm('Training wirklich verwerfen? Die Einträge gehen verloren.')){S.active=null;save();stopTimer();renderWorkout()}};
   $('#wnote').oninput=e=>{A.note=e.target.value;save()};
   bindWorkout(v);
@@ -588,8 +589,8 @@ function newExercise(name,muscle,cb,editId){
 
 /* ================= Seiten (Bearbeiten) ================= */
 let PAGES=[];
-function openPage(fn){PAGES.push(fn);render();window.scrollTo(0,0)}
-function backPage(){PAGES.pop();render();window.scrollTo(0,0)}
+function openPage(fn){PAGES.push(fn);render();$('#view').scrollTop=0}
+function backPage(){PAGES.pop();render();$('#view').scrollTop=0}
 function pageHeader(title,sub=''){
   $('#title').textContent=title;$('#title').style.fontSize=title.length>16?'21px':'';$('#subtitle').textContent=sub;
   $('#hdrAct').innerHTML=`<button class="btn ghost" id="back">‹ Zurück</button>`;$('#back').onclick=backPage;
@@ -610,14 +611,14 @@ function sortable(list,onDrop){
     let el,from,startPageY,lastY,raf,active=false;
     const frame=()=>{
       if(!active)return;
-      if(lastY<90)window.scrollBy(0,-7);else if(lastY>innerHeight-150)window.scrollBy(0,7);
-      let off=lastY+scrollY-startPageY;
+      const sc=$('#view'),sr=sc.getBoundingClientRect();if(lastY<sr.top+60)sc.scrollTop-=7;else if(lastY>sr.bottom-60)sc.scrollTop+=7;
+      let off=lastY+sc.scrollTop-startPageY;
       const prev=el.previousElementSibling,next=el.nextElementSibling;
       if(prev){const r=prev.getBoundingClientRect();if(lastY<r.top+r.height/2){list.insertBefore(el,prev);startPageY-=r.height;off+=r.height;vib(8)}}
       if(next){const r=next.getBoundingClientRect();if(lastY>r.top+r.height/2){list.insertBefore(next,el);startPageY+=r.height;off-=r.height;vib(8)}}
       el.style.transform=`translateY(${off}px)`;raf=requestAnimationFrame(frame);
     };
-    const start=y=>{el=h.closest('.dragitem');from=[...list.children].indexOf(el);startPageY=y+scrollY;lastY=y;active=true;el.classList.add('dragging');vib(15);raf=requestAnimationFrame(frame)};
+    const start=y=>{el=h.closest('.dragitem');from=[...list.children].indexOf(el);startPageY=y+$('#view').scrollTop;lastY=y;active=true;el.classList.add('dragging');vib(15);raf=requestAnimationFrame(frame)};
     const end=()=>{if(!active)return;active=false;cancelAnimationFrame(raf);el.classList.remove('dragging');el.style.transform='';
       document.removeEventListener('touchmove',tm);document.removeEventListener('touchend',end);document.removeEventListener('touchcancel',end);
       window.removeEventListener('mousemove',mm);window.removeEventListener('mouseup',end);
@@ -787,7 +788,7 @@ function showWorkout(id){
 
 /* ================= Übungen ================= */
 let progressEx=null,progressMetric='ww';
-function openExercise(id){progressEx=id;tab='progress';try{sessionStorage.setItem('tab',tab)}catch(e){}render();window.scrollTo(0,0)}
+function openExercise(id){progressEx=id;tab='progress';try{sessionStorage.setItem('tab',tab)}catch(e){}render();$('#view').scrollTop=0}
 function exSessions(exId){
   return S.workouts.map(w=>{const sets=w.exercises.filter(e=>e.exId===exId).flatMap(e=>e.sets);return {t:w.start,id:w.id,sets,work:sets.filter(isW)}}).filter(x=>x.sets.length);
 }
@@ -995,6 +996,8 @@ $('#importFile').addEventListener('change',async e=>{
 /* ================= Sheet ================= */
 function sheet(html){$('#sheetBody').innerHTML=html;$('#sheetBg').classList.add('show');$('#sheet').classList.add('show');$('#sheet').scrollTop=0}
 function closeSheet(){$('#sheetBg').classList.remove('show');$('#sheet').classList.remove('show')}
+// iOS: nach dem Schließen der Tastatur verrutschte Seite zurücksetzen
+document.addEventListener('focusout',()=>setTimeout(()=>{if(!document.activeElement||!document.activeElement.matches('input,textarea,select'))window.scrollTo(0,0)},60));
 $('#sheetBg').onclick=closeSheet;$('#sheetX').onclick=closeSheet;
 // nach unten wischen schließt das Fenster
 (()=>{let y0=null;const sh=$('#sheet');sh.addEventListener('touchstart',e=>{y0=sh.scrollTop<=0?e.touches[0].clientY:null},{passive:true});sh.addEventListener('touchend',e=>{if(y0!=null&&e.changedTouches[0].clientY-y0>90)closeSheet();y0=null},{passive:true})})();
