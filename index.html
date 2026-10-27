@@ -668,25 +668,31 @@ function taxBreakdown(e){
   return Object.keys(g).map(r=>{const gross=r2(g[r]);const net=r2(gross/(1+r/100));return{rate:+r,gross,net,tax:r2(gross-net)}}).sort((a,b)=>b.rate-a.rate);
 }
 
+/* Beim Neuzeichnen die Scroll-Position von Filterleisten, Kachel-Listen und Sheet behalten */
+function snapScroll(root){if(!root)return()=>{};const q=sel=>[...root.querySelectorAll(sel)];
+  const ch=q('.chips').map(e=>e.scrollLeft),ti=q('.tiles.mini').map(e=>e.scrollTop),sh=root.closest?.('.sheet')||root.querySelector('.sheet'),st=sh?sh.scrollTop:0;
+  return(keepTiles=true)=>{q('.chips').forEach((e,i)=>{if(ch[i])e.scrollLeft=ch[i]});if(keepTiles)q('.tiles.mini').forEach((e,i)=>{if(ti[i])e.scrollTop=ti[i]});const s2=root.closest?.('.sheet')||root.querySelector('.sheet');if(s2&&st)s2.scrollTop=st}}
 /* ---------- render ---------- */
 function render(){
   document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.go===UI.screen));
   const m=$('#main');
   if(!UI.ready){m.innerHTML=header('Kassabuch')+`<div class="list"><div class="empty">Daten werden geladen …</div></div>`;return}
   m.classList.toggle('kasse',UI.screen==='kasse');
+  const back=m.dataset.scr===UI.screen?snapScroll(m):null;m.dataset.scr=UI.screen;
   m.innerHTML=({kasse:vKasse,start:vStart,buchungen:vBuchungen,kunden:vKunden,lager:vLager,auswertung:vAuswertung,mehr:vMehr}[UI.screen])();
+  if(back)back();
 }
 /* Neu zeichnen, ohne das Suchfeld zu ersetzen – sonst schließt iOS die Tastatur */
 function renderKeep(id){
   const m=$('#main'),old=$('#'+id);
   const fb=()=>{const pos=old?old.selectionStart:null;render();const n=$('#'+id);if(n){n.focus();if(pos!=null)try{n.setSelectionRange(pos,pos)}catch{}}};
   if(!old||old.parentNode!==m)return fb();
-  const tpl=document.createElement('template');
+  const back=snapScroll(m);const tpl=document.createElement('template');
   tpl.innerHTML=({kasse:vKasse,start:vStart,buchungen:vBuchungen,kunden:vKunden,lager:vLager,auswertung:vAuswertung,mehr:vMehr}[UI.screen])();
   const neu=tpl.content.querySelector('#'+id);if(!neu||neu.parentNode!==tpl.content)return fb();
   const before=[],after=[];let seen=false;
   [...tpl.content.childNodes].forEach(n=>{if(n===neu){seen=true;return}(seen?after:before).push(n)});
-  [...m.childNodes].forEach(n=>{if(n!==old)n.remove()});old.before(...before);old.after(...after);
+  [...m.childNodes].forEach(n=>{if(n!==old)n.remove()});old.before(...before);old.after(...after);back();
 }
 function filterPicker(){const q=norm(UI.fq||'');let n=0;
   document.querySelectorAll('.tiles.mini .tile').forEach(b=>{const ok=!q||norm(b.dataset.name||'').includes(q);b.hidden=!ok;if(ok)n++});
@@ -763,7 +769,7 @@ function vStart(){
    <button class="act" data-act="new-entry" data-v="ausgabe">+ Ausgabe<small>Versand, Gebühren</small></button>
   </div>
   ${S.products.length?`<button class="kasse-btn" data-go="kasse"><span class="kb-ic">${ICON.kasse}</span><span class="kb-t">Schnellkasse<small>Produkte antippen und kassieren</small></span><span class="chev"></span></button>`:''}
-  ${orders.length?`<button class="kasse-btn" data-act="pickup"><span class="kb-ic">${ICON.box}</span><span class="kb-t">Abholung prüfen<small>Bestellnummer und Abholcode vergleichen</small></span><span class="chev"></span></button>`:''}
+  ${orders.length?`<button class="kasse-btn" data-act="pickup"><span class="kb-ic">${ICON.box}</span><span class="kb-t">Abholung prüfen<small>Bestellnummer und Abholcode vergleichen</small></span><span class="chev"></span></button><div class="linkrow" style="margin:4px 0 0"><button class="link" data-act="codes">Alle Bestellnummern & Codes</button></div>`:''}
   ${orders.length?`<h2>Offene Bestellungen <span class="h-n">${orders.length}</span>${orders.some(e=>e.ready)?`<span class="h-x">${orders.filter(e=>e.ready).length} fertig</span>`:''}</h2><div class="list">${orders.map(entryRow).join('')}</div>`:''}
   ${dashExtras(t)}
   ${topP||topC||proj?`<div class="card" style="margin-top:8px;padding:6px 14px">
@@ -1367,7 +1373,9 @@ function vMehr(){
 
 /* ---------- sheets ---------- */
 function openSheet(title,body){
+  const cur=$('#sheetRoot .sheet'),same=cur&&cur.getAttribute('aria-label')===title,back=same?snapScroll($('#sheetRoot')):null;
   $('#sheetRoot').innerHTML=`<div class="overlay" data-act="close-bg"><div class="sheet" role="dialog" aria-label="${esc(title)}"><div class="sheet-head"><h3>${esc(title)}</h3><button class="close" data-act="close" aria-label="Schließen">✕</button></div><div id="sheetBody">${body}</div></div></div>`;
+  if(back)back();
 }
 function closeSheet(){$('#sheetRoot').innerHTML='';F=null;UI.pickOk=null}
 function ask(msg,ok='Löschen'){return new Promise(res=>{
@@ -1512,7 +1520,8 @@ function renderEntryForm(){
    <div class="thumbs" style="margin-bottom:12px">${attThumbs(F.att)}<label class="thumb add">+ Foto / PDF<input type="file" accept="image/*,application/pdf" multiple hidden data-att-form="1"></label></div>
    <label class="field"><span>Notiz</span><textarea class="inp" data-f="note" rows="2" placeholder="z. B. Wunsch, Abholtermin, Größe …">${esc(F.note)}</textarea></label>
    <button class="btn" data-act="save-entry">${F.id?'Änderungen speichern':!F.delivered?'Bestellung speichern':TYPES[t]+' buchen'}</button>`;
-  if($('#sheetBody'))$('#sheetBody').innerHTML=body;else openSheet(F.id?TYPES[t]+' bearbeiten':'Neue Buchung',body);
+  const sb=$('#sheetBody'),back=sb?snapScroll(sb):null,keepT=UI.fcatPrev===UI.fcat;UI.fcatPrev=UI.fcat;
+  if(sb){sb.innerHTML=body;back(keepT)}else openSheet(F.id?TYPES[t]+' bearbeiten':'Neue Buchung',body);
   if(UI.fq)filterPicker();
   {const tl=$('.tiles.mini');if(tl)tl._h=tl.innerHTML}
   if($('.sheet-head h3'))$('.sheet-head h3').textContent=F.id?TYPES[t]+' bearbeiten':'Neue Buchung';
@@ -1596,8 +1605,25 @@ function openPickup(id,res){const e=id?S.entries.find(x=>x.id===id):null;
    <div class="grid2"><label class="field"><span>Bestellnummer</span><input class="inp num" id="pkNo" inputmode="numeric" placeholder="#0042" value="${e?fmtOrder(e.orderNo):esc(UI.pkNo||'')}"></label>
     <label class="field"><span>Abholcode</span><input class="inp num" id="pkCode" inputmode="numeric" maxlength="5" placeholder="5 Ziffern" autocomplete="off" style="letter-spacing:.12em"></label></div>
    <button class="btn" data-act="pickup-check">Prüfen</button>
-   <p class="hint" style="margin-top:10px">Jede Prüfung wird bei der Bestellung protokolliert – auch falsche Codes.</p>`);
+   <p class="hint" style="margin-top:10px">Jede Prüfung wird bei der Bestellung protokolliert – auch falsche Codes.</p>
+   <button class="btn ghost" data-act="codes">Alle Bestellnummern & Codes</button>`);
   setTimeout(()=>{const f=$(e?'#pkCode':'#pkNo');if(f)f.focus()},60);
+}
+// Übersicht: Bestellnummer links, Abholcode rechts
+const codesAll=()=>sorted(S.entries.filter(e=>e.type==='verkauf'&&!e.storno&&e.orderNo&&e.pickupCode));
+function codesTable(){const all=codesAll(),mode=UI.codesAll?'alle':'offen',q=norm(UI.codesQ||'').replace('#','');
+  let l=mode==='offen'?all.filter(e=>e.delivered===false&&live(e)):all;
+  if(q)l=l.filter(e=>(String(e.orderNo)+' '+fmtOrder(e.orderNo)+' '+norm(e.party)+' '+e.pickupCode).includes(q));
+  return `<table><thead><tr><th style="text-align:left">Bestellnr.</th><th style="text-align:left">Kunde</th><th>Abholcode</th></tr></thead><tbody>
+   ${l.length?l.map(e=>`<tr data-act="open-entry" data-id="${e.id}" style="cursor:pointer"><td style="text-align:left">${fmtOrder(e.orderNo)}</td><td style="text-align:left;font-family:var(--f-ui);font-weight:500;white-space:normal">${esc(e.party||'Laufkunde')}<br><small class="muted">${e.cancelled?'storniert':e.delivered===false?(e.ready?'fertig':'geplant'):'übergeben'} · ${fdShort(e.date)}</small></td><td style="font-weight:650;letter-spacing:.08em">${e.pickupCode}</td></tr>`).join('')
+     :`<tr><td colspan="3" class="muted" style="text-align:center;font-family:var(--f-ui)">${mode==='offen'&&!q?'Keine offenen Bestellungen.':'Nichts gefunden.'}</td></tr>`}</tbody></table>`}
+function openCodes(){
+  const all=codesAll(),mode=UI.codesAll?'alle':'offen';
+  openSheet('Bestellnummern & Codes',`
+   <div class="seg" style="margin-bottom:10px"><button class="${mode==='offen'?'on':''}" data-act="codes-mode" data-v="offen">Offen (${all.filter(e=>e.delivered===false&&live(e)).length})</button><button class="${mode==='alle'?'on':''}" data-act="codes-mode" data-v="alle">Alle (${all.length})</button></div>
+   <input class="search" id="codesQ" type="search" placeholder="Nummer, Kunde oder Code …" value="${esc(UI.codesQ||'')}">
+   <div class="tbl-wrap" id="codesTbl">${codesTable()}</div>
+   <button class="btn ghost" style="margin-top:12px" data-act="pickup">Abholung prüfen</button>`);
 }
 async function checkPickup(){
   const raw=($('#pkNo').value||'').replace(/\D/g,''),code=($('#pkCode').value||'').replace(/\D/g,'');UI.pkNo=$('#pkNo').value;
@@ -2335,6 +2361,8 @@ document.addEventListener('click',async ev=>{
     case'deliver':{const e=S.entries.find(x=>x.id===id);if(!await deliverEntry(id))break;
       closeSheet();toast(e.type==='verkauf'?'Als übergeben markiert':'Ware ist im Lager');break}
     case'pickup':openPickup(id||null);break;
+    case'codes':UI.codesQ='';openCodes();break;
+    case'codes-mode':UI.codesAll=v==='alle';openCodes();break;
     case'pickup-check':checkPickup();break;
     case'share-code':shareCode(id);break;
     case'complete':{const e=S.entries.find(x=>x.id===id);if(!await deliverEntry(id))break;
@@ -2449,6 +2477,7 @@ document.addEventListener('input',ev=>{
   if(t.id==='fq'){UI.fq=t.value;filterPicker();return}
   if(t.id==='kcust'){UI.kparty=t.value;const v=t.value.trim();if((!v&&UI.kApplied)||(isKnownCust(v)&&norm(v)!==UI.kApplied)){applyKCust();renderKeep('kcust')}return}
   if(t.id==='prPct')return;
+  if(t.id==='codesQ'){UI.codesQ=t.value;const tb=$('#codesTbl');if(tb)tb.innerHTML=codesTable();return}
   if(F&&t.id&&/^np(Name|Qty|Ek|Vk|Cat)$/.test(t.id)){F.npv=F.npv||{};F.npv[t.id]=t.value;return}
   if(!F)return;
   if(t.dataset.f==='ship'){F.ship=t.value;F.shipTouched=true;updateSummary();return}
@@ -2497,7 +2526,7 @@ function fitVals(){fitQ=0;document.querySelectorAll(FIT_SEL).forEach(el=>{el.sty
 const fitSoon=()=>{if(!fitQ)fitQ=requestAnimationFrame(fitVals)};
 new MutationObserver(fitSoon).observe(document.body,{childList:true,subtree:true});
 addEventListener('resize',fitSoon);document.fonts&&document.fonts.ready.then(fitSoon);
-const APP_VER='46';
+const APP_VER='48';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
