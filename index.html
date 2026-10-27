@@ -659,7 +659,7 @@ function totals(pred){
     paysOf(e).forEach(p=>{if(!pred(p.date))return;const a=num(p.amount);
       if(e.type==='verkauf')t.ein+=a;else{t.aus+=a;if(e.type==='einkauf')t.warenAus+=a;else{const k=e.expenseCat||'Sonstiges';t.exp[k]=(t.exp[k]||0)+a}}});
     if(!del||!pred(e.date))return;
-    if(e.type==='verkauf'){t.umsatz+=amt;t.cogs+=num(e.cogs);if(live(e)){t.n++;t.prov+=provAmt(e);t.versand+=portoCost(e);t.offenFord+=Math.max(0,openAmt(e))}}
+    if(e.type==='verkauf'){t.umsatz+=amt;t.cogs+=num(e.cogs);if(!e.storno)t.versand+=portoCost(e);if(live(e)){t.n++;t.prov+=provAmt(e);t.offenFord+=Math.max(0,openAmt(e))}}
     else if(live(e))t.offenVerb+=Math.max(0,openAmt(e));
   });
   t.prov=r2(t.prov);t.versand=r2(t.versand);t.ueber=t.ein-t.aus;t.roh=t.umsatz-t.cogs;t.gewinn=r2(t.roh-t.versand-t.prov);return t;
@@ -1595,6 +1595,7 @@ async function saveEntry(){
   if(kind&&e.party){const r=recByName(kind,e.party);const addr=(e.partyAddress||'').trim();
     if(!r)await Store.put(KIND[kind].col,{id:newId(),name:e.party,address:addr,phone:'',email:'',note:''}).catch(()=>{});
     else if(addr&&!r.address)await Store.put(KIND[kind].col,{...r,address:addr}).catch(()=>{});}
+  if(F.type==='einkauf'&&old)await adjustEk(old,e);
   if(F.type==='einkauf'&&F.updateEk&&!old){const sm=stockMap();const isIn=e.delivered!==false;const msg=[];const byP={};
     e.items.forEach(i=>{byP[i.pid]=byP[i.pid]||{q:0,v:0};byP[i.pid].q+=num(i.qty);byP[i.pid].v+=num(i.qty)*num(i.ek)});
     for(const pid in byP){const p=prodById(pid);if(!p)continue;const add=byP[pid];
@@ -1819,6 +1820,18 @@ async function stockPDF(){
   doc.text('Summe',M,Y);doc.text(String(t.q),cx[1]+12,Y,{align:'right'});doc.text(E(t.e),cx[6],Y,{align:'right'});
   doc.setFont('helvetica','normal');doc.setFontSize(7.5);doc.setTextColor(...mut);doc.text('Bestand = Anfangsbestand + erhaltene Einkäufe - übergebene Verkäufe. Res. = offene Kundenbestellungen.',M,290);
   await Store.save(`Lagerbestand_${today()}.pdf`,doc.output('blob'));
+}
+// Einkauf nachträglich geändert/gelöscht: Ø-Einkaufspreis der betroffenen Produkte korrigieren
+async function adjustEk(oldE,newE){
+  const val=e=>{const m={};if(e&&e.type==='einkauf')(e.items||[]).forEach(i=>{if(!i.pid)return;const x=m[i.pid]=m[i.pid]||{q:0,v:0};x.q+=num(i.qty);x.v+=num(i.qty)*num(i.ek)});return m};
+  const a=val(oldE),b=val(newE),sm=stockMap(),msg=[],nIn=newE&&newE.delivered!==false;
+  for(const pid of new Set([...Object.keys(a),...Object.keys(b)])){const p=prodById(pid);if(!p)continue;const o=a[pid]||{q:0,v:0},n=b[pid]||{q:0,v:0};
+    if(Math.abs(o.v-n.v)<0.005&&o.q===n.q)continue;
+    const B=(sm[pid]||0)-(nIn?n.q:0),vW=(B+o.q)*num(p.ek)-o.v;let ek;
+    if(B>0&&vW>0)ek=(vW+n.v)/(B+n.q);else if(n.q>0)ek=n.v/n.q;else continue;
+    ek=r2(ek);if(!isFinite(ek)||ek<0||Math.abs(ek-num(p.ek))<0.005)continue;
+    try{await Store.put('products',{...p,ek})}catch{}msg.push(`${p.name}: Ø ${eur(ek)}`)}
+  if(msg.length)setTimeout(()=>toast('Einkaufspreis angepasst – '+msg.join(', ')),900);
 }
 /* ---------- PDF: Preisliste für einen Kunden ---------- */
 const pdfE=n=>eur(n).replace(/\u00a0|\u202f/g,' ');
@@ -2435,7 +2448,7 @@ document.addEventListener('click',async ev=>{
     case'edit-entry':{const e=S.entries.find(x=>x.id===id);closeSheet();openEntryForm(e.type,e);break}
     case'del-entry':{const lk=S.entries.filter(x=>x.type==='ausgabe'&&x.shipFor===id);
       if(await ask('Diese Buchung löschen? Der Lagerbestand wird automatisch angepasst.'+(lk.length?' Die Porto-Ausgabe dazu wird mitgelöscht.':''))){const e=S.entries.find(x=>x.id===id);for(const at of (e?.att||[]))await IDB.del(at.id).catch(()=>{});
-        await Store.bulk(async()=>{await Store.del('entries',id);for(const x of lk)await Store.del('entries',x.id)});closeSheet();toast('Buchung gelöscht')}break}
+        await Store.bulk(async()=>{await Store.del('entries',id);for(const x of lk)await Store.del('entries',x.id)});if(e&&e.type==='einkauf')await adjustEk(e,null);closeSheet();toast('Buchung gelöscht')}break}
     case'deliver':{const e=S.entries.find(x=>x.id===id);if(!await deliverEntry(id))break;
       closeSheet();toast(e.type==='verkauf'?'Als übergeben markiert':'Ware ist im Lager');break}
     case'pickup':openPickup(id||null);break;
@@ -2468,7 +2481,7 @@ document.addEventListener('click',async ev=>{
     case'save-pay':{const amt=r2(num($('#payAmt').value)),wo=$('#payWO')?.checked;if(!amt&&!wo){toast('Bitte einen Betrag eingeben.');break}
       if(wo&&!amt&&!paidSum(S.entries.find(x=>x.id===id))&&!await ask('Ohne Zahlung wird der Preis auf 0 € gesetzt (verschenkt). Fortfahren?','Auf 0 € setzen'))break;
       if(amt)await addPayment(id,amt,$('#payDate').value||today(),$('#payMethod').value);
-      if(wo){const e=S.entries.find(x=>x.id===id);const paid=r2(paidSum(e)),newTot=paid,disc=r2(num(e.regular||e.total)-newTot);
+      if(wo&&r2(paidSum(S.entries.find(x=>x.id===id)))<num(S.entries.find(x=>x.id===id).total)-0.005){const e=S.entries.find(x=>x.id===id);const paid=r2(paidSum(e)),newTot=paid,disc=r2(num(e.regular||e.total)-newTot);
         const ne={...e,total:newTot,discount:disc};ne.paid=isPaid(ne);await Store.put('entries',ne).catch(()=>{});closeSheet();toast('Preis auf '+eur(newTot)+' gesenkt');break}
       toast('Zahlung erfasst');openEntry(id);break}
     case'del-pay':{const e=S.entries.find(x=>x.id===id);if(!await ask('Diese Zahlung entfernen?','Entfernen'))break;const pays=[...paysOf(e)];pays.splice(+b.dataset.i,1);const ne={...e,payments:pays};ne.paid=isPaid(ne);await Store.put('entries',ne).catch(()=>{});openEntry(id);break}
@@ -2606,7 +2619,7 @@ function fitVals(){fitQ=0;document.querySelectorAll(FIT_SEL).forEach(el=>{el.sty
 const fitSoon=()=>{if(!fitQ)fitQ=requestAnimationFrame(fitVals)};
 new MutationObserver(fitSoon).observe(document.body,{childList:true,subtree:true});
 addEventListener('resize',fitSoon);document.fonts&&document.fonts.ready.then(fitSoon);
-const APP_VER='50';
+const APP_VER='51';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
