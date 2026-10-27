@@ -20,7 +20,7 @@
 :root{
   --bg:#edf1ea; --surface:#fafbf8; --surface-2:#e3e9e0; --line:#d4ddd1; --rule:#c2cdbf;
   --ink:#13221b; --muted:#5b6b62; --accent:#1b6b52; --accent-ink:#ffffff; --accent-soft:#d5e7dd;
-  --warn:#965c0d; --warn-soft:#f3e5cf; --neg:#ad372b; --neg-soft:#f4ddd8;
+  --warn:#965c0d; --warn-soft:#f3e5cf; --yel:#7d6200; --yel-soft:#f8ecb4; --yel-dot:#e0ad00; --neg:#ad372b; --neg-soft:#f4ddd8;
   --hero:#1b6b52; --hero-ink:#ffffff; --hero-rule:rgba(255,255,255,.24);
   --shadow:0 1px 2px rgba(19,34,27,.08); --raised:#ffffff;
   --f-ui:'Instrument Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,system-ui,sans-serif;
@@ -30,13 +30,13 @@
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --bg:#0f1e17; --surface:#15281f; --surface-2:#1d3329; --line:#284136; --rule:#365246;
   --ink:#e7efe9; --muted:#97aa9e; --accent:#6dcfa7; --accent-ink:#0a1d15; --accent-soft:#1b3d30;
-  --warn:#e6ab5c; --warn-soft:#3b2e18; --neg:#f08b7d; --neg-soft:#41231e;
+  --warn:#e6ab5c; --warn-soft:#3b2e18; --yel:#f2d465; --yel-soft:#3a3215; --yel-dot:#f2d465; --neg:#f08b7d; --neg-soft:#41231e;
   --hero:#1e4a39; --hero-ink:#ebf6ef; --hero-rule:rgba(235,246,239,.2);
   --shadow:0 1px 2px rgba(0,0,0,.35); --raised:#2c473a; color-scheme:dark}}
 :root[data-theme="dark"]{
   --bg:#0f1e17; --surface:#15281f; --surface-2:#1d3329; --line:#284136; --rule:#365246;
   --ink:#e7efe9; --muted:#97aa9e; --accent:#6dcfa7; --accent-ink:#0a1d15; --accent-soft:#1b3d30;
-  --warn:#e6ab5c; --warn-soft:#3b2e18; --neg:#f08b7d; --neg-soft:#41231e;
+  --warn:#e6ab5c; --warn-soft:#3b2e18; --yel:#f2d465; --yel-soft:#3a3215; --yel-dot:#f2d465; --neg:#f08b7d; --neg-soft:#41231e;
   --hero:#1e4a39; --hero-ink:#ebf6ef; --hero-rule:rgba(235,246,239,.2);
   --shadow:0 1px 2px rgba(0,0,0,.35); --raised:#2c473a; color-scheme:dark}
 
@@ -264,6 +264,12 @@ input[type=date].inp::-webkit-date-and-time-value{text-align:left;margin:0}
 .steps .st i{font-style:normal;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:var(--surface-2);border:2px solid var(--line);font-size:12px;font-weight:700;position:relative;z-index:1}
 .steps .st:not(:first-child)::before{content:'';position:absolute;top:12px;right:50%;width:100%;height:2px;background:var(--line)}
 .steps .st.done{color:var(--ink)}
+.steps .st[style*="--c"].done i{background:var(--c);border-color:var(--c);color:var(--bg)}
+.steps .st[style*="--c"].done:not(:first-child)::before{background:var(--c)}
+.pill.s-geplant,.tag.s-geplant{background:var(--neg-soft);color:var(--neg)}
+.pill.s-abpacken,.tag.s-abpacken{background:var(--yel-soft);color:var(--yel)}
+.pill.s-fertig,.tag.s-fertig{background:var(--accent-soft);color:var(--accent)}
+.seg4 button.on.s-geplant{color:var(--neg)}.seg4 button.on.s-abpacken{color:var(--yel)}.seg4 button.on.s-fertig{color:var(--accent)}
 .steps .st.done i{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 .steps .st.done:not(:first-child)::before{background:var(--accent)}
 .btn.big{padding:15px 13px;font-size:17px}
@@ -552,7 +558,9 @@ const pf=e=>{const sub=(e.items||[]).reduce((s,i)=>s+num(i.qty)*num(i.price),0);
 const stage=e=>e.delivered===false?(e.ready?'fertig':e.packing?'abpacken':'geplant'):'uebergeben';
 const STAGES=[['geplant','Abholen'],['abpacken','Abpacken'],['fertig','Abgepackt'],['uebergeben','Übergeben']];
 const STAGE_TXT={geplant:'abzuholen',abpacken:'abzupacken',fertig:'abgepackt',uebergeben:'übergeben'};
-const STAGE_PILL=e=>e.type==='verkauf'?({geplant:'<span class="pill ord">Abzuholen</span>',abpacken:'<span class="pill open">Abzupacken</span>',fertig:'<span class="pill top">Abgepackt</span>'}[stage(e)]||''):'<span class="pill ord">Bestellt</span>';
+// Ampel: Abholen rot → Abpacken gelb → Abgepackt grün → Übergeben grau (erledigt)
+const STAGE_C={geplant:['var(--neg)','var(--neg-soft)'],abpacken:['var(--yel-dot)','var(--yel-soft)'],fertig:['var(--accent)','var(--accent-soft)'],uebergeben:['var(--muted)','var(--surface-2)']};
+const STAGE_PILL=e=>e.type==='verkauf'?({geplant:'<span class="pill s-geplant">Abzuholen</span>',abpacken:'<span class="pill s-abpacken">Abzupacken</span>',fertig:'<span class="pill s-fertig">Abgepackt</span>'}[stage(e)]||''):'<span class="pill ord">Bestellt</span>';
 const setStage=(e,k)=>{const n={...e,delivered:k==='uebergeben'};delete n.ready;delete n.packing;if(k==='fertig')n.ready=true;if(k==='abpacken')n.packing=true;return n};
 const norm=n=>String(n||'').trim().toLowerCase();
 const recByName=(kind,n)=>S[KIND[kind].col].find(c=>norm(c.name)===norm(n));
@@ -723,7 +731,7 @@ function header(t,act,sub){
   return `<div class="page-top"><div>${sub?`<div class="hdr-sub">${sub}</div>`:''}<h1>${t}</h1></div>${act||''}</div>`;
 }
 function entryRow(e){
-  const tagCls=e.storno?'st':{verkauf:'vk',einkauf:'ek',ausgabe:'aus'}[e.type],tagTxt=e.storno?ICON.undo:{verkauf:ICON.in,einkauf:ICON.box,ausgabe:ICON.out}[e.type];
+  const tagCls=e.storno?'st':e.type==='verkauf'&&e.delivered===false&&live(e)?'vk s-'+stage(e):{verkauf:'vk',einkauf:'ek',ausgabe:'aus'}[e.type],tagTxt=e.storno?ICON.undo:{verkauf:ICON.in,einkauf:ICON.box,ausgabe:ICON.out}[e.type];
   const title=e.type==='ausgabe'?(e.party||e.expenseCat||'Ausgabe'):(e.party||(e.type==='verkauf'?'Laufkunde':'Lieferant'));
   const what=e.type==='ausgabe'?(e.expenseCat||''):(e.items||[]).map(i=>`${i.qty}× ${i.name}`).join(', ');
   const sign=e.type==='verkauf'?'':'−';const cls=e.type==='verkauf'&&!e.storno&&!e.cancelled?'pos':'';
@@ -1527,7 +1535,7 @@ function renderEntryForm(){
    ${t==='einkauf'&&!F.id?`<label class="check"><input type="checkbox" data-f="updateEk" ${F.updateEk?'checked':''}><span>Einkaufspreis im Produkt aktualisieren<br><small class="muted">als Durchschnitt mit dem Restbestand</small></span></label>`:''}
    <div class="summary" id="fsum"></div>
    ${t==='verkauf'?`<div class="field"><span>Übergabe</span></div>
-   <div class="seg seg4" style="margin-bottom:8px">${STAGES.map(([k,l])=>`<button class="${F.stage===k?'on':''}" data-act="fstage" data-v="${k}">${l}</button>`).join('')}</div>
+   <div class="seg seg4" style="margin-bottom:8px">${STAGES.map(([k,l])=>`<button class="${F.stage===k?'on s-'+k:''}" data-act="fstage" data-v="${k}">${l}</button>`).join('')}</div>
    <p class="hint" style="margin:0 0 12px">${{geplant:'Ware muss erst noch geholt werden.',abpacken:'Ware ist da, muss noch abgepackt werden.',fertig:'Abgepackt – wartet auf Abholung oder Versand.',uebergeben:'Kunde hat die Ware.'}[F.stage]}${F.stage!=='uebergeben'?' Zählt erst im Lager und Umsatz, wenn übergeben.':''}</p>`
    :t==='einkauf'?`<label class="field"><span>Lieferung</span><select class="inp" data-f="delivered"><option value="1" ${F.delivered?'selected':''}>Ware erhalten</option><option value="0" ${!F.delivered?'selected':''}>Bestellt – noch nicht da</option></select></label>
    ${!F.delivered?'<p class="hint">Zählt erst im Lager, wenn du die Ware als erhalten markierst.</p>':''}`:''}
@@ -1693,7 +1701,7 @@ function openEntry(id){
      const steps=isV?STAGES.map(x=>x[1]):['Bestellt','Erhalten'];
      const cur=isV?{geplant:0,abpacken:1,fertig:2,uebergeben:3}[stage(e)]:(pending?0:1);
      const nextLink=isV&&pending&&!e.ready?`<button class="link" data-act="mark-stage" data-v="${e.packing?'fertig':'abpacken'}" data-id="${e.id}">${e.packing?'Als abgepackt markieren':'Ware geholt – jetzt abpacken'}</button>`:'';
-     const stepper=hasFlow?`<div class="steps">${steps.map((s,i)=>`<div class="st${i<=cur?' done':''}"><i>${i<=cur?'✓':i+1}</i><span>${s}</span></div>`).join('')}</div>`:'';
+     const stepper=hasFlow?`<div class="steps">${steps.map((s,i)=>`<div class="st${i<=cur?' done':''}"${isV?` style="--c:${STAGE_C[STAGES[i][0]][0]}"`:''}><i>${i<=cur?'✓':i+1}</i><span>${s}</span></div>`).join('')}</div>`:'';
      const payRow=`<div class="kv"><span>Zahlung</span><b class="${due?'warn':'pos'}">${due?'offen · '+eur(open):over?'zu viel · '+eur(-open):'bezahlt ✓'}</b></div>`;
      const pm=UI.pm||e.method||'bar';
      const mseg=`<div class="eyebrow" style="margin:2px 0 6px">Bezahlt per</div><div class="seg" style="margin-bottom:10px">${Object.entries(METHODS).filter(([k])=>k!=='sonst').map(([k,v])=>`<button class="${pm===k?'on':''}" data-act="pm" data-v="${k}">${k==='ueb'?'Überw.':v}</button>`).join('')}</div>`;
@@ -2563,15 +2571,15 @@ const SW={el:null,x:0,y:0,dx:0,on:false,skip:false};const PREP=['geplant','abpac
 document.addEventListener('pointerdown',ev=>{SW.skip=false;const el=ev.target.closest('.row[data-swipe]');if(!el)return;Object.assign(SW,{el,x:ev.clientX,y:ev.clientY,dx:0,on:false})});
 document.addEventListener('pointermove',ev=>{if(!SW.el)return;const dx=ev.clientX-SW.x,dy=ev.clientY-SW.y;
   if(!SW.on){if(Math.abs(dy)>12&&Math.abs(dy)>Math.abs(dx)){SW.el=null;return}if(Math.abs(dx)<12)return;SW.on=true}
-  SW.dx=dx;const el=SW.el;el.classList.add('sw-move');el.style.transform=`translateX(${Math.max(-110,Math.min(110,dx))}px)`;el.classList.toggle('sw-go',dx<-70);el.classList.toggle('sw-back',dx>70)});
-const swEnd=async()=>{const el=SW.el;SW.el=null;if(!el||!SW.on)return;SW.skip=true;el.classList.remove('sw-move','sw-go','sw-back');el.style.transform='';
+  SW.dx=dx;const el=SW.el;el.classList.add('sw-move');el.style.transform=`translateX(${Math.max(-110,Math.min(110,dx))}px)`;const e=S.entries.find(x=>x.id===el.dataset.id),i=e?PREP.indexOf(stage(e)):-1,t=Math.abs(dx)>70?PREP[i+(dx<0?1:-1)]||(dx<0?'uebergeben':null):null;el.style.background=t?STAGE_C[t][1]:''});
+const swEnd=async()=>{const el=SW.el;SW.el=null;if(!el||!SW.on)return;SW.skip=true;el.classList.remove('sw-move','sw-go','sw-back');el.style.transform='';el.style.background='';
   if(Math.abs(SW.dx)<70)return;const e=S.entries.find(x=>x.id===el.dataset.id);if(!e||e.delivered!==false)return;
   const i=PREP.indexOf(stage(e)),j=i+(SW.dx<0?1:-1);
   if(j<0){toast('Schon beim ersten Schritt');return}
   if(j>=PREP.length){openEntry(e.id);toast('Abgepackt – zum Übergeben hier abschließen');return}
   await Store.put('entries',setStage(e,PREP[j])).catch(()=>{});try{navigator.vibrate&&navigator.vibrate(12)}catch{}
   toast(`${fmtOrder(e.orderNo)||e.party||'Bestellung'}: ${STAGES.find(x=>x[0]===PREP[j])[1]}`)};
-document.addEventListener('pointerup',swEnd);document.addEventListener('pointercancel',()=>{if(SW.el){SW.el.classList.remove('sw-move','sw-go','sw-back');SW.el.style.transform='';SW.el=null}});
+document.addEventListener('pointerup',swEnd);document.addEventListener('pointercancel',()=>{if(SW.el){SW.el.classList.remove('sw-move','sw-go','sw-back');SW.el.style.transform='';SW.el.style.background='';SW.el=null}});
 document.addEventListener('click',ev=>{if(SW.skip&&ev.target.closest('.row[data-swipe]')){SW.skip=false;ev.stopPropagation();ev.preventDefault()}},true);
 /* Langes Antippen einer Kachel = 1 Stück weniger (bei 1 Stück: abwählen) */
 const LP={t:null,el:null,x:0,y:0,skip:false};
@@ -2649,7 +2657,7 @@ function fitVals(){fitQ=0;document.querySelectorAll(FIT_SEL).forEach(el=>{el.sty
 const fitSoon=()=>{if(!fitQ)fitQ=requestAnimationFrame(fitVals)};
 new MutationObserver(fitSoon).observe(document.body,{childList:true,subtree:true});
 addEventListener('resize',fitSoon);document.fonts&&document.fonts.ready.then(fitSoon);
-const APP_VER='54';
+const APP_VER='55';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
