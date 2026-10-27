@@ -454,6 +454,7 @@ const Store={
     try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist()}catch{}
     try{localStorage.setItem('kb_test','1');localStorage.removeItem('kb_test')}catch{saveWarn(true)}
     render();
+    try{await ensureOrderNos()}catch(e){console.error(e)}
     try{const n=await runRecurring();if(n)toast(n===1?'1 wiederkehrende Ausgabe gebucht':n+' wiederkehrende Ausgaben gebucht')}catch(e){console.error(e)}
     setTimeout(()=>cleanupFiles().catch(()=>{}),3000);
   },
@@ -503,6 +504,18 @@ function pendingMap(){
 }
 const KIND={kunde:{col:'customers',type:'verkauf',one:'Kunde',many:'Kunden'},lieferant:{col:'suppliers',type:'einkauf',one:'Lieferant',many:'Lieferanten'}};
 const live=e=>!e.cancelled&&!e.storno;
+/* Fortlaufende Bestellnummer für Verkäufe: #0001, #0002 … – wird nie neu vergeben */
+const fmtOrder=n=>n?'#'+String(n).padStart(4,'0'):'';
+const needsOrderNo=e=>e.type==='verkauf'&&!e.storno&&!e.sample&&(!e.orderNo||!e.pickupCode);
+// Abholcode: zufällige 5-stellige Zahl, eindeutig. Kommt NICHT aufs Paket – der Kunde nennt ihn bei der Abholung.
+function newPickupCode(used){const u=used||new Set(S.entries.map(e=>e.pickupCode).filter(Boolean));let c;
+  do{const r=new Uint32Array(1);crypto.getRandomValues(r);c=String(10000+r[0]%90000)}while(u.has(c));u.add(c);return c}
+function nextOrderNo(){return Math.max(num(S.settings.lastOrder),...S.entries.map(e=>num(e.orderNo)),0)+1}
+// Fehlende Nummern nach Datum vergeben (alte Bestellungen einmalig, danach nur Sicherheitsnetz)
+async function ensureOrderNos(){const miss=S.entries.filter(needsOrderNo).sort((a,b)=>(a.date+(a.created||'')).localeCompare(b.date+(b.created||'')));if(!miss.length)return;
+  let n=nextOrderNo();const used=new Set(S.entries.map(e=>e.pickupCode).filter(Boolean));
+  await Store.bulk(async()=>{for(const e of miss)await Store.put('entries',{...e,orderNo:e.orderNo||n++,pickupCode:e.pickupCode||newPickupCode(used)},true)});
+  await Store.setSettings({...S.settings,lastOrder:Math.max(num(S.settings.lastOrder),n-1)})}
 /* ---------- Provision ---------- */
 const BASES={roh:'vom Rohertrag',umsatz:'vom Umsatz'};
 const partners=()=>S.settings.partners||[];
@@ -700,7 +713,7 @@ function entryRow(e){
   else status='<span class="pill open">Offen</span>';
   return `<button class="row" data-act="open-entry" data-id="${e.id}"><span class="tag ${tagCls}">${tagTxt}</span>
    <span style="min-width:0"><span class="row-title" style="display:block">${esc(title)}${e.sample?'<span class="pill ex">Beispiel</span>':''}</span>
-   <span class="row-sub" style="display:block"><span class="d">${fdShort(e.date)}</span>${[what,e.invoiceNo?'Nr. '+e.invoiceNo:'',(e.att||[]).length?'mit Beleg':''].filter(Boolean).map(esc).join(', ')}</span>${e.note&&e.note!=='Kasse'&&!e.recurringId?`<span class="row-sub" style="display:block;color:var(--ink);opacity:.75">✎ ${esc(e.note)}</span>`:''}</span>
+   <span class="row-sub" style="display:block"><span class="d">${e.orderNo?fmtOrder(e.orderNo)+' · ':''}${fdShort(e.date)}</span>${e.partner?`<span class="pos" style="font-weight:600">über ${esc(e.partner.name)}</span>, `:''}${[what,e.invoiceNo?'Nr. '+e.invoiceNo:'',(e.att||[]).length?'mit Beleg':''].filter(Boolean).map(esc).join(', ')}</span>${e.note&&e.note!=='Kasse'&&!e.recurringId?`<span class="row-sub" style="display:block;color:var(--ink);opacity:.75">✎ ${esc(e.note)}</span>`:''}</span>
    <span class="row-amt"><span class="num ${cls}">${sign}${eur(e.total)}</span>${status}</span></button>`;
 }
 const sorted=l=>[...l].sort((a,b)=>(b.date+(b.created||'')).localeCompare(a.date+(a.created||'')));
@@ -750,6 +763,7 @@ function vStart(){
    <button class="act" data-act="new-entry" data-v="ausgabe">+ Ausgabe<small>Versand, Gebühren</small></button>
   </div>
   ${S.products.length?`<button class="kasse-btn" data-go="kasse"><span class="kb-ic">${ICON.kasse}</span><span class="kb-t">Schnellkasse<small>Produkte antippen und kassieren</small></span><span class="chev"></span></button>`:''}
+  ${orders.length?`<button class="kasse-btn" data-act="pickup"><span class="kb-ic">${ICON.box}</span><span class="kb-t">Abholung prüfen<small>Bestellnummer und Abholcode vergleichen</small></span><span class="chev"></span></button>`:''}
   ${orders.length?`<h2>Offene Bestellungen <span class="h-n">${orders.length}</span>${orders.some(e=>e.ready)?`<span class="h-x">${orders.filter(e=>e.ready).length} fertig</span>`:''}</h2><div class="list">${orders.map(entryRow).join('')}</div>`:''}
   ${dashExtras(t)}
   ${topP||topC||proj?`<div class="card" style="margin-top:8px;padding:6px 14px">
@@ -768,10 +782,10 @@ function vStart(){
 function vBuchungen(){
   let l=sorted(S.entries);
   const f=UI.filter;
-  if(f==='offen')l=l.filter(e=>e.type==='verkauf'&&live(e)&&e.delivered!==false&&openAmt(e)>0.005);else if(f==='zahlen')l=l.filter(e=>e.type!=='verkauf'&&live(e)&&openAmt(e)>0.005);else if(f==='ueberfaellig')l=l.filter(isOverdue);else if(f==='bestellt')l=l.filter(e=>e.delivered===false&&live(e));else if(f==='belege')l=l.filter(e=>(e.att||[]).length);else if(f!=='alle')l=l.filter(e=>e.type===f);
+  if(f==='offen')l=l.filter(e=>e.type==='verkauf'&&live(e)&&e.delivered!==false&&openAmt(e)>0.005);else if(f==='zahlen')l=l.filter(e=>e.type!=='verkauf'&&live(e)&&openAmt(e)>0.005);else if(f==='ueberfaellig')l=l.filter(isOverdue);else if(f==='bestellt')l=l.filter(e=>e.delivered===false&&live(e));else if(f==='belege')l=l.filter(e=>(e.att||[]).length);else if(f==='partner')l=l.filter(e=>e.type==='verkauf'&&e.partner);else if(f!=='alle')l=l.filter(e=>e.type===f);
   const q=UI.q.trim().toLowerCase();
-  if(q)l=l.filter(e=>[e.party,e.note,e.invoiceNo,e.expenseCat,fdate(e.date),String(e.total).replace('.',','),r2(e.total).toFixed(2).replace('.',','),...(e.items||[]).map(i=>i.name)].join(' ').toLowerCase().includes(q));
-  const chips=[['alle','Alle'],['verkauf','Verkäufe'],['einkauf','Einkäufe'],['ausgabe','Ausgaben'],['bestellt','Bestellungen'],['offen','Offen (Kunden)'],['zahlen','Zu zahlen'],['ueberfaellig','Überfällig'],['belege','Mit Beleg']];
+  if(q)l=l.filter(e=>[e.party,e.note,e.invoiceNo,fmtOrder(e.orderNo),e.orderNo?String(e.orderNo):'',e.partner?.name,e.expenseCat,fdate(e.date),String(e.total).replace('.',','),r2(e.total).toFixed(2).replace('.',','),...(e.items||[]).map(i=>i.name)].join(' ').toLowerCase().includes(q));
+  const chips=[['alle','Alle'],['verkauf','Verkäufe'],['einkauf','Einkäufe'],['ausgabe','Ausgaben'],['bestellt','Bestellungen'],['offen','Offen (Kunden)'],['zahlen','Zu zahlen'],['ueberfaellig','Überfällig'],['belege','Mit Beleg'],...(partners().length?[['partner','Über Partner']]:[])];
   const sumTxt=(()=>{if(!l.length)return'';const n=`${l.length} Buchung${l.length===1?'':'en'}`;
     if(f==='offen'||f==='ueberfaellig')return `${n} · offen <b class="warn">${eur(l.reduce((s,e)=>s+openAmt(e),0))}</b>`;
     if(f==='zahlen')return `${n} · du schuldest <b class="warn">${eur(l.reduce((s,e)=>s+openAmt(e),0))}</b>`;
@@ -779,7 +793,7 @@ function vBuchungen(){
     return n})();
   let lastM='';const rows=l.map(e=>{const m=e.date.slice(0,7);let h='';if(m!==lastM){lastM=m;const inM=l.filter(x=>x.date.startsWith(m)).length;h=`<div class="grp-head"><span>${MONTHS_FULL[+m.slice(5,7)-1]} ${m.slice(0,4)}</span><span>${inM}</span></div>`}return h+entryRow(e)}).join('');
   return header('Buchungen','<button class="add-btn" data-act="new-entry" data-v="verkauf">+ Buchung</button>')+`
-  <input class="search" id="q" type="search" placeholder="Suchen: Kunde, Produkt, Rechnungsnr. …" value="${esc(UI.q)}">
+  <input class="search" id="q" type="search" placeholder="Suchen: Kunde, Produkt, #Nr. …" value="${esc(UI.q)}">
   <div class="chips">${chips.map(([k,v])=>`<button class="chip ${f===k?'on':''}" data-act="filter" data-v="${k}">${v}</button>`).join('')}</div>
   ${sumTxt?`<p class="hint" style="margin:0 0 8px">${sumTxt}</p>`:''}
   <div class="list">${l.length?rows:'<div class="empty">Keine passenden Buchungen.</div>'}</div>`;
@@ -1242,10 +1256,11 @@ async function doCheckout(){
   const regular=r2(items.reduce((s,i)=>s+i.qty*i.price,0)),cogs=r2(items.reduce((s,i)=>s+i.qty*i.ek,0)),total=coFinal(),discount=r2(regular-total);
   const e={id:newId(),created:new Date().toISOString(),type:'verkauf',date:today(),party,partyAddress:custByName(party)?.address||'',method,note,total,regular,discount,extra:0,cogs,items,delivered:!planned,att:[],viaKasse:true,...(partnerSnap(UI.kpartner)?{partner:partnerSnap(UI.kpartner)}:{}),
     payments:open?[]:[{date:today(),amount:total,method}]};
-  e.paid=isPaid(e);
+  e.paid=isPaid(e);e.orderNo=nextOrderNo();e.pickupCode=newPickupCode();
   try{await Store.put('entries',e)}catch{return}
+  await Store.setSettings({...S.settings,lastOrder:e.orderNo});
   if(party&&!custByName(party))await Store.put('customers',{id:newId(),name:party,address:'',phone:'',email:'',note:''}).catch(()=>{});
-  UI.cart=[];UI.kparty='';UI.kpr=null;UI.kApplied='';UI.prEdit=null;UI.krecv='';UI.knote='';UI.kpartner='';UI.kopen=undefined;UI.kgiven='';closeSheet();render();toast((planned?'Bestellung aufgenommen · ':'Verkauf gebucht · ')+eur(total)+(discount>0?' (Rabatt '+eur(discount)+')':''));
+  UI.cart=[];UI.kparty='';UI.kpr=null;UI.kApplied='';UI.prEdit=null;UI.krecv='';UI.knote='';UI.kpartner='';UI.kopen=undefined;UI.kgiven='';closeSheet();render();toast(fmtOrder(e.orderNo)+' '+(planned?'Bestellung aufgenommen · ':'Verkauf gebucht · ')+eur(total)+(discount>0?' (Rabatt '+eur(discount)+')':''));
 }
 /* ---------- Barcode ---------- */
 const canScan=()=>!!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia);
@@ -1354,7 +1369,7 @@ function vMehr(){
 function openSheet(title,body){
   $('#sheetRoot').innerHTML=`<div class="overlay" data-act="close-bg"><div class="sheet" role="dialog" aria-label="${esc(title)}"><div class="sheet-head"><h3>${esc(title)}</h3><button class="close" data-act="close" aria-label="Schließen">✕</button></div><div id="sheetBody">${body}</div></div></div>`;
 }
-function closeSheet(){$('#sheetRoot').innerHTML='';F=null}
+function closeSheet(){$('#sheetRoot').innerHTML='';F=null;UI.pickOk=null}
 function ask(msg,ok='Löschen'){return new Promise(res=>{
   const root=document.createElement('div');root.className='overlay';root.style.zIndex=70;root.style.alignItems='center';
   root.innerHTML=`<div class="sheet" style="border-radius:16px;max-width:380px;margin:16px"><p style="margin:0 0 16px;font-weight:600">${esc(msg)}</p><div class="btn-row"><button class="btn ghost" data-r="0">Abbrechen</button><button class="btn danger" data-r="1">${esc(ok)}</button></div></div>`;
@@ -1556,7 +1571,9 @@ async function saveEntry(){
   else if(F.payStatus==='p')pays=prev;else pays=[];
   if(e.type==='verkauf'&&old&&old.delivered===false&&e.delivered){const rc=refreshCogs(e);e.items=rc.items;e.cogs=rc.cogs}
   e.payments=pays;e.paid=isPaid(e);
+  if(needsOrderNo(e)){e.orderNo=e.orderNo||nextOrderNo();e.pickupCode=e.pickupCode||newPickupCode()}
   try{await Store.put('entries',e)}catch{return}
+  if(e.orderNo>num(S.settings.lastOrder))await Store.setSettings({...S.settings,lastOrder:e.orderNo});
   if(e.type==='verkauf'){const was=old&&portoKnown(old)?portoOf(old):null,now=portoKnown(e)?portoOf(e):null;if(was!==now)await upsertPorto(e,now||0,true,'karte')}
   const kind=e.type==='verkauf'?'kunde':e.type==='einkauf'?'lieferant':null;
   if(kind&&e.party){const r=recByName(kind,e.party);const addr=(e.partyAddress||'').trim();
@@ -1572,8 +1589,32 @@ async function saveEntry(){
 }
 
 /* entry detail */
+/* ---------- Abholung: Bestellnummer + Abholcode vergleichen ---------- */
+function openPickup(id,res){const e=id?S.entries.find(x=>x.id===id):null;
+  openSheet('Abholung prüfen',`<p class="muted" style="margin:-6px 0 12px">Die Bestellnummer steht auf dem Paket, den Abholcode nennt dir der Kunde.</p>
+   ${res?`<div class="banner ${res.ok?'':'alert'}" style="${res.ok?'background:var(--accent-soft);color:var(--accent)':''}">${res.msg}</div>`:''}
+   <div class="grid2"><label class="field"><span>Bestellnummer</span><input class="inp num" id="pkNo" inputmode="numeric" placeholder="#0042" value="${e?fmtOrder(e.orderNo):esc(UI.pkNo||'')}"></label>
+    <label class="field"><span>Abholcode</span><input class="inp num" id="pkCode" inputmode="numeric" maxlength="5" placeholder="5 Ziffern" autocomplete="off" style="letter-spacing:.12em"></label></div>
+   <button class="btn" data-act="pickup-check">Prüfen</button>
+   <p class="hint" style="margin-top:10px">Jede Prüfung wird bei der Bestellung protokolliert – auch falsche Codes.</p>`);
+  setTimeout(()=>{const f=$(e?'#pkCode':'#pkNo');if(f)f.focus()},60);
+}
+async function checkPickup(){
+  const raw=($('#pkNo').value||'').replace(/\D/g,''),code=($('#pkCode').value||'').replace(/\D/g,'');UI.pkNo=$('#pkNo').value;
+  if(!raw||!code){toast('Bitte Bestellnummer und Code eingeben.');return}
+  const e=S.entries.find(x=>x.type==='verkauf'&&!x.storno&&num(x.orderNo)===num(raw));
+  if(!e){openPickup(null,{ok:false,msg:`Keine Bestellung mit der Nummer ${fmtOrder(num(raw))} gefunden.`});return}
+  const ok=String(e.pickupCode)===code;
+  try{await Store.put('entries',{...e,pickupLog:[...(e.pickupLog||[]),{at:new Date().toISOString(),ok,...(ok?{}:{code})}]})}catch{return}
+  if(!ok){openPickup(e.id,{ok:false,msg:`Code passt nicht zu ${fmtOrder(e.orderNo)}. Nicht aushändigen.`});return}
+  UI.pickOk=e.id;UI.pkNo='';openEntry(e.id);
+}
+async function shareCode(id){const e=S.entries.find(x=>x.id===id);if(!e)return;
+  const t=`Deine Bestellung ${fmtOrder(e.orderNo)}${e.party?' ('+e.party+')':''}: Abholcode ${e.pickupCode}. Bitte bei der Abholung Bestellnummer und Code nennen.`;
+  try{if(navigator.share){await navigator.share({text:t});return}}catch(x){if(x&&x.name==='AbortError')return}
+  try{await navigator.clipboard.writeText(t);toast('Text kopiert')}catch{toast(t)}}
 function openEntry(id){
-  const e=S.entries.find(x=>x.id===id);if(!e)return;
+  const e=S.entries.find(x=>x.id===id);if(!e)return;if(UI.pickOk&&UI.pickOk!==id)UI.pickOk=null;
   if(UI.pmId!==id){UI.pm=null;UI.pmId=id}
   const lines=e.type==='ausgabe'?`<div class="l"><span>${esc(e.expenseCat||'')}</span><span class="num">${eur(e.total)}</span></div>`
    :(e.items||[]).map(i=>`<div class="l"><span>${i.qty}× ${esc(i.name)} à ${eur(i.price)}${e.type==='einkauf'&&e.extra&&Math.abs(num(i.ek)-num(i.price))>0.004?` <span class="muted">(mit Versand ${eur(i.ek)})</span>`:''}</span><span class="num">${eur(i.qty*i.price)}</span></div>`).join('')
@@ -1583,8 +1624,15 @@ function openEntry(id){
   const payList=pays.length?pays.map((p,i)=>`<div class="kv"><span>${fdate(p.date)} · ${METHODS[p.method]||''}${p.note?' · '+esc(p.note):''}</span><b>${eur(p.amount)}${e.cancelled||e.storno?'':` <button class="x" style="height:auto;font-size:13px;padding:0 0 0 6px" data-act="del-pay" data-id="${e.id}" data-i="${i}" aria-label="Zahlung entfernen">✕</button>`}</b></div>`).join('')
     :'<div class="kv"><span class="muted">Noch keine Zahlung</span><b></b></div>';
   const rem=(e.reminders||[]).slice(-1)[0];
-  openSheet(`${e.storno?'Storno':TYPES[e.type]} · ${fdate(e.date)}`,`
+  openSheet(`${e.storno?'Storno':TYPES[e.type]}${e.orderNo?' '+fmtOrder(e.orderNo):''} · ${fdate(e.date)}`,`
    <p style="margin:0 0 12px;font-weight:700;font-size:16px">${esc(e.party||(e.type==='verkauf'?'Laufkunde':TYPES[e.type]))}${e.sample?'<span class="pill ex">Beispiel</span>':''}</p>
+   ${UI.pickOk===e.id?`<div class="done-banner" style="margin-bottom:12px">✓ Abholcode stimmt – Bestellung ${fmtOrder(e.orderNo)} gehört ${esc(e.party||'dem Kunden')}.${e.delivered===false?' Jetzt übergeben:':''}</div>`:''}
+   ${e.type==='verkauf'&&e.orderNo&&!e.storno?`<div class="card" style="margin-bottom:12px;padding:4px 14px">
+    <div class="kv"><span>Bestellnummer <small class="muted">(aufs Paket)</small></span><b>${fmtOrder(e.orderNo)}</b></div>
+    ${e.pickupCode?`<div class="kv"><span>Abholcode <small class="muted">(geheim, nur für den Kunden)</small></span><b style="letter-spacing:.08em">${e.pickupCode}</b></div>`:''}
+    <div class="btn-row" style="padding:6px 0 10px">${e.pickupCode?`<button class="btn ghost sm" data-act="share-code" data-id="${e.id}">Code an Kunden schicken</button>`:''}${e.delivered===false?`<button class="btn ghost sm" data-act="pickup" data-id="${e.id}">Abholung prüfen</button>`:''}</div>
+    ${(e.pickupLog||[]).length?`<div class="cb-l" style="padding-top:8px;border-top:1px solid var(--line)">Protokoll</div>${e.pickupLog.slice().reverse().map(x=>`<div class="kv" style="font-size:13.5px"><span>${new Date(x.at).toLocaleString('de-AT',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</span><b class="${x.ok?'pos':'neg'}" style="font-weight:600">${x.ok?'Code richtig':'Code falsch'+(x.code?' ('+esc(x.code)+')':'')}</b></div>`).join('')}`:''}
+   </div>`:''}
    ${e.cancelled?`<div class="banner">Storniert durch Stornorechnung ${esc(e.cancelNo||'')}.</div>`:''}
    ${e.storno?`<div class="banner">Stornorechnung zu Rechnung ${esc(e.refInvoice||'')} vom ${fdate(e.refDate)}.</div>`:''}
    ${ov?`<div class="banner b-act alert"><span>Seit ${daysBetween(dueDate(e),today())} Tag${daysBetween(dueDate(e),today())===1?'':'en'} überfällig${rem?' · erinnert am '+fdate(rem):''}</span><button class="btn sm" data-act="remind" data-id="${e.id}">Erinnern</button></div>`:''}
@@ -1931,7 +1979,7 @@ function invoiceHTML(e){
   else payNote=`${paid>0.005?`Bereits bezahlt: ${eur(paid)} · Offen: ${eur(open)}<br>`:''}${esc(st.payTerms)}${st.iban?'<br>IBAN: '+esc(st.iban)+(st.company||st.owner?' · lautend auf '+esc(st.company||st.owner):''):''}`;
   return `<div class="inv">
   <div class="inv-head"><div class="inv-from"><b>${esc(st.company||st.owner)}</b>${st.company?esc(st.owner)+'<br>':''}${esc(st.address).replace(/\n/g,'<br>')}${st.email?'<br>'+esc(st.email):''}${st.phone?'<br>'+esc(st.phone):''}${st.uidNr?'<br>UID: '+esc(st.uidNr):''}</div>
-   <div><div class="inv-title">${e.storno?'Stornorechnung':'Rechnung'}</div><div class="inv-meta">Nr. ${esc(e.invoiceNo)}<br>Rechnungsdatum: ${fdate(e.invoiceDate||e.date)}<br>${e.storno?`zu Rechnung Nr. ${esc(e.refInvoice)} vom ${fdate(e.refDate)}`:`Liefer-/Leistungsdatum: ${fdate(e.date)}`}</div></div></div>
+   <div><div class="inv-title">${e.storno?'Stornorechnung':'Rechnung'}</div><div class="inv-meta">Nr. ${esc(e.invoiceNo)}${e.orderNo&&!e.storno?'<br>Bestellung '+fmtOrder(e.orderNo):''}<br>Rechnungsdatum: ${fdate(e.invoiceDate||e.date)}<br>${e.storno?`zu Rechnung Nr. ${esc(e.refInvoice)} vom ${fdate(e.refDate)}`:`Liefer-/Leistungsdatum: ${fdate(e.date)}`}</div></div></div>
   <div class="inv-to"><small>Rechnung an</small><b>${esc(e.party||'Barverkauf')}</b>${e.partyAddress?'<br>'+esc(e.partyAddress).replace(/\n/g,'<br>'):''}</div>
   <table><thead><tr><th style="text-align:left">#</th><th style="text-align:left">Bezeichnung</th><th>Menge</th><th>Einzelpreis</th>${ku?'':'<th>USt</th>'}<th>Betrag</th></tr></thead>
   <tbody>${rows}</tbody><tfoot>${foot}</tfoot></table>
@@ -2165,8 +2213,8 @@ async function saveSettings(){
 /* ---------- data ---------- */
 function exportCSV(){
   const q=s=>`"${String(s??'').replace(/"/g,'""')}"`;const d=n=>r2(n).toFixed(2).replace('.',',');
-  const head=['Datum','Art','Rechnungsnr.','Kunde/Lieferant/Beschreibung','Positionen','Kategorie','Betrag','Bezahlt','Wareneinsatz','Zahlungsart','Status','Lieferung','Sendungsnr.','Belege','Notiz','Vermittler','Provision','Porto (du)'];
-  const rows=sorted(S.entries).reverse().map(e=>[fdate(e.date),TYPES[e.type],e.invoiceNo||'',e.party||'',(e.items||[]).map(i=>`${i.qty}x ${i.name} à ${d(i.price)}`).join(' | '),e.expenseCat||(e.type==='einkauf'?'Wareneinkauf':''),
+  const head=['Datum','Art','Bestellnr.','Rechnungsnr.','Kunde/Lieferant/Beschreibung','Positionen','Kategorie','Betrag','Bezahlt','Wareneinsatz','Zahlungsart','Status','Lieferung','Sendungsnr.','Belege','Notiz','Vermittler','Provision','Porto (du)'];
+  const rows=sorted(S.entries).reverse().map(e=>[fdate(e.date),TYPES[e.type],fmtOrder(e.orderNo),e.invoiceNo||'',e.party||'',(e.items||[]).map(i=>`${i.qty}x ${i.name} à ${d(i.price)}`).join(' | '),e.expenseCat||(e.type==='einkauf'?'Wareneinkauf':''),
     (e.type==='verkauf'?'':'-')+d(e.total),(e.type==='verkauf'?'':'-')+d(paidSum(e)),e.type==='verkauf'?d(e.cogs):'',METHODS[e.method]||'',e.cancelled?'storniert':e.storno?'Storno':isPaid(e)?'bezahlt':isPartial(e)?'teilweise':'offen',e.type==='ausgabe'?'':e.delivered===false?'bestellt':'geliefert',e.ship?.tracking||'',(e.att||[]).length,e.note||'',e.partner?.name||'',e.partner?d(provAmt(e)):'',e.type==='verkauf'&&portoKnown(e)?d(portoOf(e)):''].map(q).join(';'));
   return Store.save(`Buchungen_${today()}.csv`,'﻿'+[head.map(q).join(';'),...rows].join('\r\n'));
 }
@@ -2205,6 +2253,7 @@ async function importJSON(file){
   });
   for(const f of (data.files||[])){try{if(mode==='replace'||!await IDB.get(f.id))await IDB.put(f)}catch{}}
   const seen={};let dup=0;S.entries.forEach(e=>{if(!e.invoiceNo)return;if(seen[e.invoiceNo])dup++;seen[e.invoiceNo]=1});
+  try{await ensureOrderNos()}catch{}
   toast(mode==='merge'?`Zusammengeführt: ${added} neu, ${updated} aktualisiert`:'Backup geladen');
   if(dup)setTimeout(()=>toast(`Achtung: ${dup} Rechnungsnummer${dup>1?'n':''} doppelt – Rechnungen bitte nur auf einem Gerät erstellen.`),3000);
 }
@@ -2285,6 +2334,9 @@ document.addEventListener('click',async ev=>{
         await Store.bulk(async()=>{await Store.del('entries',id);for(const x of lk)await Store.del('entries',x.id)});closeSheet();toast('Buchung gelöscht')}break}
     case'deliver':{const e=S.entries.find(x=>x.id===id);if(!await deliverEntry(id))break;
       closeSheet();toast(e.type==='verkauf'?'Als übergeben markiert':'Ware ist im Lager');break}
+    case'pickup':openPickup(id||null);break;
+    case'pickup-check':checkPickup();break;
+    case'share-code':shareCode(id);break;
     case'complete':{const e=S.entries.find(x=>x.id===id);if(!await deliverEntry(id))break;
       const ne=S.entries.find(x=>x.id===id);const o=openAmt(ne);if(o>0.005)await addPayment(id,o,today(),UI.pm||e.method||'bar');
       closeSheet();toast('Abgeschlossen ✓');break}
@@ -2445,7 +2497,7 @@ function fitVals(){fitQ=0;document.querySelectorAll(FIT_SEL).forEach(el=>{el.sty
 const fitSoon=()=>{if(!fitQ)fitQ=requestAnimationFrame(fitVals)};
 new MutationObserver(fitSoon).observe(document.body,{childList:true,subtree:true});
 addEventListener('resize',fitSoon);document.fonts&&document.fonts.ready.then(fitSoon);
-const APP_VER='44';
+const APP_VER='46';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
