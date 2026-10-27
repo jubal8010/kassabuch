@@ -20,13 +20,13 @@
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;background:var(--bg);color:var(--text);font:16px/1.4 -apple-system,BlinkMacSystemFont,"SF Pro Text","Inter",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
 html,body{height:100%;overflow:hidden;overscroll-behavior:none}
-body{display:flex;flex-direction:column;height:100vh;height:100dvh;padding-top:var(--safe-t)}
+body{display:flex;flex-direction:column;position:fixed;inset:0;padding-top:var(--safe-t)}
 button,input,select,textarea{font:inherit;color:inherit}
 button{cursor:pointer;border:0;background:none}
 header.top{flex:none;position:relative;z-index:20;background:rgba(14,15,18,.92);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);padding:14px 16px 10px;display:flex;align-items:center;justify-content:space-between;gap:10px;border-bottom:1px solid transparent}
 header.top h1{font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0}
 header.top .sub{color:var(--muted);font-size:13px}
-main{flex:1;min-height:0;width:100%;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:8px max(16px,calc((100% - 608px)/2)) 96px}
+main{flex:1;min-height:0;width:100%;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:8px max(16px,calc((100% - 608px)/2)) 24px}
 .card{background:var(--card);border-radius:var(--r);padding:14px;margin:0 0 12px}
 .row{display:flex;align-items:center;gap:10px}
 .between{justify-content:space-between}
@@ -50,9 +50,9 @@ input.f:focus,select.f:focus,textarea.f:focus{border-color:var(--acc)}
 .stat b{display:block;font-size:20px;letter-spacing:-.01em}
 .stat b.small{font-size:16px;margin-top:3px}
 /* nav */
-nav.tabs{flex:none;position:relative;z-index:30;background:rgba(18,20,24,.96);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);padding:6px 4px calc(6px + var(--safe-b))}
-nav.tabs button{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11px;color:var(--muted);padding:6px 0}
-nav.tabs button svg{width:24px;height:24px}
+nav.tabs{flex:none;position:relative;z-index:30;background:rgba(18,20,24,.96);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);padding:2px 4px max(4px,calc(var(--safe-b) - 14px))}
+nav.tabs button{display:flex;flex-direction:column;align-items:center;gap:1px;font-size:10px;color:var(--muted);padding:5px 0 3px}
+nav.tabs button svg{width:22px;height:22px}
 nav.tabs button.on{color:var(--acc)}
 /* workout */
 .ex{background:var(--card);border-radius:var(--r);padding:12px 12px 8px;margin-bottom:12px}
@@ -87,7 +87,8 @@ tr.done input{background:rgba(198,244,50,.10);color:var(--acc)}
 .empty{text-align:center;padding:40px 20px;color:var(--muted)}
 .empty svg{width:56px;height:56px;opacity:.5;margin-bottom:8px}
 /* timer */
-#timer{position:fixed;left:12px;right:12px;bottom:calc(78px + var(--safe-b));z-index:40;background:var(--acc);color:var(--acc-ink);border-radius:16px;padding:10px 14px;display:none;align-items:center;justify-content:space-between;box-shadow:0 10px 30px rgba(0,0,0,.45);max-width:616px;margin:0 auto}
+#timer{flex:none;position:relative;z-index:25;background:var(--acc);color:var(--acc-ink);border-radius:14px;padding:6px 8px 6px 14px;display:none;align-items:center;justify-content:space-between;margin:0 12px 6px;max-width:616px;align-self:stretch}
+@media (min-width:640px){#timer{margin:0 auto 6px;width:616px}}
 #timer.show{display:flex}
 body:not(.tab-workout) #timer.show{display:none}
 :root{--cw:54px}
@@ -102,8 +103,8 @@ body:not(.tab-workout) #timer.show{display:none}
 .scell.w{background:rgba(255,201,74,.10)}.scell.w span{color:var(--gold)}
 .scell.hl{background:rgba(198,244,50,.16);box-shadow:inset 0 0 0 1.5px var(--acc)}.scell.hl b{color:var(--acc)}
 @media (max-width:370px){:root{--cw:48px}.scell b{font-size:13px}}
-#timer b{font-size:24px;font-variant-numeric:tabular-nums}
-#timer button{background:rgba(0,0,0,.12);border-radius:10px;padding:8px 11px;font-weight:700;color:var(--acc-ink)}
+#timer b{font-size:20px;font-variant-numeric:tabular-nums}
+#timer button{background:rgba(0,0,0,.12);border-radius:9px;padding:6px 10px;font-weight:700;color:var(--acc-ink)}
 /* sheet */
 .sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:50;display:none}
 .sheet-bg.show{display:block}
@@ -129,7 +130,7 @@ label.lbl{display:block;font-size:13px;color:var(--muted);margin:10px 0 6px}
 <header class="top"><div><h1 id="title">Training</h1><div class="sub" id="subtitle"></div></div><div id="hdrAct"></div></header>
 <main id="view"></main>
 
-<div id="timer"><div><div class="small" style="font-weight:600;opacity:.75">Pause</div><b id="timerTxt">0:00</b></div><div class="row"><button data-t="-15">−15</button><button data-t="15">+15</button><button data-t="x">Skip</button></div></div>
+<div id="timer"><div class="row" style="gap:8px"><span class="small" style="font-weight:600;opacity:.75">Pause</span><b id="timerTxt">0:00</b></div><div class="row"><button data-t="-15">−15</button><button data-t="15">+15</button><button data-t="x">Skip</button></div></div>
 
 <nav class="tabs" id="tabs">
   <button data-tab="workout"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 7v10M18 7v10M3 10v4M21 10v4M6 12h12"/></svg>Training</button>
@@ -145,7 +146,7 @@ label.lbl{display:block;font-size:13px;color:var(--muted);margin:10px 0 6px}
 
 <script>
 'use strict';
-const APP_VERSION='2.14';
+const APP_VERSION='2.15';
 /* ================= Daten ================= */
 const KEY='training.v1';
 const MUSCLES=['Brust','Obere Brust','Rücken','Latissimus','Unterer Rücken','Schultern','Hintere Schulter','Bizeps','Trizeps','Quadrizeps','Beinbeuger','Adduktoren','Po','Waden','Bauch','Unterarme','Ganzkörper','Cardio'];
