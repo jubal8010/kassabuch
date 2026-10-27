@@ -146,7 +146,7 @@ label.lbl{display:block;font-size:13px;color:var(--muted);margin:10px 0 6px}
 
 <script>
 'use strict';
-const APP_VERSION='2.15';
+const APP_VERSION='2.17';
 /* ================= Daten ================= */
 const KEY='training.v1';
 const MUSCLES=['Brust','Obere Brust','Rücken','Latissimus','Unterer Rücken','Schultern','Hintere Schulter','Bizeps','Trizeps','Quadrizeps','Beinbeuger','Adduktoren','Po','Waden','Bauch','Unterarme','Ganzkörper','Cardio'];
@@ -282,7 +282,7 @@ function renderWorkout(){
   const A=S.active,v=$('#view');
   if(!A){
     const n=S.cycle.days.length,ci=cycleIdx(),today=cycleLabel(S.cycle.days[ci]);
-    const doneToday=S.workouts.some(w=>isoDay(new Date(w.start))===isoDay(new Date()));
+    const todayW=[...S.workouts].reverse().find(w=>isoDay(new Date(w.start))===isoDay(new Date()));const doneToday=!!todayW;
     let off=1;while(off<=n&&S.cycle.days[(ci+off)%n]==='rest')off++;
     const next=off<=n?cycleLabel(S.cycle.days[(ci+off)%n]):null;
     const nextDate=new Date(Date.now()+off*864e5);
@@ -291,8 +291,11 @@ function renderWorkout(){
       <div class="card" style="background:linear-gradient(135deg,#232a12,#17191e 70%)">
         <div class="row between"><span class="tiny" style="color:var(--acc)">Heute · ${dFmt(Date.now(),{weekday:'long',day:'numeric',month:'numeric'})}</span><button class="btn ghost small" id="chgDay" style="padding:4px 6px">ändern</button></div>
         <div class="big" style="margin:6px 0 2px">${today.emoji} ${esc(today.name)}</div>
-        ${today.t?`<div class="small" style="color:var(--acc);font-weight:600">${tplTime(today.t)}</div>`:''}
-        ${today.t?(doneToday?`<div style="color:var(--acc);font-weight:600;margin:8px 0 12px">✅ Erledigt – stark!</div>`:exList(today.t,true))
+        ${today.t&&!doneToday?`<div class="small" style="color:var(--acc);font-weight:600">${tplTime(today.t)}</div>`:''}
+        ${today.t?(doneToday?(()=>{const m=Math.round(((todayW.end||todayW.start)-todayW.start)/6e4),plan=todayW.planMin||tplMin(today.t),sets=todayW.exercises.reduce((a,e)=>a+e.sets.length,0),d=m-plan;
+          return `<div style="color:var(--acc);font-weight:700;margin:8px 0 10px">✅ Erledigt – stark!</div>
+          <div class="grid3" style="margin-bottom:12px"><div class="stat"><span class="tiny">Dauer</span><b style="white-space:nowrap;font-size:18px">${durTxt(m)}</b></div><div class="stat"><span class="tiny">Geplant</span><b style="white-space:nowrap;font-size:18px">${durTxt(plan)}</b></div><div class="stat"><span class="tiny">Sätze</span><b>${sets}</b></div></div>
+          <div class="small" style="color:${Math.abs(d)<=5?'var(--muted)':d>0?'var(--gold)':'var(--acc)'}">${Math.abs(d)<=5?'Genau im Plan':d>0?`${durTxt(d)} länger als geplant`:`${durTxt(-d)} schneller als geplant`}</div>`})():exList(today.t,true))
           :'<div class="muted" style="margin:6px 0 4px">Erholung – Muskeln wachsen in der Pause.</div>'}
         ${today.t&&!doneToday?`<button class="btn acc block" data-start="${today.t.id}">Training starten</button>`:''}
       </div>
@@ -322,7 +325,7 @@ function renderWorkout(){
     <button class="btn red block" id="cancelW" style="margin-top:14px">Training verwerfen</button>`;
   $('#orderEx').onclick=()=>openPage(workoutOrderPage());
   $('#addEx').onclick=()=>pickExercise(id=>{A.exercises.push(newExEntry(id));save();renderWorkout();setTimeout(()=>$('#view').scrollTop=$('#view').scrollHeight,50)});
-  $('#cancelW').onclick=()=>{if(confirm('Training wirklich verwerfen? Die Einträge gehen verloren.')){S.active=null;save();stopTimer();renderWorkout()}};
+  $('#cancelW').onclick=()=>{if(confirm('Training wirklich verwerfen? Die Einträge gehen verloren.')){S.active=null;save();stopTimer();render()}};
   $('#wnote').oninput=e=>{A.note=e.target.value;save()};
   bindWorkout(v);
 }
@@ -529,14 +532,15 @@ function startWorkout(tplId){
 function finishWorkout(){
   const A=S.active;
   const exs=A.exercises.map(ex=>({exId:ex.exId,note:ex.note||'',sets:ex.sets.filter(s=>s.done).map(({kg,reps,type})=>({kg:num(kg),reps:num(reps),type,done:true}))})).filter(ex=>ex.sets.length);
-  if(!exs.length){if(confirm('Kein Satz abgehakt. Training trotzdem beenden (wird nicht gespeichert)?')){S.active=null;save();stopTimer();renderWorkout()}return}
+  if(!exs.length){if(confirm('Kein Satz abgehakt. Training trotzdem beenden (wird nicht gespeichert)?')){S.active=null;save();stopTimer();render()}return}
   const open=A.exercises.reduce((n,ex)=>n+ex.sets.filter(s=>!s.done).length,0);
   if(open&&!confirm(`${open} Satz/Sätze nicht abgehakt – die werden nicht gespeichert. Beenden?`))return;
-  const w={id:A.id,name:A.name,start:A.start,end:Date.now(),note:A.note||'',exercises:exs};
+  const tplA=A.tplId&&S.templates.find(t=>t.id===A.tplId);
+  const w={id:A.id,name:A.name,start:A.start,end:Date.now(),note:A.note||'',exercises:exs,planMin:tplA?tplMin(tplA):null};
   S.workouts.push(w);S.workouts.sort((a,b)=>a.start-b.start);
   S.active=null;save();stopTimer();
   toast('💪 Training gespeichert');
-  renderWorkout();
+  render();
 }
 function saveAsTemplate(w){
   const name=prompt('Name der Vorlage',w.name==='Training'?'':w.name);if(!name)return;
@@ -757,7 +761,7 @@ function renderHistory(){
     const m=dFmt(w.start,{month:'long',year:'numeric'});
     if(m!==month){month=m;html+=`<div class="sect tiny">${m}</div>`}
     html+=`<div class="card" data-w="${w.id}" style="cursor:pointer">
-      <div class="row between"><b style="font-size:17px">${esc(w.name)}</b><span class="muted small">${dFmt(w.start,{weekday:'short',day:'2-digit',month:'2-digit'})}${w.end&&w.end-w.start>5*6e4?' · '+dur(w.end-w.start):''}</span></div>
+      <div class="row between"><b style="font-size:17px">${esc(w.name)}</b><span class="muted small">${dFmt(w.start,{weekday:'short',day:'2-digit',month:'2-digit'})}${w.end&&w.end-w.start>6e4?' · '+durTxt(Math.round((w.end-w.start)/6e4))+(w.planMin?` <span style="opacity:.7">(geplant ${durTxt(w.planMin)})</span>`:''):''}</span></div>
       <div style="margin-top:6px">${(()=>{const cols=Math.max(...w.exercises.map(e=>e.sets.length));return w.exercises.map(e=>srow(esc(exById(e.exId).name),e.sets,cols)).join('')})()}</div>
     </div>`;
   }
@@ -997,6 +1001,14 @@ $('#importFile').addEventListener('change',async e=>{
 /* ================= Sheet ================= */
 function sheet(html){$('#sheetBody').innerHTML=html;$('#sheetBg').classList.add('show');$('#sheet').classList.add('show');$('#sheet').scrollTop=0}
 function closeSheet(){$('#sheetBg').classList.remove('show');$('#sheet').classList.remove('show')}
+// iOS-Homescreen-App: der Browser meldet die Höhe ohne Statusleiste, dadurch bleibt unten ein leerer Streifen.
+// Deshalb die App auf die volle Bildschirmhöhe ziehen.
+function fitScreen(){
+  const sa=navigator.standalone||matchMedia('(display-mode: standalone)').matches;
+  if(!sa)return;const h=Math.max(innerHeight,screen.height);
+  document.body.style.bottom='auto';document.body.style.height=h+'px';
+}
+fitScreen();addEventListener('orientationchange',()=>setTimeout(fitScreen,300));
 // iOS: nach dem Schließen der Tastatur verrutschte Seite zurücksetzen
 document.addEventListener('focusout',()=>setTimeout(()=>{if(!document.activeElement||!document.activeElement.matches('input,textarea,select'))window.scrollTo(0,0)},60));
 $('#sheetBg').onclick=closeSheet;$('#sheetX').onclick=closeSheet;
