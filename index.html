@@ -266,6 +266,9 @@ input[type=date].inp::-webkit-date-and-time-value{text-align:left;margin:0}
 .steps .st.done{color:var(--ink)}
 .steps .st[style*="--c"].done i{background:var(--c);border-color:var(--c);color:var(--bg)}
 .steps .st[style*="--c"].done:not(:first-child)::before{background:var(--c)}
+.chip.on.s-geplant{background:var(--neg);border-color:var(--neg);color:var(--surface)}
+.chip.on.s-abpacken{background:var(--yel-dot);border-color:var(--yel-dot);color:#1b1600}
+.chip.on.s-fertig{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 .pill.s-geplant,.tag.s-geplant{background:var(--neg-soft);color:var(--neg)}
 .pill.s-abpacken,.tag.s-abpacken{background:var(--yel-soft);color:var(--yel)}
 .pill.s-fertig,.tag.s-fertig{background:var(--accent-soft);color:var(--accent)}
@@ -451,7 +454,7 @@ const DEF={owner:'',company:'',address:'',email:'',phone:'',uidNr:'',iban:'',
   invoiceYear:new Date().getFullYear(),nextInvoice:1,partners:[],payDays:14,payTerms:'Zahlbar innerhalb von 14 Tagen ohne Abzug.'};
 
 const S={settings:{...DEF},products:[],entries:[],customers:[],suppliers:[],recurring:[]};
-const UI={lblFmt:(()=>{try{return localStorage.getItem('kb_lblfmt')||'a6'}catch{return'a6'}})(),ktab:'kunde',cart:[],kq:'',ksort:(()=>{try{return localStorage.getItem('kb_ksort')||'az'}catch{return'az'}})(),kstage:(()=>{try{return localStorage.getItem('kb_kstage')||'geplant'}catch{return'geplant'}})(),kcat:'alle',kpay:'bar',kparty:'',remTone:(()=>{try{return localStorage.getItem('kb_tone')||'du'}catch{return'du'}})(),cq:'',pq:'',pcat:'alle',psort:(()=>{try{return localStorage.getItem('kb_psort')||'kat'}catch{return'kat'}})(),screen:'start',period:'monat',filter:'alle',q:'',lagerCat:'alle',year:new Date().getFullYear(),ready:false};
+const UI={ofilt:(()=>{try{return localStorage.getItem('kb_ofilt')||'alle'}catch{return'alle'}})(),osort:(()=>{try{return localStorage.getItem('kb_osort')||'alt'}catch{return'alt'}})(),csort:(()=>{try{return localStorage.getItem('kb_csort')||'zuletzt'}catch{return'zuletzt'}})(),lblFmt:(()=>{try{return localStorage.getItem('kb_lblfmt')||'a6'}catch{return'a6'}})(),ktab:'kunde',cart:[],kq:'',ksort:(()=>{try{return localStorage.getItem('kb_ksort')||'az'}catch{return'az'}})(),kstage:(()=>{try{return localStorage.getItem('kb_kstage')||'geplant'}catch{return'geplant'}})(),kcat:'alle',kpay:'bar',kparty:'',remTone:(()=>{try{return localStorage.getItem('kb_tone')||'du'}catch{return'du'}})(),cq:'',pq:'',pcat:'alle',psort:(()=>{try{return localStorage.getItem('kb_psort')||'kat'}catch{return'kat'}})(),screen:'start',period:'monat',filter:'alle',q:'',lagerCat:'alle',year:new Date().getFullYear(),ready:false};
 const LKEY='kassabuch_v1';
 
 /* ---------- storage: cloud (db) with local fallback ---------- */
@@ -770,7 +773,10 @@ function vStart(){
   const openN=S.entries.filter(e=>e.type==='verkauf'&&live(e)&&e.delivered!==false&&openAmt(e)>0.005).length;
   const hasEK=S.entries.some(e=>e.type==='einkauf'&&!e.sample);
   const stockHint=!hasEK&&lagerwert>0&&S.entries.some(e=>e.type==='verkauf'&&!e.sample)&&!S.settings.hideStockHint;
-  const orders=sorted(S.entries.filter(e=>e.delivered===false&&live(e))).reverse();
+  // Offene Bestellungen: nach Bestelldatum (älteste zuerst, umschaltbar), Filter nach Schritt
+  const placed=e=>(e.orderDate||e.date)+(e.created||'');
+  const orders=S.entries.filter(e=>e.delivered===false&&live(e)).sort((a,b)=>placed(a).localeCompare(placed(b)));if(UI.osort==='neu')orders.reverse();
+  const ofl=['geplant','abpacken','fertig'].includes(UI.ofilt)?UI.ofilt:'alle',ordersF=ofl==='alle'?orders:orders.filter(e=>stage(e)===ofl);
   const isEmpty=!S.products.length&&!S.entries.length;
   const lb=S.settings.lastBackup;const stale=S.entries.some(e=>!e.sample)&&(!lb||(Date.now()-new Date(lb))/864e5>7);
   const plHead=UI.period==='monat'?MONTHS_FULL[tm]+' '+ty:UI.period==='jahr'?'Jahr '+ty:'Seit Beginn';
@@ -796,7 +802,9 @@ function vStart(){
   </div>
   ${S.products.length?`<button class="kasse-btn" data-go="kasse"><span class="kb-ic">${ICON.kasse}</span><span class="kb-t">Schnellkasse<small>Produkte antippen und kassieren</small></span><span class="chev"></span></button>`:''}
   ${orders.length?`<button class="kasse-btn" data-act="pickup"><span class="kb-ic">${ICON.box}</span><span class="kb-t">Abholung prüfen<small>Bestellnummer und Abholcode vergleichen</small></span><span class="chev"></span></button><div class="linkrow" style="margin:4px 0 0"><button class="link" data-act="codes">Alle Bestellnummern & Codes</button></div>`:''}
-  ${orders.length?`<h2>Offene Bestellungen <span class="h-n">${orders.length}</span>${orders.some(e=>e.ready)?`<span class="h-x">${orders.filter(e=>e.ready).length} abgepackt</span>`:''}</h2><div class="list">${orders.map(entryRow).join('')}</div><p class="hint" style="margin:6px 2px 0">Nach links wischen = nächster Schritt, nach rechts = zurück. Bei „Abzuholen“ nach rechts = stornieren.</p>`:''}
+  ${orders.length?`<h2>Offene Bestellungen <span class="h-n">${orders.length}</span><button class="link" style="margin-left:auto;font-size:13px;padding:4px 0" data-act="osort">${UI.osort==='neu'?'Neueste zuerst':'Älteste zuerst'} ⇅</button></h2>
+   <div class="chips">${[['alle','Alle',orders.length],...STAGES.slice(0,3).map(([k])=>[k,{geplant:'Abzuholen',abpacken:'Abzupacken',fertig:'Abgepackt'}[k],orders.filter(e=>stage(e)===k).length])].map(([k,l,n])=>`<button class="chip ${ofl===k?'on':''} ${k!=='alle'?'s-'+k:''}" data-act="ofilt" data-v="${k}">${l} <span class="num" style="opacity:.7">${n}</span></button>`).join('')}</div>
+   <div class="list">${ordersF.length?ordersF.map(entryRow).join(''):'<div class="empty">Keine Bestellungen in diesem Schritt.</div>'}</div><p class="hint" style="margin:6px 2px 0">Nach links wischen = nächster Schritt, nach rechts = zurück. Bei „Abzuholen“ nach rechts = stornieren.</p>`:''}
   ${dashExtras(t)}
   ${topP||topC||proj?`<div class="card" style="margin-top:8px;padding:6px 14px">
    ${topP?`<div class="kv"><span>Bestseller ${pl}</span><b style="font-family:var(--f-ui)">${esc(topP.n)} · ${topP.q}×</b></div>`:''}
@@ -920,12 +928,18 @@ function initials(n){return n.split(/\s+/).filter(Boolean).slice(0,2).map(w=>w[0
 function vKunden(){
   const kind=UI.ktab||'kunde',K=KIND[kind],kd=kind==='kunde';
   const all=partyList(kind);
-  let l=[...all].sort((a,b)=>(b.last||'').localeCompare(a.last||'')||a.name.localeCompare(b.name,'de'));
+  const CS=kd?{zuletzt:'Zuletzt gekauft',umsatz:'Meister Umsatz',monat:'Ø Umsatz pro Monat',kaeufe:'Meiste Käufe',offen:'Offen zu zahlen',nachkauf:'Nachkauf fällig',name:'Name A–Z'}
+    :{zuletzt:'Zuletzt geliefert',umsatz:'Meister Einkauf',kaeufe:'Meiste Lieferungen',offen:'Du schuldest',name:'Name A–Z'};
+  const cs=CS[UI.csort]?UI.csort:'zuletzt',nm=(a,b)=>a.name.localeCompare(b.name,'de'),mo=c=>custMonthly(c)?.avg||0,rb=c=>{const r=rebuyInfo(c.name);return r&&r.due?r.since-r.every:-1e9};
+  const cmp={zuletzt:(a,b)=>(b.last||'').localeCompare(a.last||'')||nm(a,b),umsatz:(a,b)=>b.umsatz-a.umsatz||nm(a,b),monat:(a,b)=>mo(b)-mo(a)||nm(a,b),kaeufe:(a,b)=>b.n-a.n||nm(a,b),
+    offen:(a,b)=>b.offen-a.offen||b.bestellt-a.bestellt||nm(a,b),nachkauf:(a,b)=>rb(b)-rb(a)||nm(a,b),name:nm}[cs];
+  let l=[...all].sort(cmp);
   const q=norm(UI.cq);if(q)l=l.filter(c=>norm(c.name+' '+(c.rec?.phone||'')+' '+(c.rec?.email||'')).includes(q));
   const offen=all.reduce((s,c)=>s+Math.max(0,c.offen),0),best=all.reduce((s,c)=>s+c.bestellt,0);
   return header(K.many,`<button class="add-btn" data-act="new-party" data-kind="${kind}">+ ${K.one}</button>`)+`
   <div class="seg" style="margin-bottom:12px"><button class="${kd?'on':''}" data-act="ktab" data-v="kunde">Kunden</button><button class="${kd?'':'on'}" data-act="ktab" data-v="lieferant">Lieferanten</button></div>
   <input class="search" id="cq" type="search" placeholder="${K.one} suchen …" value="${esc(UI.cq)}">
+  ${all.length>1?`<div class="sortbar"><label for="csort">Sortieren</label><select class="inp" id="csort">${Object.entries(CS).map(([k,v])=>`<option value="${k}" ${cs===k?'selected':''}>${v}</option>`).join('')}</select></div>`:''}
   ${offen||best?`<p class="hint" style="margin:0 0 10px">${offen?`${kd?'Offen zu zahlen':'Du schuldest noch'}: <b class="warn">${eur(offen)}</b>`:''}${offen&&best?' · ':''}${best?`<b class="pos">${best} Bestellung${best>1?'en':''}</b> ${kd?'noch nicht geliefert':'unterwegs'}`:''}</p>`:''}
   <div class="list">${l.length?l.map(c=>`<button class="row" data-act="party" data-kind="${kind}" data-name="${esc(c.name)}"><span class="tag ${kd?'vk':'ek'}">${esc(initials(c.name))}</span>
     <span style="min-width:0"><span class="row-title" style="display:block">${esc(c.name)}</span>
@@ -2519,6 +2533,8 @@ document.addEventListener('click',async ev=>{
     case'show-overdue':UI.filter='ueberfaellig';UI.screen='buchungen';render();scrollTo(0,0);break;
     case'view-att':viewAtt(id);break;
     case'kcat':UI.kcat=v;render();break;
+    case'ofilt':UI.ofilt=v;try{localStorage.setItem('kb_ofilt',v)}catch{}render();break;
+    case'osort':UI.osort=UI.osort==='neu'?'alt':'neu';try{localStorage.setItem('kb_osort',UI.osort)}catch{}render();break;
     case'cart-add':cartAdd(id);render();break;
     case'cart-clear':if(await ask('Warenkorb leeren?','Leeren')){UI.cart=[];render()}break;
     case'checkout':openCheckout();break;
@@ -2562,7 +2578,9 @@ document.addEventListener('click',async ev=>{
     case'save-settings':saveSettings();break;
     case'add-cat':{const inp=$('#'+b.dataset.src);const val=inp.value.trim();const k=b.dataset.k;if(!val)break;if(S.settings[k].includes(val)){toast('Gibt es schon.');break}
       await Store.setSettings({...S.settings,[k]:[...S.settings[k],val]});break}
-    case'del-cat':{const k=b.dataset.k;const arr=[...S.settings[k]];if(arr.length<=1){toast('Mindestens eine Kategorie muss bleiben.');break}arr.splice(+b.dataset.i,1);await Store.setSettings({...S.settings,[k]:arr});break}
+    case'del-cat':{const k=b.dataset.k;const arr=[...S.settings[k]];if(arr.length<=1){toast('Mindestens eine Kategorie muss bleiben.');break}
+      {const nm=arr[+b.dataset.i],used=k==='categories'?S.products.filter(p=>(p.cat||'Allgemein')===nm).length:S.entries.filter(e=>e.type==='ausgabe'&&e.expenseCat===nm).length;
+       if(!await ask(`Kategorie „${nm}“ löschen?${used?` ${used} ${k==='categories'?(used===1?'Produkt behält':'Produkte behalten'):(used===1?'Ausgabe behält':'Ausgaben behalten')} sie trotzdem, sie ist nur nicht mehr auswählbar.`:''}`,'Löschen'))break}arr.splice(+b.dataset.i,1);await Store.setSettings({...S.settings,[k]:arr});break}
     case'export-csv':exportCSV();break;
     case'export-json':exportJSON();break;
     case'load-sample':loadSample();break;
@@ -2645,6 +2663,7 @@ document.addEventListener('change',async ev=>{
   if(t.id==='coParty'){const hadP=!!UI.kpartner,oldPr=UI.kpr;coKeep();render();
     if(!samePr(oldPr,UI.kpr)||(!hadP&&UI.kpartner)){if(!hadP&&UI.kpartner)toast('Vermittler übernommen: '+(partnerById(UI.kpartner)?.name||''));openCheckout()}return}
   if(t.id==='ksort'||t.id==='fsort'){UI.ksort=t.value;try{localStorage.setItem('kb_ksort',t.value)}catch{}if(t.id==='fsort'&&F)renderEntryForm();else render();return}
+  if(t.id==='csort'){UI.csort=t.value;try{localStorage.setItem('kb_csort',t.value)}catch{}render();return}
   if(t.id==='psort'){UI.psort=t.value;try{localStorage.setItem('kb_psort',t.value)}catch{}render();return}
   if(t.id==='importFile'&&t.files[0]){importJSON(t.files[0]);t.value='';return}
   if(!F)return;
@@ -2671,7 +2690,7 @@ function fitVals(){fitQ=0;document.querySelectorAll(FIT_SEL).forEach(el=>{el.sty
 const fitSoon=()=>{if(!fitQ)fitQ=requestAnimationFrame(fitVals)};
 new MutationObserver(fitSoon).observe(document.body,{childList:true,subtree:true});
 addEventListener('resize',fitSoon);document.fonts&&document.fonts.ready.then(fitSoon);
-const APP_VER='56';
+const APP_VER='57';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
