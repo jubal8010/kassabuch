@@ -146,7 +146,7 @@ label.lbl{display:block;font-size:13px;color:var(--muted);margin:10px 0 6px}
 
 <script>
 'use strict';
-const APP_VERSION='2.17';
+const APP_VERSION='2.18';
 /* ================= Daten ================= */
 const KEY='training.v1';
 const MUSCLES=['Brust','Obere Brust','Rücken','Latissimus','Unterer Rücken','Schultern','Hintere Schulter','Bizeps','Trizeps','Quadrizeps','Beinbeuger','Adduktoren','Po','Waden','Bauch','Unterarme','Ganzkörper','Cardio'];
@@ -1001,14 +1001,14 @@ $('#importFile').addEventListener('change',async e=>{
 /* ================= Sheet ================= */
 function sheet(html){$('#sheetBody').innerHTML=html;$('#sheetBg').classList.add('show');$('#sheet').classList.add('show');$('#sheet').scrollTop=0}
 function closeSheet(){$('#sheetBg').classList.remove('show');$('#sheet').classList.remove('show')}
-// iOS-Homescreen-App: der Browser meldet die Höhe ohne Statusleiste, dadurch bleibt unten ein leerer Streifen.
-// Deshalb die App auf die volle Bildschirmhöhe ziehen.
+// iOS 26 Homescreen-App: unten bleibt ein Streifen, den iOS selbst sperrt (WebKit-Bug, nicht per CSS erreichbar).
+// Dann zusätzlich keinen Home-Balken-Abstand einrechnen, damit das Menü möglichst weit unten sitzt.
 function fitScreen(){
   const sa=navigator.standalone||matchMedia('(display-mode: standalone)').matches;
-  if(!sa)return;const h=Math.max(innerHeight,screen.height);
-  document.body.style.bottom='auto';document.body.style.height=h+'px';
+  document.documentElement.style.removeProperty('--safe-b');
+  if(sa&&screen.height-innerHeight>20)document.documentElement.style.setProperty('--safe-b','0px');
 }
-fitScreen();addEventListener('orientationchange',()=>setTimeout(fitScreen,300));
+fitScreen();addEventListener('resize',fitScreen);addEventListener('orientationchange',()=>setTimeout(fitScreen,300));
 // iOS: nach dem Schließen der Tastatur verrutschte Seite zurücksetzen
 document.addEventListener('focusout',()=>setTimeout(()=>{if(!document.activeElement||!document.activeElement.matches('input,textarea,select'))window.scrollTo(0,0)},60));
 $('#sheetBg').onclick=closeSheet;$('#sheetX').onclick=closeSheet;
