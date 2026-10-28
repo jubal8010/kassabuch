@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="de"><head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
 <title>Kassabuch</title>
 <meta name="theme-color" media="(prefers-color-scheme: light)" content="#edf1ea">
 <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f1e17">
@@ -47,6 +47,9 @@ body{background:var(--bg);color:var(--ink);font-family:var(--f-ui);font-size:15p
 .wrap{max-width:600px;margin:0 auto;padding-inline:16px;padding-block:calc(18px + env(safe-area-inset-top,0px)) calc(110px + env(safe-area-inset-bottom,0px))}
 .inp{font-size:16px}
 button,input,select,textarea{font:inherit;color:inherit}
+/* kein Zoom durch Doppeltippen */
+html,body{touch-action:manipulation}
+button,a,label,.tile,.row,.chip{touch-action:manipulation}
 button{cursor:pointer}
 button:disabled{opacity:.45;cursor:not-allowed}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -804,7 +807,7 @@ function vStart(){
   ${orders.length?`<button class="kasse-btn" data-act="pickup"><span class="kb-ic">${ICON.box}</span><span class="kb-t">Abholung prüfen<small>Bestellnummer und Abholcode vergleichen</small></span><span class="chev"></span></button><div class="linkrow" style="margin:4px 0 0"><button class="link" data-act="codes">Alle Bestellnummern & Codes</button></div>`:''}
   ${orders.length?`<h2>Offene Bestellungen <span class="h-n">${orders.length}</span><button class="link" style="margin-left:auto;font-size:13px;padding:4px 0" data-act="osort">${UI.osort==='neu'?'Neueste zuerst':'Älteste zuerst'} ⇅</button></h2>
    <div class="chips">${[['alle','Alle',orders.length],...STAGES.slice(0,3).map(([k])=>[k,{geplant:'Abzuholen',abpacken:'Abzupacken',fertig:'Abgepackt'}[k],orders.filter(e=>stage(e)===k).length])].map(([k,l,n])=>`<button class="chip ${ofl===k?'on':''} ${k!=='alle'?'s-'+k:''}" data-act="ofilt" data-v="${k}">${l} <span class="num" style="opacity:.7">${n}</span></button>`).join('')}</div>
-   <div class="list">${ordersF.length?ordersF.map(entryRow).join(''):'<div class="empty">Keine Bestellungen in diesem Schritt.</div>'}</div><p class="hint" style="margin:6px 2px 0">Nach links wischen = nächster Schritt, nach rechts = zurück. Bei „Abzuholen“ nach rechts = stornieren.</p>`:''}
+   <div class="list">${ordersF.length?ordersF.map(entryRow).join(''):'<div class="empty">Keine Bestellungen in diesem Schritt.</div>'}</div><p class="hint" style="margin:6px 2px 0">Nach links wischen = nächster Schritt, nach rechts = zurück. Bei „Abgepackt“ nach links = abschließen, bei „Abzuholen“ nach rechts = stornieren.</p>`:''}
   ${dashExtras(t)}
   ${topP||topC||proj?`<div class="card" style="margin-top:8px;padding:6px 14px">
    ${topP?`<div class="kv"><span>Bestseller ${pl}</span><b style="font-family:var(--f-ui)">${esc(topP.n)} · ${topP.q}×</b></div>`:''}
@@ -2597,11 +2600,21 @@ const swEnd=async()=>{const el=SW.el;SW.el=null;if(!el||!SW.on)return;SW.skip=tr
   if(Math.abs(SW.dx)<70)return;const e=S.entries.find(x=>x.id===el.dataset.id);if(!e||e.delivered!==false)return;
   const i=PREP.indexOf(stage(e)),j=i+(SW.dx<0?1:-1);
   if(j<0){cancelOrder(e.id);return}
-  if(j>=PREP.length){openEntry(e.id);toast('Abgepackt – zum Übergeben hier abschließen');return}
+  if(j>=PREP.length){finishOrder(e.id);return}
   await Store.put('entries',setStage(e,PREP[j])).catch(()=>{});try{navigator.vibrate&&navigator.vibrate(12)}catch{}
   toast(`${fmtOrder(e.orderNo)||e.party||'Bestellung'}: ${STAGES.find(x=>x[0]===PREP[j])[1]}`)};
 document.addEventListener('pointerup',swEnd);document.addEventListener('pointercancel',()=>{if(SW.el){SW.el.classList.remove('sw-move','sw-go','sw-back');SW.el.style.transform='';SW.el.style.background='';SW.el=null}});
 document.addEventListener('click',ev=>{if(SW.skip&&ev.target.closest('.row[data-swipe]')){SW.skip=false;ev.stopPropagation();ev.preventDefault()}},true);
+/* Abgepackte Bestellung per Wisch abschließen: übergeben + bezahlt / nicht bezahlt / abbrechen */
+async function finishOrder(id){const e=S.entries.find(x=>x.id===id);if(!e||e.delivered!==false)return;const open=openAmt(e),m=METHODS[e.method]||'Bar';
+  const nm=`${fmtOrder(e.orderNo)||'Bestellung'}${e.party?' · '+e.party:''}`;
+  const k=await choose(`${nm} abschließen?`,open>0.005
+    ?[['paid',`Übergeben & bezahlt`,`${eur(open)} per ${m} – Zahlungsart änderst du in der Bestellung`],['open','Übergeben, noch nicht bezahlt',`${eur(open)} bleibt offen`]]
+    :[['open','Übergeben','Ist bereits bezahlt']]);
+  if(!k)return;if(!await deliverEntry(id))return;
+  if(k==='paid')await addPayment(id,open,today(),e.method||'bar');
+  try{navigator.vibrate&&navigator.vibrate(15)}catch{}
+  toast(k==='paid'?`${nm}: übergeben & bezahlt ✓`:open>0.005?`${nm}: übergeben, ${eur(open)} offen`:`${nm}: übergeben ✓`)}
 /* Offene Bestellung stornieren (noch nicht übergeben): bleibt mit Nummer erhalten, zählt aber nirgends mehr */
 async function cancelOrder(id){const e=S.entries.find(x=>x.id===id);if(!e||e.delivered!==false||!live(e))return;
   if(e.invoiceNo){stornoEntry(id);return}
@@ -2690,7 +2703,7 @@ function fitVals(){fitQ=0;document.querySelectorAll(FIT_SEL).forEach(el=>{el.sty
 const fitSoon=()=>{if(!fitQ)fitQ=requestAnimationFrame(fitVals)};
 new MutationObserver(fitSoon).observe(document.body,{childList:true,subtree:true});
 addEventListener('resize',fitSoon);document.fonts&&document.fonts.ready.then(fitSoon);
-const APP_VER='57';
+const APP_VER='58';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
