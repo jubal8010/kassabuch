@@ -796,7 +796,7 @@ function vStart(){
   </div>
   ${S.products.length?`<button class="kasse-btn" data-go="kasse"><span class="kb-ic">${ICON.kasse}</span><span class="kb-t">Schnellkasse<small>Produkte antippen und kassieren</small></span><span class="chev"></span></button>`:''}
   ${orders.length?`<button class="kasse-btn" data-act="pickup"><span class="kb-ic">${ICON.box}</span><span class="kb-t">Abholung prüfen<small>Bestellnummer und Abholcode vergleichen</small></span><span class="chev"></span></button><div class="linkrow" style="margin:4px 0 0"><button class="link" data-act="codes">Alle Bestellnummern & Codes</button></div>`:''}
-  ${orders.length?`<h2>Offene Bestellungen <span class="h-n">${orders.length}</span>${orders.some(e=>e.ready)?`<span class="h-x">${orders.filter(e=>e.ready).length} abgepackt</span>`:''}</h2><div class="list">${orders.map(entryRow).join('')}</div><p class="hint" style="margin:6px 2px 0">Nach links wischen = nächster Schritt, nach rechts = zurück.</p>`:''}
+  ${orders.length?`<h2>Offene Bestellungen <span class="h-n">${orders.length}</span>${orders.some(e=>e.ready)?`<span class="h-x">${orders.filter(e=>e.ready).length} abgepackt</span>`:''}</h2><div class="list">${orders.map(entryRow).join('')}</div><p class="hint" style="margin:6px 2px 0">Nach links wischen = nächster Schritt, nach rechts = zurück. Bei „Abzuholen“ nach rechts = stornieren.</p>`:''}
   ${dashExtras(t)}
   ${topP||topC||proj?`<div class="card" style="margin-top:8px;padding:6px 14px">
    ${topP?`<div class="kv"><span>Bestseller ${pl}</span><b style="font-family:var(--f-ui)">${esc(topP.n)} · ${topP.q}×</b></div>`:''}
@@ -1659,6 +1659,7 @@ async function checkPickup(){
   if(!raw||!code){toast('Bitte Bestellnummer und Code eingeben.');return}
   const e=S.entries.find(x=>x.type==='verkauf'&&!x.storno&&num(x.orderNo)===num(raw));
   if(!e){openPickup(null,{ok:false,msg:`Keine Bestellung mit der Nummer ${fmtOrder(num(raw))} gefunden.`});return}
+  if(e.cancelled){openPickup(e.id,{ok:false,msg:`${fmtOrder(e.orderNo)} ist storniert. Nicht aushändigen.`});return}
   const ok=String(e.pickupCode)===code;
   try{await Store.put('entries',{...e,pickupLog:[...(e.pickupLog||[]),{at:new Date().toISOString(),ok,...(ok?{}:{code})}]})}catch{return}
   if(!ok){openPickup(e.id,{ok:false,msg:`Code passt nicht zu ${fmtOrder(e.orderNo)}. Nicht aushändigen.`});return}
@@ -1688,7 +1689,7 @@ function openEntry(id){
     <div class="btn-row" style="padding:6px 0 10px">${e.pickupCode?`<button class="btn ghost sm" data-act="share-code" data-id="${e.id}">Code an Kunden schicken</button>`:''}${e.delivered===false?`<button class="btn ghost sm" data-act="pickup" data-id="${e.id}">Abholung prüfen</button>`:''}</div>
     ${(e.pickupLog||[]).length?`<div class="cb-l" style="padding-top:8px;border-top:1px solid var(--line)">Protokoll</div>${e.pickupLog.slice().reverse().map(x=>`<div class="kv" style="font-size:13.5px"><span>${new Date(x.at).toLocaleString('de-AT',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</span><b class="${x.ok?'pos':'neg'}" style="font-weight:600">${x.ok?'Code richtig':'Code falsch'+(x.code?' ('+esc(x.code)+')':'')}</b></div>`).join('')}`:''}
    </div>`:''}
-   ${e.cancelled?`<div class="banner">Storniert durch Stornorechnung ${esc(e.cancelNo||'')}.</div>`:''}
+   ${e.cancelled?(e.cancelNo?`<div class="banner">Storniert durch Stornorechnung ${esc(e.cancelNo)}.</div>`:`<div class="banner b-act alert"><span>Bestellung storniert${e.cancelledAt?' am '+fdate(e.cancelledAt.slice(0,10)):''}.</span><button class="btn sm" data-act="uncancel" data-id="${e.id}">Aufheben</button></div>`):''}
    ${e.storno?`<div class="banner">Stornorechnung zu Rechnung ${esc(e.refInvoice||'')} vom ${fdate(e.refDate)}.</div>`:''}
    ${ov?`<div class="banner b-act alert"><span>Seit ${daysBetween(dueDate(e),today())} Tag${daysBetween(dueDate(e),today())===1?'':'en'} überfällig${rem?' · erinnert am '+fdate(rem):''}</span><button class="btn sm" data-act="remind" data-id="${e.id}">Erinnern</button></div>`:''}
    <div class="summary">${lines}<div class="l big"><span>Gesamt</span><span class="num">${eur(e.total)}</span></div>
@@ -2474,6 +2475,8 @@ document.addEventListener('click',async ev=>{
     case'deliver':{const e=S.entries.find(x=>x.id===id);if(!await deliverEntry(id))break;
       closeSheet();toast(e.type==='verkauf'?'Als übergeben markiert':'Ware ist im Lager');break}
     case'pickup':openPickup(id||null);break;
+    case'cancel-order':cancelOrder(id);break;
+    case'uncancel':uncancelOrder(id);break;
     case'price-pdf':toast('Preisliste wird erstellt …');priceListPDF(b.dataset.name||'');break;
     case'partner-pdf':{const k=await choose('Provisionsabrechnung – welcher Zeitraum?',[['monat',periodRange('monat').label,'Laufender Monat bis heute'],['vormonat',periodRange('vormonat').label,'Ganzer letzter Monat'],['jahr',periodRange('jahr').label,'Seit 1. Jänner'],['alle','Gesamter Zeitraum','Alle vermittelten Verkäufe']]);if(k)partnerPDF(id,k);break}
     case'codes':UI.codesQ='';openCodes();break;
@@ -2571,16 +2574,27 @@ const SW={el:null,x:0,y:0,dx:0,on:false,skip:false};const PREP=['geplant','abpac
 document.addEventListener('pointerdown',ev=>{SW.skip=false;const el=ev.target.closest('.row[data-swipe]');if(!el)return;Object.assign(SW,{el,x:ev.clientX,y:ev.clientY,dx:0,on:false})});
 document.addEventListener('pointermove',ev=>{if(!SW.el)return;const dx=ev.clientX-SW.x,dy=ev.clientY-SW.y;
   if(!SW.on){if(Math.abs(dy)>12&&Math.abs(dy)>Math.abs(dx)){SW.el=null;return}if(Math.abs(dx)<12)return;SW.on=true}
-  SW.dx=dx;const el=SW.el;el.classList.add('sw-move');el.style.transform=`translateX(${Math.max(-110,Math.min(110,dx))}px)`;const e=S.entries.find(x=>x.id===el.dataset.id),i=e?PREP.indexOf(stage(e)):-1,t=Math.abs(dx)>70?PREP[i+(dx<0?1:-1)]||(dx<0?'uebergeben':null):null;el.style.background=t?STAGE_C[t][1]:''});
+  SW.dx=dx;const el=SW.el;el.classList.add('sw-move');el.style.transform=`translateX(${Math.max(-110,Math.min(110,dx))}px)`;const e=S.entries.find(x=>x.id===el.dataset.id),i=e?PREP.indexOf(stage(e)):-1,t=Math.abs(dx)>70?PREP[i+(dx<0?1:-1)]||(dx<0?'uebergeben':'storno'):null;el.style.background=t==='storno'?'var(--neg-soft)':t?STAGE_C[t][1]:''});
 const swEnd=async()=>{const el=SW.el;SW.el=null;if(!el||!SW.on)return;SW.skip=true;el.classList.remove('sw-move','sw-go','sw-back');el.style.transform='';el.style.background='';
   if(Math.abs(SW.dx)<70)return;const e=S.entries.find(x=>x.id===el.dataset.id);if(!e||e.delivered!==false)return;
   const i=PREP.indexOf(stage(e)),j=i+(SW.dx<0?1:-1);
-  if(j<0){toast('Schon beim ersten Schritt');return}
+  if(j<0){cancelOrder(e.id);return}
   if(j>=PREP.length){openEntry(e.id);toast('Abgepackt – zum Übergeben hier abschließen');return}
   await Store.put('entries',setStage(e,PREP[j])).catch(()=>{});try{navigator.vibrate&&navigator.vibrate(12)}catch{}
   toast(`${fmtOrder(e.orderNo)||e.party||'Bestellung'}: ${STAGES.find(x=>x[0]===PREP[j])[1]}`)};
 document.addEventListener('pointerup',swEnd);document.addEventListener('pointercancel',()=>{if(SW.el){SW.el.classList.remove('sw-move','sw-go','sw-back');SW.el.style.transform='';SW.el.style.background='';SW.el=null}});
 document.addEventListener('click',ev=>{if(SW.skip&&ev.target.closest('.row[data-swipe]')){SW.skip=false;ev.stopPropagation();ev.preventDefault()}},true);
+/* Offene Bestellung stornieren (noch nicht übergeben): bleibt mit Nummer erhalten, zählt aber nirgends mehr */
+async function cancelOrder(id){const e=S.entries.find(x=>x.id===id);if(!e||e.delivered!==false||!live(e))return;
+  if(e.invoiceNo){stornoEntry(id);return}
+  const paid=paidSum(e);
+  if(!await ask(`Bestellung ${fmtOrder(e.orderNo)||''} ${e.party?'von '+e.party+' ':''}stornieren?${paid>0.005?` Die Anzahlung von ${eur(paid)} wird als Rückerstattung gebucht.`:''}`,'Stornieren'))return;
+  const ne={...e,cancelled:true,cancelledAt:new Date().toISOString()};delete ne.ready;delete ne.packing;
+  if(paid>0.005)ne.payments=[...paysOf(e),{date:today(),amount:-paid,method:e.method||'bar',note:'Rückerstattung'}];ne.paid=isPaid(ne);
+  try{await Store.put('entries',ne)}catch{return}toast(`${fmtOrder(e.orderNo)||'Bestellung'} storniert`)}
+async function uncancelOrder(id){const e=S.entries.find(x=>x.id===id);if(!e||!e.cancelled||e.cancelledBy)return;
+  const ne={...e};delete ne.cancelled;delete ne.cancelledAt;ne.payments=paysOf(e).filter(p=>p.note!=='Rückerstattung');ne.paid=isPaid(ne);
+  try{await Store.put('entries',ne)}catch{return}toast('Stornierung aufgehoben');openEntry(id)}
 /* Langes Antippen einer Kachel = 1 Stück weniger (bei 1 Stück: abwählen) */
 const LP={t:null,el:null,x:0,y:0,skip:false};
 function tileMinus(el){const id=el.dataset.id,p=prodById(id);if(!p)return;
@@ -2657,7 +2671,7 @@ function fitVals(){fitQ=0;document.querySelectorAll(FIT_SEL).forEach(el=>{el.sty
 const fitSoon=()=>{if(!fitQ)fitQ=requestAnimationFrame(fitVals)};
 new MutationObserver(fitSoon).observe(document.body,{childList:true,subtree:true});
 addEventListener('resize',fitSoon);document.fonts&&document.fonts.ready.then(fitSoon);
-const APP_VER='55';
+const APP_VER='56';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
