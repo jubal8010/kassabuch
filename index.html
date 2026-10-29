@@ -114,6 +114,9 @@ button.row:hover{background:var(--surface-2)}
 .tag.aus{background:var(--neg-soft);color:var(--neg)}
 .row-title{font-weight:600;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .row-sub{font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row-items{display:flex;flex-direction:column;margin-top:3px;font-size:13px;line-height:1.32;color:var(--ink)}
+.row-items span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row-items b{display:inline-block;min-width:1.9em;font-weight:650}
 .row-sub .d{color:var(--ink);opacity:.72;font-weight:600;margin-right:7px;font-variant-numeric:tabular-nums}
 .row-amt{text-align:right}
 .row-amt .num{font-size:15px;font-weight:650;display:block}
@@ -739,7 +742,8 @@ function header(t,act,sub){
 function entryRow(e){
   const tagCls=e.storno?'st':e.type==='verkauf'&&e.delivered===false&&live(e)?'vk s-'+stage(e):{verkauf:'vk',einkauf:'ek',ausgabe:'aus'}[e.type],tagTxt=e.storno?ICON.undo:{verkauf:ICON.in,einkauf:ICON.box,ausgabe:ICON.out}[e.type];
   const title=e.type==='ausgabe'?(e.party||e.expenseCat||'Ausgabe'):(e.party||(e.type==='verkauf'?'Laufkunde':'Lieferant'));
-  const what=e.type==='ausgabe'?(e.expenseCat||''):(e.items||[]).map(i=>`${i.qty}× ${i.name}`).join(', ');
+  const openOrd=e.type==='verkauf'&&e.delivered===false&&live(e);
+  const what=e.type==='ausgabe'?(e.expenseCat||''):openOrd?'':(e.items||[]).map(i=>`${i.qty}× ${i.name}`).join(', ');
   const sign=e.type==='verkauf'?'':'−';const cls=e.type==='verkauf'&&!e.storno&&!e.cancelled?'pos':'';
   let status;
   if(e.cancelled)status='<span class="pill slow">Storniert</span>';
@@ -751,7 +755,7 @@ function entryRow(e){
   else status='<span class="pill open">Offen</span>';
   return `<button class="row" data-act="open-entry" data-id="${e.id}"${e.type==='verkauf'&&e.delivered===false&&live(e)?' data-swipe="1"':''}><span class="tag ${tagCls}">${tagTxt}</span>
    <span style="min-width:0"><span class="row-title" style="display:block">${esc(title)}${e.sample?'<span class="pill ex">Beispiel</span>':''}</span>
-   <span class="row-sub" style="display:block"><span class="d">${e.orderNo?fmtOrder(e.orderNo)+' · ':''}${fdShort(e.date)}</span>${e.partner?`<span class="pos" style="font-weight:600">über ${esc(e.partner.name)}</span>, `:''}${[what,e.invoiceNo?'Nr. '+e.invoiceNo:'',(e.att||[]).length?'mit Beleg':''].filter(Boolean).map(esc).join(', ')}</span>${e.note&&e.note!=='Kasse'&&!e.recurringId?`<span class="row-sub" style="display:block;color:var(--ink);opacity:.75">✎ ${esc(e.note)}</span>`:''}</span>
+   <span class="row-sub" style="display:block"><span class="d">${e.orderNo?fmtOrder(e.orderNo)+' · ':''}${fdShort(e.date)}</span>${e.partner?`<span class="pos" style="font-weight:600">über ${esc(e.partner.name)}</span>${what||e.invoiceNo||(e.att||[]).length?', ':''}`:''}${[what,e.invoiceNo?'Nr. '+e.invoiceNo:'',(e.att||[]).length?'mit Beleg':''].filter(Boolean).map(esc).join(', ')}</span>${openOrd&&(e.items||[]).length?`<span class="row-items">${e.items.map(i=>`<span><b class="num">${num(i.qty)}×</b> ${esc(i.name)}</span>`).join('')}</span>`:''}${e.note&&e.note!=='Kasse'&&!e.recurringId?`<span class="row-sub" style="display:block;color:var(--ink);opacity:.75">✎ ${esc(e.note)}</span>`:''}</span>
    <span class="row-amt"><span class="num ${cls}">${sign}${eur(e.total)}</span>${status}</span></button>`;
 }
 const sorted=l=>[...l].sort((a,b)=>(b.date+(b.created||'')).localeCompare(a.date+(a.created||'')));
@@ -2709,7 +2713,7 @@ function fitVals(){fitQ=0;document.querySelectorAll(FIT_SEL).forEach(el=>{el.sty
 const fitSoon=()=>{if(!fitQ)fitQ=requestAnimationFrame(fitVals)};
 new MutationObserver(fitSoon).observe(document.body,{childList:true,subtree:true});
 addEventListener('resize',fitSoon);document.fonts&&document.fonts.ready.then(fitSoon);
-const APP_VER='59';
+const APP_VER='60';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
