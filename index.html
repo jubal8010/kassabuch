@@ -1241,8 +1241,14 @@ async function setCustPr(ctx,mode,pct){
 function lastPartnerFor(name){const l=sorted(S.entries.filter(e=>e.type==='verkauf'&&e.partner&&norm(e.party)===norm(name)))[0];return l&&partnerById(l.partner.id)?l.partner:null}
 // Schnellkasse: Kunde übernehmen → Preise anpassen, Vermittler vorschlagen
 function applyKCust(){const name=(UI.kparty||'').trim();UI.kApplied=norm(name);
-  if(name&&!UI.kpartner){const lp=lastPartnerFor(name);if(lp)UI.kpartner=lp.id}
   const pr=effPr(name,UI.kpartner);reprice(UI.cart,UI.kpr,pr);UI.kpr=pr}
+// Hat der Kunde schon einmal über einen Partner gekauft? Dann nachfragen, ob er wieder eingetragen werden soll (einmal je Kunde und Vorgang)
+async function askPartner(name,ctx){const lp=name&&lastPartnerFor(name),key=ctx+':'+norm(name);if(!lp||UI.askedP===key)return null;UI.askedP=key;
+  const p=partnerById(lp.id);const k=await choose(`${name} hat zuletzt über ${lp.name} gekauft. ${lp.name} wieder als Vermittler eintragen?`,
+    [['ja',`Ja, ${lp.name} eintragen`,`${num(p.pct)} % ${BASES[p.base||'roh']}${partnerPr(p.id)?' · Kunde bekommt '+prLabel(partnerPr(p.id)):''}`],['nein','Nein, ohne Vermittler','Diesmal ohne Provision']],true);
+  return k==='ja'?lp:null}
+async function askPartnerK(){const name=(UI.kparty||'').trim();if(!name||UI.kpartner)return false;const lp=await askPartner(name,'k');if(!lp)return false;
+  UI.kpartner=lp.id;applyKCust();return true}
 function coKeep(){const p=$('#coParty');if(p&&p.value!==UI.kparty){UI.kparty=p.value;applyKCust()}UI.krecv=$('#coRecv')?.value??'';UI.knote=$('#coNote')?.value||''}
 const custNames=()=>[...new Set([...S.customers.map(c=>c.name),...S.entries.filter(e=>e.type==='verkauf'&&e.party).map(e=>e.party)])].sort((a,b)=>a.localeCompare(b,'de'));
 const isKnownCust=n=>{const k=norm(n);return !!k&&custNames().some(x=>norm(x)===k)};
@@ -1311,7 +1317,7 @@ async function doCheckout(){
   try{await Store.put('entries',e)}catch{return}
   await noteOrder(e.orderNo);
   if(party&&!custByName(party))await Store.put('customers',{id:newId(),name:party,address:'',phone:'',email:'',note:''}).catch(()=>{});
-  UI.cart=[];UI.kparty='';UI.kpr=null;UI.kApplied='';UI.prEdit=null;UI.krecv='';UI.knote='';UI.kpartner='';UI.kopen=undefined;UI.kgiven='';closeSheet();render();toast(fmtOrder(e.orderNo)+' '+(planned?'Bestellung aufgenommen · ':'Verkauf gebucht · ')+eur(total)+(discount>0?' (Rabatt '+eur(discount)+')':''));
+  UI.cart=[];UI.kparty='';UI.kpr=null;UI.askedP='';UI.kApplied='';UI.prEdit=null;UI.krecv='';UI.knote='';UI.kpartner='';UI.kopen=undefined;UI.kgiven='';closeSheet();render();toast(fmtOrder(e.orderNo)+' '+(planned?'Bestellung aufgenommen · ':'Verkauf gebucht · ')+eur(total)+(discount>0?' (Rabatt '+eur(discount)+')':''));
 }
 /* ---------- Barcode ---------- */
 const canScan=()=>!!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia);
@@ -2380,9 +2386,9 @@ async function exportJSON(){
   const ok=await Store.save(`Kassabuch_Backup_${today()}.json`,JSON.stringify({app:'kassabuch',version:2,exportedAt:new Date().toISOString(),settings:S.settings,products:S.products,entries:S.entries,customers:S.customers,suppliers:S.suppliers,recurring:S.recurring,files}));
   if(ok)Store.setSettings({...S.settings,lastBackup:today()});
 }
-function choose(msg,opts){return new Promise(res=>{
+function choose(msg,opts,noCancel){return new Promise(res=>{
   const root=document.createElement('div');root.className='overlay';root.style.zIndex=70;root.style.alignItems='center';
-  root.innerHTML=`<div class="sheet" style="border-radius:16px;max-width:400px;margin:16px"><p style="margin:0 0 14px;font-weight:600">${esc(msg)}</p>${opts.map(([k,l,d],i)=>`<button class="btn ${i?'ghost':''}" style="margin-bottom:8px;text-align:left" data-r="${k}">${esc(l)}<small style="display:block;font-weight:500;opacity:.8;font-size:12px;margin-top:2px">${esc(d)}</small></button>`).join('')}<button class="btn ghost" data-r="">Abbrechen</button></div>`;
+  root.innerHTML=`<div class="sheet" style="border-radius:16px;max-width:400px;margin:16px"><p style="margin:0 0 14px;font-weight:600">${esc(msg)}</p>${opts.map(([k,l,d],i)=>`<button class="btn ${i?'ghost':''}" style="margin-bottom:8px;text-align:left" data-r="${k}">${esc(l)}<small style="display:block;font-weight:500;opacity:.8;font-size:12px;margin-top:2px">${esc(d)}</small></button>`).join('')}${noCancel?'':'<button class="btn ghost" data-r="">Abbrechen</button>'}</div>`;
   root.addEventListener('click',e=>{const b=e.target.closest('[data-r]');if(b||e.target===root){root.remove();res(b?b.dataset.r:'')}});
   document.body.appendChild(root);
 })}
@@ -2651,7 +2657,7 @@ document.addEventListener('input',ev=>{
   if(t.id&&t.id.startsWith('lb_')&&LB){refreshLabel();return}
   if(t.id==='q'||t.id==='cq'||t.id==='pq'||t.id==='kq'){UI[t.id]=t.value;renderKeep(t.id);return}
   if(t.id==='fq'){UI.fq=t.value;filterPicker();return}
-  if(t.id==='kcust'){UI.kparty=t.value;const v=t.value.trim();if((!v&&UI.kApplied)||(isKnownCust(v)&&norm(v)!==UI.kApplied)){applyKCust();renderKeep('kcust')}return}
+  if(t.id==='kcust'){UI.kparty=t.value;const v=t.value.trim();if((!v&&UI.kApplied)||(isKnownCust(v)&&norm(v)!==UI.kApplied)){applyKCust();renderKeep('kcust');askPartnerK().then(ch=>{if(ch)renderKeep('kcust')})}return}
   if(t.id==='prPct')return;
   if(t.id==='codesQ'){UI.codesQ=t.value;const tb=$('#codesTbl');if(tb)tb.innerHTML=codesTable();return}
   if(F&&t.id&&/^np(Name|Qty|Ek|Vk|Cat)$/.test(t.id)){F.npv=F.npv||{};F.npv[t.id]=t.value;return}
@@ -2671,10 +2677,10 @@ document.addEventListener('change',async ev=>{
   if(t.id&&t.id.startsWith('lb_')&&LB){refreshLabel();return}
   if(t.id==='coOpen'){UI.kopen=t.checked;return}
   if(F&&t.id==='npCat'){F.npv=F.npv||{};F.npv.npCat=t.value;return}
-  if(t.id==='kcust'){UI.kparty=t.value.trim();if(norm(UI.kparty)!==UI.kApplied){applyKCust();renderKeep('kcust')}return}
+  if(t.id==='kcust'){UI.kparty=t.value.trim();if(norm(UI.kparty)!==UI.kApplied){applyKCust();renderKeep('kcust')}if(await askPartnerK())render();return}
   if(t.id==='prPct'){const c=t.dataset.c,cur=custPr(ctxName(c))||(c==='f'?partnerPr(F&&F.partnerId):partnerPr(UI.kpartner));if(cur&&t.value!=='')setCustPr(c,cur.mode,t.value);return}
-  if(t.id==='coParty'){const hadP=!!UI.kpartner,oldPr=UI.kpr;coKeep();render();
-    if(!samePr(oldPr,UI.kpr)||(!hadP&&UI.kpartner)){if(!hadP&&UI.kpartner)toast('Vermittler übernommen: '+(partnerById(UI.kpartner)?.name||''));openCheckout()}return}
+  if(t.id==='coParty'){const hadP=!!UI.kpartner,oldPr=UI.kpr;coKeep();await askPartnerK();render();
+    if(!samePr(oldPr,UI.kpr)||(!hadP&&UI.kpartner))openCheckout();return}
   if(t.id==='ksort'||t.id==='fsort'){UI.ksort=t.value;try{localStorage.setItem('kb_ksort',t.value)}catch{}if(t.id==='fsort'&&F)renderEntryForm();else render();return}
   if(t.id==='csort'){UI.csort=t.value;try{localStorage.setItem('kb_csort',t.value)}catch{}render();return}
   if(t.id==='psort'){UI.psort=t.value;try{localStorage.setItem('kb_psort',t.value)}catch{}render();return}
@@ -2687,8 +2693,8 @@ document.addEventListener('change',async ev=>{
   if(t.dataset.f==='shipPays'){F.shipPays=t.checked;F.shipTouched=true;if(F.shipPartial!=null){F.ship=String(F.shipPartial);F.shipPartial=null;const el=document.querySelector('[data-f="ship"]');if(el)el.value=F.ship}
     try{localStorage.setItem('kb_shippays',t.checked?'1':'0')}catch{}updateSummary();return}
   if(t.dataset.f==='party'&&F.type==='verkauf'){F.party=t.value;if(norm(t.value)!==F.fApplied){applyFCust();refreshFormCust()}}
-  if(t.dataset.f==='party'&&F.type==='verkauf'&&!F.partnerId){const lp=lastPartnerFor(t.value);
-    if(lp){F.partnerId=lp.id;const sel=document.querySelector('[data-f="partnerId"]');if(sel)sel.value=F.partnerId;applyFCust();refreshFormCust();toast('Vermittler übernommen: '+lp.name)}}
+  if(t.dataset.f==='party'&&F.type==='verkauf'&&!F.partnerId){const lp=await askPartner(t.value.trim(),'f'+(F.id||F.newId));
+    if(lp&&F){F.partnerId=lp.id;const sel=document.querySelector('[data-f="partnerId"]');if(sel)sel.value=F.partnerId;applyFCust();refreshFormCust();toast('Vermittler eingetragen: '+lp.name)}}
   if(t.dataset.f==='party'&&F.type==='verkauf'){const c=custByName(t.value);if(c&&c.address&&!F.partyAddress.trim()){F.partyAddress=c.address;const ta=document.querySelector('[data-f="partyAddress"]');if(ta)ta.value=c.address}return}
   if(t.type==='checkbox'&&t.dataset.f){F[t.dataset.f]=t.checked;updateSummary();return}
   if(t.tagName==='SELECT'&&t.dataset.f){F[t.dataset.f]=t.value}
@@ -2703,7 +2709,7 @@ function fitVals(){fitQ=0;document.querySelectorAll(FIT_SEL).forEach(el=>{el.sty
 const fitSoon=()=>{if(!fitQ)fitQ=requestAnimationFrame(fitVals)};
 new MutationObserver(fitSoon).observe(document.body,{childList:true,subtree:true});
 addEventListener('resize',fitSoon);document.fonts&&document.fonts.ready.then(fitSoon);
-const APP_VER='58';
+const APP_VER='59';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
