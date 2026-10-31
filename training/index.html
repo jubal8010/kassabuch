@@ -146,7 +146,7 @@ label.lbl{display:block;font-size:13px;color:var(--muted);margin:10px 0 6px}
 
 <script>
 'use strict';
-const APP_VERSION='2.19';
+const APP_VERSION='2.20';
 /* ================= Daten ================= */
 const KEY='training.v1';
 const MUSCLES=['Brust','Obere Brust','Rücken','Latissimus','Unterer Rücken','Schultern','Hintere Schulter','Bizeps','Trizeps','Quadrizeps','Beinbeuger','Adduktoren','Po','Waden','Bauch','Unterarme','Ganzkörper','Cardio'];
@@ -296,7 +296,7 @@ function renderWorkout(){
       <div class="card" style="background:linear-gradient(135deg,#232a12,#17191e 70%)">
         <div class="row between"><span class="tiny" style="color:var(--acc)">Heute · ${dFmt(Date.now(),{weekday:'long',day:'numeric',month:'numeric'})}</span><button class="btn ghost small" id="chgDay" style="padding:4px 6px">ändern</button></div>
         <div class="big" style="margin:6px 0 2px">${today.emoji} ${esc(today.name)}</div>
-        ${today.t&&!doneToday?`<div class="small" style="color:var(--acc);font-weight:600">${tplTime(today.t)}</div>`:''}
+        ${today.t&&!doneToday?`<div class="small" style="color:var(--acc);font-weight:600">${tplTime(today.t)}</div><div class="muted" style="font-size:12px;margin-top:2px">${tplBreak(today.t)}</div>`:''}
         ${today.t?(doneToday?(()=>{const m=Math.round(((todayW.end||todayW.start)-todayW.start)/6e4),plan=todayW.planMin||tplMin(today.t),sets=todayW.exercises.reduce((a,e)=>a+e.sets.length,0),d=m-plan;
           return `<div style="color:var(--acc);font-weight:700;margin:8px 0 10px">✅ Erledigt – stark!</div>
           <div class="grid3" style="margin-bottom:12px"><div class="stat"><span class="tiny">Dauer</span><b style="white-space:nowrap;font-size:18px">${durTxt(m)}</b></div><div class="stat"><span class="tiny">Geplant</span><b style="white-space:nowrap;font-size:18px">${durTxt(plan)}</b></div><div class="stat"><span class="tiny">Sätze</span><b>${sets}</b></div></div>
@@ -610,6 +610,7 @@ function pageHeader(title,sub=''){
 const tplSets=t=>t.items.reduce((a,i)=>a+num(i.sets)+((i.drops||[]).length),0);
 const tplMin=t=>{const sets=tplSets(t),blocks=t.items.reduce((a,i)=>a+num(i.sets),0);const rest=(S.settings.rest||0)/60;return Math.round(sets+Math.max(0,blocks-1)*rest)};
 const durTxt=m=>m>=60?`${Math.floor(m/60)} h ${String(m%60).padStart(2,'0')} min`:`${m} min`;
+const tplBreak=t=>{const sets=tplSets(t),blocks=t.items.reduce((a,i)=>a+num(i.sets),0),p=Math.round(Math.max(0,blocks-1)*(S.settings.rest||0)/60);return `${sets} min Ausführung (1 min/Satz) + ${durTxt(p)} Pausen`};
 const tplTime=t=>`⏱ ca. ${durTxt(tplMin(t))} · ${tplSets(t)} Sätze`;
 const itemSummary=it=>[`${it.sets}×`,it.amrap?'max. Wdh':it.rMax?(it.rMin&&it.rMin!==it.rMax?`${it.rMin}–${it.rMax} Wdh`:`${it.rMax} Wdh`):'',getWW(it.exId)!=null?`${fmt(getWW(it.exId),2)} kg`:'',(it.drops||[]).length?`Drop ${fmt(num(it.drops[0]),2)} kg`:''].filter(Boolean).join(' · ');
 const kgStr=v=>v==null||v===''?'':fmt(num(v),2).replace(/\./g,'');
