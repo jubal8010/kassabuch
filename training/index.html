@@ -146,7 +146,7 @@ label.lbl{display:block;font-size:13px;color:var(--muted);margin:10px 0 6px}
 
 <script>
 'use strict';
-const APP_VERSION='2.18';
+const APP_VERSION='2.19';
 /* ================= Daten ================= */
 const KEY='training.v1';
 const MUSCLES=['Brust','Obere Brust','Rücken','Latissimus','Unterer Rücken','Schultern','Hintere Schulter','Bizeps','Trizeps','Quadrizeps','Beinbeuger','Adduktoren','Po','Waden','Bauch','Unterarme','Ganzkörper','Cardio'];
@@ -243,6 +243,11 @@ function bestE1rm(exId,beforeTs=Infinity){
   return b;
 }
 const isW=s=>!s.type||s.type==='n';
+/* Relative Stärke: Gewicht ÷ Körpergewicht (zum jeweiligen Datum) */
+function addBW(kg){S.body=S.body||[];const today=isoDay(new Date());const ex=S.body.find(b=>isoDay(new Date(b.t))===today);if(ex){ex.kg=kg;ex.t=Date.now()}else S.body.push({id:uid(),t:Date.now(),kg,note:''});save();toast(`Körpergewicht: ${fmt(kg,1)} kg`)}
+function bwAt(t=Date.now()){const B=(S.body||[]).filter(b=>b.kg>0).sort((a,b)=>a.t-b.t);if(!B.length)return null;let r=B[0];for(const b of B)if(b.t<=t)r=b;return r.kg}
+const rel=(kg,t)=>{const bw=bwAt(t);return bw&&num(kg)>0?num(kg)/bw:null};
+const relTxt=(kg,t,suffix=' KG')=>{const r=rel(kg,t);return r?`${fmt(r,2)}×${suffix}`:''};
 /* Arbeitsgewicht: fixer Zielwert pro Übung, unabhängig davon, was in einem Satz tatsächlich geschafft wurde */
 const getWW=exId=>S.ww&&S.ww[exId]!=null?S.ww[exId]:null;
 function setWW(exId,kg){
@@ -358,7 +363,7 @@ function exerciseCard(ex,ei){
   return `<div class="ex" data-ei="${ei}">
     <div class="row between"><div data-exmenu2="${ei}" style="cursor:pointer"><h3>${esc(e.name)} <span class="muted" style="font-size:14px;font-weight:500">✎</span></h3><div class="muted small">${esc(e.muscle)}${ex.target&&targetTxt({...ex.target,kg:''})?` · Ziel ${targetTxt({...ex.target,kg:''})}`:''}</div></div><button class="btn ghost" data-exmenu="${ei}">${ICON.dots}</button></div>
     <div class="row" style="gap:8px;margin-top:8px;background:var(--card2);border-radius:12px;padding:6px 10px">
-      <span class="small" style="flex:1">Arbeitsgewicht</span>
+      <span class="small" style="flex:1">Arbeitsgewicht${getWW(ex.exId)!=null&&bwAt()?`<span class="muted" style="font-size:12px;display:block">${relTxt(getWW(ex.exId),Date.now(),'')} Körpergewicht</span>`:''}</span>
       <input class="wwin" data-ww="${ei}" inputmode="decimal" value="${getWW(ex.exId)!=null?fmt(getWW(ex.exId),2).replace(/\./g,''):''}" placeholder="–" style="width:78px;text-align:center;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 4px;font-weight:700;color:var(--acc);outline:none">
       <span class="muted small">kg</span></div>
     ${ex.up?`<div class="small" style="color:var(--acc);margin-top:4px">⬆️ Letztes Mal alle Sätze am oberen Ende – Gewicht erhöhen!</div>`:''}
@@ -762,7 +767,7 @@ function renderHistory(){
     if(m!==month){month=m;html+=`<div class="sect tiny">${m}</div>`}
     html+=`<div class="card" data-w="${w.id}" style="cursor:pointer">
       <div class="row between"><b style="font-size:17px">${esc(w.name)}</b><span class="muted small">${dFmt(w.start,{weekday:'short',day:'2-digit',month:'2-digit'})}${w.end&&w.end-w.start>6e4?' · '+durTxt(Math.round((w.end-w.start)/6e4))+(w.planMin?` <span style="opacity:.7">(geplant ${durTxt(w.planMin)})</span>`:''):''}</span></div>
-      <div style="margin-top:6px">${(()=>{const cols=Math.max(...w.exercises.map(e=>e.sets.length));return w.exercises.map(e=>srow(esc(exById(e.exId).name),e.sets,cols)).join('')})()}</div>
+      <div style="margin-top:6px">${(()=>{const cols=Math.max(...w.exercises.map(e=>e.sets.length));return w.exercises.map(e=>{const mk=Math.max(0,...e.sets.filter(isW).map(x=>num(x.kg)));const r=relTxt(mk,w.start);return srow(esc(exById(e.exId).name)+(r?`<div class="muted" style="font-size:11px">${r}</div>`:''),e.sets,cols)}).join('')})()}</div>
     </div>`;
   }
   v.innerHTML=html;
@@ -824,7 +829,14 @@ function overviewHtml(){
   const score=c=>c.kg!=null?c.kg*10:c.reps;prog.sort((a,b)=>score(b.c)-score(a.c));
   // Wochen-Balken (8 Wochen)
   const weeks=Array.from({length:8},(_,i)=>{const st=monday-(7-i)*7*DAY;return S.workouts.filter(w=>w.start>=st&&w.start<st+7*DAY).length});const wm=Math.max(1,...weeks);
+  const bw=bwAt();
+  const relList=bw?S.exercises.filter(e=>getWW(e.id)!=null&&used.includes(e.id)||S.templates.some(t=>t.items.some(i=>i.exId===e.id))&&getWW(e.id)!=null).map(e=>({id:e.id,r:getWW(e.id)/bw})).sort((a,b)=>b.r-a.r):[];
+  const relCard=bw?`<div class="card"><div class="row between" style="margin-bottom:4px"><span class="tiny">Relative Stärke · Arbeitsgewicht ÷ Körpergewicht</span><span class="muted small" style="white-space:nowrap">${fmt(bw,1)} kg</span></div>
+    ${relList.slice(0,6).map(x=>`<div class="list-item" data-ex="${x.id}" style="cursor:pointer;padding:9px 0"><span class="small">${esc(exById(x.id).name)}</span><b class="small">${fmt(x.r,2)}×</b></div>`).join('')}
+    ${relList.length>6?`<details><summary class="muted small" style="padding:10px 0;cursor:pointer">Alle ${relList.length} anzeigen</summary>${relList.slice(6).map(x=>`<div class="list-item" data-ex="${x.id}" style="cursor:pointer;padding:9px 0"><span class="small">${esc(exById(x.id).name)}</span><b class="small">${fmt(x.r,2)}×</b></div>`).join('')}</details>`:''}</div>`
+    :`<div class="card"><div class="tiny">Relative Stärke</div><div class="row" style="gap:8px;margin-top:10px"><input class="f" id="bwQuick" inputmode="decimal" placeholder="Körpergewicht in kg" style="flex:1"><button class="btn acc" id="bwQuickSave">Speichern</button></div><div class="muted small" style="margin-top:6px">Trag dein Körpergewicht ein, dann siehst du überall, wie viel du im Verhältnis zu deinem Gewicht bewegst.</div></div>`;
   return `
+  ${relCard}
   <div class="grid3" style="margin-bottom:12px">
     <div class="stat"><span class="tiny">Diese Woche</span><b>${wk}</b></div>
     <div class="stat"><span class="tiny">Dieser Monat</span><b>${mo}</b></div>
@@ -844,7 +856,7 @@ function renderProgress(){
   progressEx=null;
   const v=$('#view');
   const row=id=>{const ss=exSessions(id),l=ss[ss.length-1];
-    const left=`${esc(exById(id).name)}${l?`<div class="muted" style="font-size:11px">${dFmt(l.t,{day:'2-digit',month:'2-digit'})}</div>`:''}`;
+    const left=`${esc(exById(id).name)}${l?`<div class="muted" style="font-size:11px">${dFmt(l.t,{day:'2-digit',month:'2-digit'})}${getWW(id)!=null&&bwAt()?' · '+relTxt(getWW(id)):''}</div>`:''}`;
     return l?srow(left,l.sets,4,null,`data-ex="${id}" style="cursor:pointer"`):`<div class="srow" data-ex="${id}" style="cursor:pointer"><div class="sname">${left}</div><span class="muted small">noch nichts</span></div>`};
   const inPlan=new Set();
   let html=overviewHtml()+`<div class="sect tiny" style="margin-top:22px">Übungen</div>`+S.templates.map(t=>{t.items.forEach(i=>inPlan.add(i.exId));return `<div class="sect tiny">${t.emoji?t.emoji+' ':''}${esc(t.name)}</div><div class="card">${t.items.filter(i=>S.exercises.some(e=>e.id===i.exId)).map(i=>row(i.exId)).join('')}</div>`}).join('');
@@ -852,6 +864,7 @@ function renderProgress(){
   if(other.length)html+=`<div class="sect tiny">Weitere</div><div class="card">${other.map(row).join('')}</div>`;
   v.innerHTML=html;
   v.querySelectorAll('[data-ex]').forEach(r=>r.onclick=()=>openExercise(r.dataset.ex));
+  const bq=$('#bwQuickSave');if(bq)bq.onclick=()=>{const k=num($('#bwQuick').value);if(!(k>30&&k<300))return toast('Bitte gültiges Gewicht');addBW(k);render()};
 }
 function renderExercise(){
   const v=$('#view'),ex=exById(progressEx);
@@ -869,12 +882,17 @@ function renderExercise(){
   let top='',series=[],unit=' kg',hl;
   if(M==='ww'){
     const cur=getWW(progressEx);const since=wl.length?wl[wl.length-1].t:null;
-    top=`<div class="tiny">Aktuelles Arbeitsgewicht</div><b class="big" style="display:block;margin-top:4px">${cur!=null?fmt(cur,2)+' kg':'–'}</b><div class="muted small">${since?'seit '+dFmt(since):'Im Training oben bei der Übung eintragen'}</div>`;
+    top=`<div class="tiny">Aktuelles Arbeitsgewicht</div><b class="big" style="display:block;margin-top:4px">${cur!=null?fmt(cur,2)+' kg':'–'}</b><div class="muted small">${since?'seit '+dFmt(since):'Im Training oben bei der Übung eintragen'}</div>${cur!=null&&bwAt()?`<div class="small" style="margin-top:6px;color:var(--acc)">= ${relTxt(cur,Date.now(),'')} Körpergewicht</div>`:''}`;
     const pts=wl.map(x=>({t:x.t,v:x.kg}));if(pts.length&&pts[pts.length-1].t<Date.now()-DAY)pts.push({t:Date.now(),v:pts[pts.length-1].v});
     series=[{pts}];hl=null;
+  }else if(M==='rel'){
+    const all=ss.map(x=>({x,s:maxKg(x)})).map(a=>({...a,r:rel(a.s.kg,a.x.t)})).filter(a=>a.r);
+    const b=all.reduce((m,a)=>a.r>m.r?a:m,all[0]||{r:0});
+    top=`<div class="tiny">Beste relative Stärke (schwerster Satz ÷ Körpergewicht)</div><b class="big" style="display:block;margin-top:4px">${b.x?fmt(b.r,2)+'×':'–'}</b><div class="muted small">${b.x?`${fmt(num(b.s.kg),2)} kg bei ${fmt(bwAt(b.x.t),1)} kg Körpergewicht · ${dFmt(b.x.t)}`:'Körpergewicht unter Mehr eintragen'}</div>`;
+    series=[{pts:all.map(a=>({t:a.x.t,v:Math.round(a.r*100)/100}))}];unit='×';hl=x=>maxKg(x);
   }else if(M==='kg'){
     const all=ss.map(x=>({x,s:maxKg(x)}));const b=all.reduce((m,a)=>num(a.s.kg)>num(m.s.kg)?a:m,all[0]||{s:{kg:0}});
-    top=`<div class="tiny">Schwerster Satz</div><b class="big" style="display:block;margin-top:4px">${b.x?fmt(num(b.s.kg),2)+' kg':'–'}</b><div class="muted small">${b.x?`× ${b.s.reps} Wdh · ${dFmt(b.x.t)}`:''}</div>`
+    top=`<div class="tiny">Schwerster Satz</div><b class="big" style="display:block;margin-top:4px">${b.x?fmt(num(b.s.kg),2)+' kg':'–'}</b><div class="muted small">${b.x?`× ${b.s.reps} Wdh · ${dFmt(b.x.t)}`:''}</div>${b.x&&rel(b.s.kg,b.x.t)?`<div class="small" style="margin-top:6px;color:var(--acc)">= ${relTxt(b.s.kg,b.x.t,'')} Körpergewicht</div>`:''}`
       +pr.map(p=>`<div class="small" style="margin-top:6px;color:var(--gold)">🏆 Eingetragen: ${fmt(p.kg,2)} kg × ${p.reps} · ${dFmt(p.t,{day:'2-digit',month:'2-digit',year:'2-digit'})}</div>`).join('');
     series=[{pts:all.map(a=>({t:a.x.t,v:num(a.s.kg)}))}];hl=x=>maxKg(x);
   }else if(M==='load'){
@@ -889,7 +907,7 @@ function renderExercise(){
     unit='';hl=null;
   }
   v.innerHTML=`
-    <div class="chips" style="margin-bottom:10px">${[['ww','Arbeitsgewicht'],['kg','Max. Gewicht'],['load','Bester Satz'],['reps','Wiederholungen']].filter(([k])=>ss.length||k==='ww').map(([k,l])=>`<button class="chip ${M===k?'on':''}" data-pm="${k}">${l}</button>`).join('')}</div>
+    <div class="chips" style="margin-bottom:10px">${[['ww','Arbeitsgewicht'],['kg','Max. Gewicht'],['rel','Relativ'],['load','Bester Satz'],['reps','Wiederholungen']].filter(([k])=>(ss.length||k==='ww')&&(k!=='rel'||bwAt())).map(([k,l])=>`<button class="chip ${M===k?'on':''}" data-pm="${k}">${l}</button>`).join('')}</div>
     <div class="card">${top}</div>
     <div class="card"><canvas id="pchart" height="200"></canvas>
       ${series.length>1?`<div class="row small" style="gap:12px;margin-top:8px;flex-wrap:wrap">${series.map(x=>`<span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${x.color};margin-right:4px"></span>${x.label}</span>`).join('')}</div>`:''}</div>
@@ -923,7 +941,7 @@ function drawChart(c,series,unit=''){
   const t0=Math.min(...ts),t1=Math.max(...ts);
   const X=t=>pl+(t-t0)/(t1-t0)*(W-pl-pr),Y=v=>pt+(1-(v-lo)/(hi-lo))*(H-pt-pb);
   g.strokeStyle=line;g.lineWidth=1;g.textAlign='right';g.textBaseline='middle';
-  for(let i=0;i<=3;i++){const v=lo+(hi-lo)*i/3,y=Y(v);g.beginPath();g.moveTo(pl,y);g.lineTo(W-pr,y);g.stroke();g.fillText(fmt(v,0),pl-6,y)}
+  const dec=hi-lo<3?2:0;for(let i=0;i<=3;i++){const v=lo+(hi-lo)*i/3,y=Y(v);g.beginPath();g.moveTo(pl,y);g.lineTo(W-pr,y);g.stroke();g.fillText(fmt(v,dec),pl-6,y)}
   g.textBaseline='top';
   [t0,(t0+t1)/2,t1].forEach((t,i)=>{g.textAlign=['left','center','right'][i];g.fillText(dFmt(t,{day:'2-digit',month:'2-digit'}),i===0?pl:i===2?W-pr:X(t),H-pb+8)});
   series.forEach((sr,si)=>{const pts=[...sr.pts].sort((a,b)=>a.t-b.t);
@@ -931,7 +949,7 @@ function drawChart(c,series,unit=''){
       g.beginPath();pts.forEach((p,i)=>i?g.lineTo(X(p.t),Y(p.v)):g.moveTo(X(p.t),Y(p.v)));g.lineTo(X(pts[pts.length-1].t),H-pb);g.lineTo(X(pts[0].t),H-pb);g.closePath();g.fillStyle=grad;g.fill()}
     g.beginPath();pts.forEach((p,i)=>i?g.lineTo(X(p.t),Y(p.v)):g.moveTo(X(p.t),Y(p.v)));g.strokeStyle=sr.color;g.lineWidth=2.5;g.lineJoin='round';g.stroke();
     g.fillStyle=sr.color;pts.forEach(p=>{g.beginPath();g.arc(X(p.t),Y(p.v),3,0,7);g.fill()});
-    if(series.length===1){const l=pts[pts.length-1];g.fillStyle=cv('var(--text)');g.font='600 12px system-ui';g.textAlign='right';g.textBaseline='bottom';g.fillText(fmt(l.v)+unit,W-pr,Y(l.v)-6>12?Y(l.v)-6:Y(l.v)+18)}
+    if(series.length===1){const l=pts[pts.length-1];g.fillStyle=cv('var(--text)');g.font='600 12px system-ui';g.textAlign='right';g.textBaseline='bottom';g.fillText(fmt(l.v,unit==='×'?2:1)+unit,W-pr,Y(l.v)-6>12?Y(l.v)-6:Y(l.v)+18)}
   });
 }
 
@@ -945,6 +963,9 @@ function renderMore(){
     <div class="grid2"><button class="btn" id="cAddT">${ICON.plus} Trainingstag</button><button class="btn" id="cAddR">${ICON.plus} Rest Day</button></div>
     <div class="sect tiny">Übungen</div>
     <div class="card" style="padding:4px 14px"><div class="list-item" id="openLib" style="cursor:pointer"><span>Alle Übungen <span class="muted">(${S.exercises.length})</span></span><span class="muted" style="font-size:20px">›</span></div></div>
+    <div class="sect tiny">Körpergewicht</div>
+    <div class="card"><div class="row" style="gap:8px"><input class="f" id="bwIn" inputmode="decimal" placeholder="${bwAt()?fmt(bwAt(),1)+' kg':'z. B. 85'}" style="flex:1"><span class="muted">kg</span><button class="btn acc" id="bwAdd">Speichern</button></div>
+      ${(S.body||[]).length?`<div style="margin-top:8px">${[...S.body].sort((a,b)=>b.t-a.t).slice(0,5).map(b=>`<div class="list-item" style="padding:8px 0"><span class="small"><b>${fmt(b.kg,1)} kg</b> <span class="muted">· ${dFmt(b.t,{day:'2-digit',month:'2-digit',year:'2-digit'})}</span></span><button class="btn ghost" data-bwdel="${b.id}" style="color:var(--red);padding:6px">✕</button></div>`).join('')}</div>`:'<div class="muted small" style="margin-top:6px">Für die relative Stärke (z. B. 1,2× Körpergewicht).</div>'}</div>
     <div class="sect tiny">Einstellungen</div>
     <div class="card" style="padding:4px 14px"><div class="list-item"><span>Pause nach jedem Satz<div class="muted small">zählt auch für die Trainingszeit</div></span><select class="f" id="rest" style="width:auto">${[0,45,60,90,120,150,180,240,300].map(s=>`<option value="${s}" ${S.settings.rest===s?'selected':''}>${s?Math.floor(s/60)+':'+String(s%60).padStart(2,'0')+' min':'aus'}</option>`).join('')}</select></div></div>
     <div class="sect tiny">Daten-Backup</div>
@@ -970,6 +991,8 @@ function renderMore(){
   $('#cAddR').onclick=()=>{const ci=cycleIdx();S.cycle.days.push('rest');setToday(ci);save();render()};
   $('#openLib').onclick=()=>openPage(libraryPage());
   $('#rest').onchange=e=>{S.settings.rest=+e.target.value;save();toast('Gespeichert')};
+  $('#bwAdd').onclick=()=>{const k=num($('#bwIn').value);if(!(k>30&&k<300))return toast('Bitte gültiges Gewicht');addBW(k);render()};
+  v.querySelectorAll('[data-bwdel]').forEach(b=>b.onclick=()=>{if(confirm('Eintrag löschen?')){S.body=S.body.filter(x=>x.id!==b.dataset.bwdel);save();render()}});
   $('#exp').onclick=exportJSON;
   $('#imp').onclick=()=>$('#importFile').click();
   $('#csv').onclick=exportCSV;
