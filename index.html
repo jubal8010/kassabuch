@@ -556,11 +556,14 @@ const provBase=(e,pt)=>{const goods=num(e.total)-Math.max(0,num(e.extra));return
 const provAmt=e=>{const pt=e.partner;if(!pt)return 0;return r2(Math.max(0,provBase(e,pt)-shipNet(e))*num(pt.pct)/100)};
 const saleProfit=e=>r2(num(e.total)-num(e.cogs)-portoCost(e)-provAmt(e));
 const provDesc=pt=>`${esc(pt.name)} · ${num(pt.pct)} % ${BASES[pt.base||'roh']}`;
+// Ausgabe mit Partner geteilt: sein Anteil wird von seiner offenen Provision abgezogen
+const shareAmt=e=>e&&e.costShare?r2(num(e.total)*num(e.costShare.pct)/100):0;
 function partnerStats(id){
   const sales=S.entries.filter(e=>e.type==='verkauf'&&live(e)&&e.delivered!==false&&e.partner?.id===id);
   const pend=S.entries.filter(e=>e.type==='verkauf'&&live(e)&&e.delivered===false&&e.partner?.id===id);
   const earned=r2(sales.reduce((s,e)=>s+provAmt(e),0)),paid=r2(S.entries.filter(e=>e.type==='ausgabe'&&e.partnerPayout===id).reduce((s,e)=>s+paidSum(e),0));
-  return{sales,pend,n:sales.length,umsatz:r2(sales.reduce((s,e)=>s+num(e.total),0)),earned,paid,open:r2(earned-paid),pendAmt:r2(pend.reduce((s,e)=>s+provAmt(e),0))};
+  const shares=S.entries.filter(e=>e.type==='ausgabe'&&e.costShare?.id===id),shared=r2(shares.reduce((s,e)=>s+shareAmt(e),0));
+  return{sales,pend,n:sales.length,umsatz:r2(sales.reduce((s,e)=>s+num(e.total),0)),earned,paid,shares,shared,open:r2(earned-paid-shared),pendAmt:r2(pend.reduce((s,e)=>s+provAmt(e),0))};
 }
 const partnerSelect=(attr,sel)=>partners().length?`<label class="field"><span>Vermittelt durch (Provision)</span><select class="inp" ${attr}><option value="">— niemand —</option>${partners().filter(p=>p.active!==false||p.id===sel).map(p=>`<option value="${p.id}" ${p.id===sel?'selected':''}>${esc(p.name)} · ${num(p.pct)} % ${BASES[p.base||'roh']}</option>`).join('')}</select></label>`:'';
 const pf=e=>{const sub=(e.items||[]).reduce((s,i)=>s+num(i.qty)*num(i.price),0);if(Math.abs(sub)<0.005)return 1;const f=(num(e.total)-num(e.extra))/sub;return isFinite(f)?Math.max(0,f):1};
@@ -1462,7 +1465,7 @@ function openEntryForm(type,e,preset){
   F.payStatus=e?(isPaid(e)?'1':isPartial(e)?'p':'0'):(F.paid===false?'0':'1');
   F.stage=F.delivered?'uebergeben':(F.ready?'fertig':F.packing?'abpacken':'geplant');
   F.partnerId=F.partner?.id||F.partnerId||'';
-  UI.prEdit=null;initShip(e);F.pr=F.type==='verkauf'?effPr(F.party,F.partnerId):null;F.fApplied=norm(F.party);
+  UI.prEdit=null;initShip(e);F.shareId=F.costShare?.id||'';F.sharePct=F.costShare?String(F.costShare.pct):'50';F.pr=F.type==='verkauf'?effPr(F.party,F.partnerId):null;F.fApplied=norm(F.party);
   if(e){F.override=e.type==='verkauf'&&e.discount?String(e.total):'';F.amount=e.type==='ausgabe'?e.total:'';F.updateEk=false}
   if(F.type!=='ausgabe'&&!F.items.length)F.items.push({pid:'',qty:1,price:0});
   renderEntryForm();
@@ -1508,12 +1511,13 @@ function addrFields(a,attr){a=a||{};const f=(k,label,ph,extra='')=>`<label class
    <div class="grid2">${f('extra','Stiege / Tür / Zusatz','optional','autocomplete="address-line2"')}${f('country','Land','Österreich','list="countryList" autocomplete="country-name"')}</div>
    <datalist id="countryList">${['Österreich','Deutschland','Schweiz','Italien','Slowenien','Ungarn','Tschechien','Liechtenstein'].map(c=>`<option value="${c}">`).join('')}</datalist>`}
 function partyDataHTML(){const nw=isNewCust(F.party);F.pdNew=nw;F.addr=F.addr||getAddr(F.partyAddr,F.partyAddress);
-  return nw?`<div class="card" style="margin:-2px 0 12px;padding:12px 14px 2px">
-    <div class="cb-l" style="margin-bottom:8px">Neukunde – Lieferadresse & Kontakt (optional, wird beim Kunden gespeichert)</div>
+  const has=F.partyAddress||F.partyPhone||F.partyEmail;
+  return nw?`<details class="card" style="margin:-2px 0 12px;padding:10px 14px 2px" ${has?'open':''}>
+    <summary class="cb-l" style="cursor:pointer;padding-bottom:10px">Neukunde – Lieferadresse & Kontakt hinzufügen (optional)</summary>
     ${addrFields(F.addr,'data-addr')}
     <div class="grid2"><label class="field"><span>Telefon</span><input class="inp" type="tel" data-f="partyPhone" value="${esc(F.partyPhone||'')}" placeholder="+43 …"></label>
-     <label class="field"><span>E-Mail</span><input class="inp" type="email" data-f="partyEmail" value="${esc(F.partyEmail||'')}" placeholder="name@…"></label></div></div>`
-   :`<details class="card" style="margin:-2px 0 12px;padding:10px 14px 0" ${F.partyAddress?'':'open'}><summary class="cb-l" style="cursor:pointer;padding-bottom:10px">Lieferadresse${F.partyAddress?': '+esc(F.partyAddress.replace(/\n/g,', ')):' (optional)'}</summary>${addrFields(F.addr,'data-addr')}</details>`}
+     <label class="field"><span>E-Mail</span><input class="inp" type="email" data-f="partyEmail" value="${esc(F.partyEmail||'')}" placeholder="name@…"></label></div></details>`
+   :`<details class="card" style="margin:-2px 0 12px;padding:10px 14px 0"><summary class="cb-l" style="cursor:pointer;padding-bottom:10px">Lieferadresse${F.partyAddress?': '+esc(F.partyAddress.replace(/\n/g,', ')):' (optional)'}</summary>${addrFields(F.addr,'data-addr')}</details>`}
 function applyFCust(){if(F.type!=='verkauf')return;const pr=effPr(F.party,F.partnerId);reprice(F.items,F.pr,pr);F.pr=pr;F.fApplied=norm(F.party)}
 // Kunde im Formular geändert: nur Kundenbox, Kacheln und Preise neu – das Namensfeld bleibt (Tastatur bleibt offen)
 function refreshFormCust(){if(!F)return;
@@ -1570,7 +1574,10 @@ function renderEntryForm(){
    ${t==='verkauf'?`<div id="custBox">${custBox('f')}</div>`:''}
    ${t==='verkauf'?`<div id="partyData">${partyDataHTML()}</div>`:''}
    ${t==='ausgabe'?`<div class="grid2"><label class="field"><span>Beschreibung / Empfänger</span><input class="inp" data-f="party" value="${esc(F.party)}" placeholder="z. B. Post AG"></label>
-     <label class="field"><span>Betrag €</span><input class="inp num" type="number" inputmode="decimal" min="0" step="0.01" data-f="amount" value="${F.amount}"></label></div>`:''}
+     <label class="field"><span>Betrag €</span><input class="inp num" type="number" inputmode="decimal" min="0" step="0.01" data-f="amount" value="${F.amount}"></label></div>
+     ${partners().length&&!F.partnerPayout?`<div class="ship-row" style="grid-template-columns:minmax(0,1fr) 6.5em"><label class="field"><span>Kosten teilen mit</span><select class="inp" data-f="shareId"><option value="">— niemand —</option>${partners().filter(p=>p.active!==false||p.id===F.shareId).map(p=>`<option value="${p.id}" ${p.id===F.shareId?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label>
+      ${F.shareId?`<label class="field"><span>Sein Anteil %</span><input class="inp num" type="number" inputmode="decimal" min="0" max="100" step="1" data-f="sharePct" value="${esc(F.sharePct)}"></label>`:'<span></span>'}</div>
+      ${F.shareId?'<p class="hint">Sein Anteil wird von seiner offenen Provision abgezogen.</p>':''}`:''}`:''}
    ${items}
    ${t==='verkauf'?`<div class="ship-row">
      <label class="field"><span>Versand €</span><input class="inp num" type="number" inputmode="decimal" min="0" step="0.01" data-f="ship" value="${esc(F.ship)}" placeholder="0 = kein Versand"></label>
@@ -1630,7 +1637,8 @@ function updateSummary(){
     el.innerHTML=`${c.ship?`<div class="l"><span>Ware</span><span class="num">${eur(c.sub)}</span></div><div class="l"><span>Versandkosten</span><span class="num">${eur(c.ship)}</span></div>`:''}<div class="l big"><span>Einkaufssumme</span><span class="num">${eur(c.total)}</span></div>
     <div class="l"><span>Verkaufswert (VK)</span><span class="num">${eur(vw)}</span></div>
     <div class="l"><span>Möglicher Rohertrag</span><span class="num ${vw-c.total>=0?'pos':'neg'}">${eur(vw-c.total)}${vw>0?' · '+Math.round((vw-c.total)/vw*100)+' %':''}</span></div>`;
-  }else el.innerHTML=`<div class="l big" style="border:0;margin:0;padding:0"><span>Ausgabe</span><span class="num">${eur(c.total)}</span></div>`;
+  }else{const pt=F.shareId&&partnerById(F.shareId),sh=pt?r2(c.total*Math.min(100,Math.max(0,num(F.sharePct)))/100):0;
+    el.innerHTML=`<div class="l big" style="border:0;margin:0;padding:0"><span>Ausgabe</span><span class="num">${eur(c.total)}</span></div>${pt?`<div class="l"><span>davon trägt ${esc(pt.name)} (${fmtPct(F.sharePct)} %)</span><span class="num pos">−${eur(sh)}</span></div><div class="l"><span><b>Dein Anteil</b></span><span class="num"><b>${eur(c.total-sh)}</b></span></div>`:''}`}
 }
 async function saveEntry(){
   const c=formCalc();
@@ -1642,7 +1650,8 @@ async function saveEntry(){
     method:F.method,note:F.note.trim(),total:c.total,sample:old?.sample||false,att:F.att||[]};
   if(F.type==='verkauf'){e.delivered=F.stage==='uebergeben';e.ready=F.stage==='fertig';if(!e.ready)delete e.ready;e.packing=F.stage==='abpacken';if(!e.packing)delete e.packing}
   else if(F.type==='einkauf'){e.delivered=!!F.delivered;delete e.ready;delete e.packing}
-  if(F.type==='ausgabe'){e.expenseCat=F.expenseCat;delete e.items}
+  if(F.type==='ausgabe'){e.expenseCat=F.expenseCat;delete e.items;const sp=Math.min(100,Math.max(0,num(F.sharePct))),pt=F.shareId&&partnerById(F.shareId);
+    if(pt&&sp>0)e.costShare={id:pt.id,name:pt.name,pct:sp};else delete e.costShare}
   else{
     const shipF=F.type==='einkauf'&&F.shipToEk!==false&&c.sub>0?1+num(F.extra)/c.sub:1;
     e.items=F.items.map(i=>{const p=prodById(i.pid);return{pid:i.pid,name:i.name||p?.name||'?',qty:num(i.qty),price:r2(num(i.price)),ek:r2(F.type==='verkauf'?num(i.ek??p?.ek):num(i.price)*shipF),tax:i.tax??(S.settings.kleinunternehmer?0:num(p?.tax??S.settings.defaultTax)),unit:i.unit||p?.unit||'Stk'}});
@@ -1721,7 +1730,7 @@ async function shareCode(id){const e=S.entries.find(x=>x.id===id);if(!e)return;
 function openEntry(id){
   const e=S.entries.find(x=>x.id===id);if(!e)return;if(UI.pickOk&&UI.pickOk!==id)UI.pickOk=null;
   if(UI.pmId!==id){UI.pm=null;UI.pmId=id}
-  const lines=e.type==='ausgabe'?`<div class="l"><span>${esc(e.expenseCat||'')}</span><span class="num">${eur(e.total)}</span></div>`
+  const lines=e.type==='ausgabe'?`<div class="l"><span>${esc(e.expenseCat||'')}</span><span class="num">${eur(e.total)}</span></div>${e.costShare?`<div class="l"><span>davon trägt ${esc(e.costShare.name)} (${fmtPct(e.costShare.pct)} %)<br><small class="muted">von seiner Provision abgezogen</small></span><span class="num pos">−${eur(shareAmt(e))}</span></div>`:''}`
    :(e.items||[]).map(i=>`<div class="l"><span>${i.qty}× ${esc(i.name)} à ${eur(i.price)}${e.type==='einkauf'&&e.extra&&Math.abs(num(i.ek)-num(i.price))>0.004?` <span class="muted">(mit Versand ${eur(i.ek)})</span>`:''}</span><span class="num">${eur(i.qty*i.price)}</span></div>`).join('')
     +(e.extra?`<div class="l"><span>${e.type==='einkauf'?'Versandkosten':'Versand (zahlt Kunde)'}</span><span class="num">${eur(e.extra)}</span></div>`:'')
     +(e.discount?`<div class="l"><span>${e.discount>0?'Rabatt':'Aufschlag'}</span><span class="num">${e.discount>0?'−':'+'}${eur(Math.abs(e.discount))}</span></div>`:'');
@@ -1829,13 +1838,14 @@ function openPartner(id){
    <p class="muted" style="margin:-6px 0 12px">${num(p.pct)} % ${BASES[p.base||'roh']}${p.active===false?' · inaktiv':''}</p>
    <div class="kpis" style="margin:0 0 12px">
     <div class="kpi"><div class="lbl">Offen auszuzahlen</div><div class="val ${ps.open>0.005?'warn':''}">${eur(ps.open)}</div></div>
-    <div class="kpi"><div class="lbl">Bereits ausgezahlt</div><div class="val">${eur(ps.paid)}</div></div>
+    <div class="kpi"><div class="lbl">Bereits ausgezahlt</div><div class="val">${eur(ps.paid)}</div>${ps.shared?`<div class="sub2">+ ${eur(ps.shared)} Kostenanteile</div>`:''}</div>
     <div class="kpi"><div class="lbl">Provision gesamt</div><div class="val">${eur(ps.earned)}</div><div class="sub2">${ps.n} ${ps.n===1?'Verkauf':'Verkäufe'} · Umsatz ${eur(ps.umsatz)}</div></div>
     <div class="kpi"><div class="lbl">In offenen Bestellungen</div><div class="val">${eur(ps.pendAmt)}</div><div class="sub2">${ps.pend.length} noch nicht übergeben</div></div>
    </div>
    ${ps.open>0.005?`<button class="btn" style="margin-bottom:8px" data-act="payout-partner" data-id="${id}">${eur(ps.open)} auszahlen</button>`:''}
    <div class="btn-row" style="margin-bottom:14px"><button class="btn ghost" data-act="partner-pdf" data-id="${id}">⤓ Abrechnung als PDF</button><button class="btn ghost" data-act="edit-partner" data-id="${id}">Bearbeiten</button></div>
    ${ps.sales.length?`<div class="eyebrow" style="margin-bottom:6px">Vermittelte Verkäufe</div><div class="list" style="margin-bottom:14px">${sorted(ps.sales).reverse().slice(0,30).map(e=>`<button class="row" data-act="open-entry" data-id="${e.id}"><span class="tag vk">${ICON.in}</span><span style="min-width:0"><span class="row-title" style="display:block">${esc(e.party||'Laufkunde')}</span><span class="row-sub" style="display:block">${fdate(e.date)} · ${eur(e.total)}</span></span><span class="row-amt"><span class="num">${eur(provAmt(e))}</span><span class="row-sub">Provision</span></span></button>`).join('')}</div>`:''}
+   ${ps.shares.length?`<div class="eyebrow" style="margin-bottom:6px">Geteilte Ausgaben (von Provision abgezogen)</div><div class="card" style="padding:4px 14px;margin-bottom:14px">${sorted(ps.shares).map(e=>`<div class="kv" data-act="open-entry" data-id="${e.id}" style="cursor:pointer"><span>${fdate(e.date)} · ${esc(e.party||e.expenseCat||'Ausgabe')} <small class="muted">${fmtPct(e.costShare.pct)} % von ${eur(e.total)}</small></span><b>${eur(shareAmt(e))}</b></div>`).join('')}</div>`:''}
    ${pays.length?`<div class="eyebrow" style="margin-bottom:6px">Auszahlungen</div><div class="card" style="padding:4px 14px">${pays.map(e=>`<div class="kv"><span>${fdate(e.date)} · ${METHODS[e.method]||''}</span><b>${eur(e.total)}</b></div>`).join('')}</div>`:''}`);
 }
 function openPayout(id){
@@ -1950,6 +1960,7 @@ async function partnerPDF(id,k){
   const pt=partnerById(id);if(!pt)return;const ps=partnerStats(id),rg=periodRange(k),inR=d=>d>=rg.from&&d<=rg.to;
   const sales=ps.sales.filter(e=>inR(e.date)).sort((a,b)=>(a.date+(a.created||'')).localeCompare(b.date+(b.created||'')));
   const pays=S.entries.filter(e=>e.type==='ausgabe'&&e.partnerPayout===id&&inR(e.date)).sort((a,b)=>a.date.localeCompare(b.date));
+  const shs=ps.shares.filter(e=>inR(e.date)).sort((a,b)=>a.date.localeCompare(b.date)),shP=r2(shs.reduce((s,e)=>s+shareAmt(e),0));
   const {jsPDF}=window.jspdf;const doc=new jsPDF({unit:'mm',format:'a4'});const W=210,M=14;const ink=[22,32,27],mut=[102,116,108],acc=[28,106,88],line=[212,219,211],neg=[173,58,45];
   let Y=pdfHead(doc,'Provisionsabrechnung',`${pt.name} · ${rg.label}`,[`Erstellt ${fdate(today())}`]);
   doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(...mut);
@@ -1970,10 +1981,12 @@ async function partnerPDF(id,k){
     lines.forEach(([l,v,c,b])=>{doc.setFont('helvetica',b?'bold':'normal');doc.setFontSize(10);doc.setTextColor(...ink);doc.text(pdfSafe(l),M+5,Y);doc.setTextColor(...(c||ink));doc.text(v,W-M-5,Y,{align:'right'});Y+=6.5});Y+=8};
   if(pays.length){doc.setFont('helvetica','bold');doc.setFontSize(10.5);doc.setTextColor(...ink);doc.text('Auszahlungen in diesem Zeitraum',M,Y);Y+=6;
     pays.forEach(e=>{doc.setFont('helvetica','normal');doc.setFontSize(9.5);doc.text(pdfSafe(`${fdate(e.date)} · ${METHODS[e.method]||''}`),M,Y);doc.text(pdfE(e.total),W-M,Y,{align:'right'});Y+=6});Y+=4}
-  box([['Provision in diesem Zeitraum',pdfE(sP),acc,true],['Ausgezahlt in diesem Zeitraum',pdfE(pays.reduce((s,e)=>s+num(e.total),0))],
-    ['Provision gesamt (seit Beginn)',pdfE(ps.earned)],['Ausgezahlt gesamt',pdfE(ps.paid)],['Offener Betrag heute',pdfE(ps.open),ps.open>0.005?neg:ink,true]]);
+  if(shs.length){doc.setFont('helvetica','bold');doc.setFontSize(10.5);doc.setTextColor(...ink);doc.text('Geteilte Ausgaben in diesem Zeitraum (sein Anteil)',M,Y);Y+=6;
+    shs.forEach(e=>{if(Y>270){doc.addPage();Y=20}doc.setFont('helvetica','normal');doc.setFontSize(9.5);doc.text(pdfSafe(`${fdate(e.date)} · ${e.party||e.expenseCat||'Ausgabe'} · ${fmtPct(e.costShare.pct)} % von ${pdfE(e.total)}`),M,Y);doc.text(pdfE(shareAmt(e)),W-M,Y,{align:'right'});Y+=6});Y+=4}
+  box([['Provision in diesem Zeitraum',pdfE(sP),acc,true],['Ausgezahlt in diesem Zeitraum',pdfE(pays.reduce((s,e)=>s+num(e.total),0))],...(shs.length||ps.shared?[['Kostenanteile in diesem Zeitraum','− '+pdfE(shP)]]:[]),
+    ['Provision gesamt (seit Beginn)',pdfE(ps.earned)],['Ausgezahlt gesamt',pdfE(ps.paid)],...(ps.shared?[['Kostenanteile gesamt','− '+pdfE(ps.shared)]]:[]),['Offener Betrag heute',pdfE(ps.open),ps.open>0.005?neg:ink,true]]);
   if(ps.pend.length){doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(...mut);
-    doc.text(pdfSafe(`Noch nicht fällig: ${pdfE(ps.pendAmt)} aus ${ps.pend.length} offenen ${ps.pend.length===1?'Bestellung':'Bestellungen'} (${ps.pend.map(e=>fmtOrder(e.orderNo)).filter(Boolean).join(', ')}) – fällig bei Übergabe.`),M,Y,{maxWidth:W-2*M});}
+    doc.text(pdfSafe(`Noch nicht fällig: ${pdfE(ps.pendAmt)} aus ${ps.pend.length} offenen ${ps.pend.length===1?'Bestellung':'Bestellungen'}${(n=>n?' ('+n+')':'')(ps.pend.map(e=>fmtOrder(e.orderNo)).filter(Boolean).join(', '))} – fällig bei Übergabe.`),M,Y,{maxWidth:W-2*M});}
   await Store.save(`Provision_${fileSafe(pt.name)}_${fileSafe(rg.label)}.pdf`,doc.output('blob'));
 }
 /* ---------- Steuer-Rücklage, Nachkauf ---------- */
@@ -2717,6 +2730,7 @@ document.addEventListener('change',async ev=>{
   if(t.dataset.k==='pid'){const it=F.items[+t.dataset.row];it.pid=t.value;delete it.ek;delete it.name;delete it.tax;delete it.unit;const p=prodById(t.value);if(p)it.price=F.type==='verkauf'?custPrice(p,F.pr):p.ek;renderEntryForm();return}
   if(t.dataset.f==='paid'){F.payStatus=t.value;return}
   if(t.dataset.f==='delivered'){F.delivered=t.value==='1';if(!F.id)F.payStatus=F.delivered?'1':'0';renderEntryForm();return}
+  if(t.dataset.f==='shareId'){F.shareId=t.value;renderEntryForm();return}
   if(t.dataset.f==='partnerId'){F.partnerId=t.value;applyFCust();refreshFormCust();return}
   if(t.dataset.f==='shipPays'){F.shipPays=t.checked;F.shipTouched=true;if(F.shipPartial!=null){F.ship=String(F.shipPartial);F.shipPartial=null;const el=document.querySelector('[data-f="ship"]');if(el)el.value=F.ship}
     try{localStorage.setItem('kb_shippays',t.checked?'1':'0')}catch{}updateSummary();return}
@@ -2739,7 +2753,7 @@ function fitVals(){fitQ=0;document.querySelectorAll(FIT_SEL).forEach(el=>{el.sty
 const fitSoon=()=>{if(!fitQ)fitQ=requestAnimationFrame(fitVals)};
 new MutationObserver(fitSoon).observe(document.body,{childList:true,subtree:true});
 addEventListener('resize',fitSoon);document.fonts&&document.fonts.ready.then(fitSoon);
-const APP_VER='64';
+const APP_VER='65';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
