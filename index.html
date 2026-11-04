@@ -999,7 +999,7 @@ function openPartyForm(kind,name){
   PF={kind,id:r.id||null,oldName:name||''};
   openSheet(name?'Kontaktdaten':'Neuer '+K.one,`
    <label class="field"><span>Name</span><input class="inp" id="cName" value="${esc(r.name||'')}" placeholder="${kind==='kunde'?'Vor- und Nachname oder Firma':'Firmenname'}"></label>
-   <label class="field"><span>${kind==='kunde'?'Rechnungsadresse':'Adresse'}</span><textarea class="inp" id="cAddr" rows="2" placeholder="Straße Nr., PLZ Ort">${esc(r.address||'')}</textarea></label>
+   <label class="field"><span>${kind==='kunde'?'Lieferadresse':'Adresse'}</span><textarea class="inp" id="cAddr" rows="2" placeholder="Straße Nr., PLZ Ort">${esc(r.address||'')}</textarea></label>
    <div class="grid2"><label class="field"><span>Telefon</span><input class="inp" id="cPhone" type="tel" value="${esc(r.phone||'')}"></label>
     <label class="field"><span>E-Mail</span><input class="inp" id="cMail" type="email" value="${esc(r.email||'')}"></label></div>
    <label class="field"><span>Notiz</span><input class="inp" id="cNote" value="${esc(r.note||'')}" placeholder="${kind==='kunde'?'z. B. bevorzugt Abholung':'z. B. Kundennr., Mindestbestellwert, Shop-Link'}"></label>
@@ -1500,10 +1500,10 @@ const isNewCust=n=>{const v=String(n||'').trim();return !!v&&!isKnownCust(v)};
 function partyDataHTML(){const nw=isNewCust(F.party);F.pdNew=nw;
   return nw?`<div class="card" style="margin:-2px 0 12px;padding:12px 14px 2px">
     <div class="cb-l" style="margin-bottom:8px">Neukunde – Kontaktdaten (optional, werden beim Kunden gespeichert)</div>
-    <label class="field"><span>Adresse</span><textarea class="inp" data-f="partyAddress" rows="2" placeholder="Straße Nr., PLZ Ort">${esc(F.partyAddress)}</textarea></label>
+    <label class="field"><span>Lieferadresse</span><textarea class="inp" data-f="partyAddress" rows="2" placeholder="Straße Nr., PLZ Ort">${esc(F.partyAddress)}</textarea></label>
     <div class="grid2"><label class="field"><span>Telefon</span><input class="inp" type="tel" data-f="partyPhone" value="${esc(F.partyPhone||'')}" placeholder="+43 …"></label>
      <label class="field"><span>E-Mail</span><input class="inp" type="email" data-f="partyEmail" value="${esc(F.partyEmail||'')}" placeholder="name@…"></label></div></div>`
-   :`<label class="field"><span>Rechnungsadresse (optional)</span><textarea class="inp" data-f="partyAddress" rows="2" placeholder="Nur nötig bei Rechnungen über 400 €">${esc(F.partyAddress)}</textarea></label>`}
+   :`<label class="field"><span>Lieferadresse (optional)</span><textarea class="inp" data-f="partyAddress" rows="2" placeholder="Straße Nr., PLZ Ort">${esc(F.partyAddress)}</textarea></label>`}
 function applyFCust(){if(F.type!=='verkauf')return;const pr=effPr(F.party,F.partnerId);reprice(F.items,F.pr,pr);F.pr=pr;F.fApplied=norm(F.party)}
 // Kunde im Formular geändert: nur Kundenbox, Kacheln und Preise neu – das Namensfeld bleibt (Tastatur bleibt offen)
 function refreshFormCust(){if(!F)return;
@@ -2726,7 +2726,7 @@ function fitVals(){fitQ=0;document.querySelectorAll(FIT_SEL).forEach(el=>{el.sty
 const fitSoon=()=>{if(!fitQ)fitQ=requestAnimationFrame(fitVals)};
 new MutationObserver(fitSoon).observe(document.body,{childList:true,subtree:true});
 addEventListener('resize',fitSoon);document.fonts&&document.fonts.ready.then(fitSoon);
-const APP_VER='61';
+const APP_VER='62';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
