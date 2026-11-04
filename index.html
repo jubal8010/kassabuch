@@ -210,6 +210,7 @@ button.row:hover{background:var(--surface-2)}
 textarea.inp{resize:vertical;min-height:60px}
 .grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.grid-zip{display:grid;grid-template-columns:minmax(0,6.5em) minmax(0,1fr);gap:10px}
 .grid-date{display:grid;grid-template-columns:minmax(0,8.4em) minmax(0,1fr);gap:10px}
 /* iOS: Datumsfeld sprengt sonst seine Spalte und ist mittig gesetzt */
 input[type=date].inp{-webkit-appearance:none;appearance:none;display:block;min-height:47px;text-align:left}
@@ -999,7 +1000,7 @@ function openPartyForm(kind,name){
   PF={kind,id:r.id||null,oldName:name||''};
   openSheet(name?'Kontaktdaten':'Neuer '+K.one,`
    <label class="field"><span>Name</span><input class="inp" id="cName" value="${esc(r.name||'')}" placeholder="${kind==='kunde'?'Vor- und Nachname oder Firma':'Firmenname'}"></label>
-   <label class="field"><span>${kind==='kunde'?'Lieferadresse':'Adresse'}</span><textarea class="inp" id="cAddr" rows="2" placeholder="Straße Nr., PLZ Ort">${esc(r.address||'')}</textarea></label>
+   <div class="field" style="margin-bottom:4px"><span>${kind==='kunde'?'Lieferadresse':'Adresse'}</span></div>${addrFields(getAddr(r.addr,r.address||''),'data-caddr')}
    <div class="grid2"><label class="field"><span>Telefon</span><input class="inp" id="cPhone" type="tel" value="${esc(r.phone||'')}"></label>
     <label class="field"><span>E-Mail</span><input class="inp" id="cMail" type="email" value="${esc(r.email||'')}"></label></div>
    <label class="field"><span>Notiz</span><input class="inp" id="cNote" value="${esc(r.note||'')}" placeholder="${kind==='kunde'?'z. B. bevorzugt Abholung':'z. B. Kundennr., Mindestbestellwert, Shop-Link'}"></label>
@@ -1015,7 +1016,7 @@ async function saveParty(){
   const other=recByName(PF.kind,name);
   if(other&&other.id!==PF.id){toast('Diesen Namen gibt es schon.');return}
   const base=PF.id?S[K.col].find(x=>x.id===PF.id)||{}:{};
-  const rec={...base,id:PF.id||newId(),name,address:$('#cAddr').value.trim(),phone:$('#cPhone').value.trim(),email:$('#cMail').value.trim(),note:$('#cNote').value.trim()};
+  const rec={...base,id:PF.id||newId(),name,address:composeAddr(Object.fromEntries([...document.querySelectorAll('[data-caddr]')].map(x=>[x.dataset.caddr,x.value]))),addr:cleanAddr(Object.fromEntries([...document.querySelectorAll('[data-caddr]')].map(x=>[x.dataset.caddr,x.value]))),phone:$('#cPhone').value.trim(),email:$('#cMail').value.trim(),note:$('#cNote').value.trim()};
   if($('#cPrMode')){const m=$('#cPrMode').value;if(m==='rabatt'||m==='ek')rec.price={mode:m,pct:Math.max(0,r2(num($('#cPrPct').value)))};else delete rec.price}
   try{await Store.put(K.col,rec)}catch{return}
   if(PF.oldName&&norm(PF.oldName)!==norm(name)){
@@ -1036,7 +1037,7 @@ let LB=null;
 function openLabel(o={}){
   const st=S.settings,e=o.entryId?S.entries.find(x=>x.id===o.entryId):null;
   const name=o.name||e?.party||'';const c=name?custByName(name):null;
-  const a=splitAddr(e?.partyAddress||c?.address||''),s=splitAddr(st.address);
+  const a=e?.partyAddress?getAddr(e.partyAddr,e.partyAddress):getAddr(c?.addr,c?.address||''),s=splitAddr(st.address);
   const prev=e?.ship||{};
   LB={entryId:e?.id||null,custName:c?.name||null,
     toName:name,toExtra:a.extra,toStreet:a.street,toZip:a.zip,toCity:a.city,toCountry:a.country||'Österreich',toPhone:c?.phone||e?.partyPhone||'',
@@ -1141,7 +1142,7 @@ async function labelPDF(){
   doc.setProperties({title:'Versandlabel '+pdfTxt(LB.toName)});
   const fn=('Versandlabel_'+LB.toName).replace(/[^\wäöüÄÖÜß-]+/g,'_').slice(0,60)+'.pdf';
   await Store.save(fn,doc.output('blob'));
-  if(LB.custName){const c=custByName(LB.custName);if(c&&!c.address){Store.put('customers',{...c,address:[LB.toExtra,LB.toStreet,[LB.toZip,LB.toCity].join(' '),isAT(LB.toCountry)?'':LB.toCountry].filter(Boolean).join('\n')}).catch(()=>{})}}
+  if(LB.custName){const c=custByName(LB.custName);if(c&&!c.address){Store.put('customers',{...c,addr:cleanAddr({street:LB.toStreet,extra:LB.toExtra,zip:LB.toZip,city:LB.toCity,country:LB.toCountry}),address:composeAddr({street:LB.toStreet,extra:LB.toExtra,zip:LB.toZip,city:LB.toCity,country:LB.toCountry})}).catch(()=>{})}}
 }
 function printNow(cls){
   const done=()=>{document.body.classList.remove(cls);const ps=$('#lblPage');if(ps)ps.textContent='';window.removeEventListener('afterprint',done)};
@@ -1156,7 +1157,7 @@ function printLabel(){
   let ps=$('#lblPage');if(!ps){ps=document.createElement('style');ps.id='lblPage';document.head.appendChild(ps)}
   ps.textContent=LB.fmt==='a6'?'@page{size:100mm 150mm;margin:0}':'@page{size:A4;margin:12mm}';
   printNow('print-lbl');
-  if(LB.custName){const c=custByName(LB.custName);if(c&&!c.address){Store.put('customers',{...c,address:[LB.toExtra,LB.toStreet,[LB.toZip,LB.toCity].join(' '),isAT(LB.toCountry)?'':LB.toCountry].filter(Boolean).join('\n')}).catch(()=>{})}}
+  if(LB.custName){const c=custByName(LB.custName);if(c&&!c.address){Store.put('customers',{...c,addr:cleanAddr({street:LB.toStreet,extra:LB.toExtra,zip:LB.toZip,city:LB.toCity,country:LB.toCountry}),address:composeAddr({street:LB.toStreet,extra:LB.toExtra,zip:LB.toZip,city:LB.toCity,country:LB.toCountry})}).catch(()=>{})}}
 }
 async function saveShipment(){
   lbFields();const e=S.entries.find(x=>x.id===LB.entryId);if(!e)return;
@@ -1457,7 +1458,7 @@ function openEntryForm(type,e,preset){
   F=e?JSON.parse(JSON.stringify(e)):{id:null,newId:newId(),type,date:today(),party:'',partyAddress:'',items:[],extra:0,override:'',method:'bar',paid:true,delivered:true,note:'',expenseCat:S.settings.expenseCats[0]||'Sonstiges',amount:'',updateEk:true,att:[]};
   if(!e&&type==='verkauf'){F.delivered=false;F.paid=false}
   if(preset)Object.assign(F,preset);
-  ['party','partyAddress','note'].forEach(k=>F[k]=F[k]||'');F.items=F.items||[];F.att=F.att||[];F.delivered=F.type==='ausgabe'||F.delivered!==false;
+  ['party','partyAddress','note'].forEach(k=>F[k]=F[k]||'');F.addr=getAddr(F.partyAddr,F.partyAddress);F.items=F.items||[];F.att=F.att||[];F.delivered=F.type==='ausgabe'||F.delivered!==false;
   F.payStatus=e?(isPaid(e)?'1':isPartial(e)?'p':'0'):(F.paid===false?'0':'1');
   F.stage=F.delivered?'uebergeben':(F.ready?'fertig':F.packing?'abpacken':'geplant');
   F.partnerId=F.partner?.id||F.partnerId||'';
@@ -1497,13 +1498,22 @@ function pickerTiles(t){
 }
 // Neukunde (Name noch unbekannt): Adresse, Telefon, E-Mail gleich mit erfassen
 const isNewCust=n=>{const v=String(n||'').trim();return !!v&&!isKnownCust(v)};
-function partyDataHTML(){const nw=isNewCust(F.party);F.pdNew=nw;
+/* Adresse in Einzelfeldern: zusätzlich zum Text (Rechnung, Backup) als Felder gespeichert, damit nichts falsch zerlegt wird */
+const getAddr=(obj,str)=>obj&&typeof obj==='object'?{street:'',extra:'',zip:'',city:'',country:'',...obj}:splitAddr(str);
+const cleanAddr=a=>{const o={};['street','extra','zip','city','country'].forEach(k=>{const v=String(a?.[k]||'').trim();if(v)o[k]=v});return o};
+const composeAddr=a=>[a.street,a.extra,[a.zip,a.city].filter(x=>String(x||'').trim()).join(' '),a.country&&!isAT(a.country)?a.country:''].map(x=>String(x||'').trim()).filter(Boolean).join('\n');
+function addrFields(a,attr){a=a||{};const f=(k,label,ph,extra='')=>`<label class="field"><span>${label}</span><input class="inp" ${attr}="${k}" value="${esc(a[k]||'')}" placeholder="${ph}" ${extra}></label>`;
+  return `${f('street','Straße und Hausnummer','z. B. Hauptplatz 1','autocomplete="address-line1"')}
+   <div class="grid-zip">${f('zip','PLZ','8010','inputmode="numeric" autocomplete="postal-code"')}${f('city','Ort','Graz','autocomplete="address-level2"')}</div>
+   <div class="grid2">${f('extra','Stiege / Tür / Zusatz','optional','autocomplete="address-line2"')}${f('country','Land','Österreich','list="countryList" autocomplete="country-name"')}</div>
+   <datalist id="countryList">${['Österreich','Deutschland','Schweiz','Italien','Slowenien','Ungarn','Tschechien','Liechtenstein'].map(c=>`<option value="${c}">`).join('')}</datalist>`}
+function partyDataHTML(){const nw=isNewCust(F.party);F.pdNew=nw;F.addr=F.addr||getAddr(F.partyAddr,F.partyAddress);
   return nw?`<div class="card" style="margin:-2px 0 12px;padding:12px 14px 2px">
-    <div class="cb-l" style="margin-bottom:8px">Neukunde – Kontaktdaten (optional, werden beim Kunden gespeichert)</div>
-    <label class="field"><span>Lieferadresse</span><textarea class="inp" data-f="partyAddress" rows="2" placeholder="Straße Nr., PLZ Ort">${esc(F.partyAddress)}</textarea></label>
+    <div class="cb-l" style="margin-bottom:8px">Neukunde – Lieferadresse & Kontakt (optional, wird beim Kunden gespeichert)</div>
+    ${addrFields(F.addr,'data-addr')}
     <div class="grid2"><label class="field"><span>Telefon</span><input class="inp" type="tel" data-f="partyPhone" value="${esc(F.partyPhone||'')}" placeholder="+43 …"></label>
      <label class="field"><span>E-Mail</span><input class="inp" type="email" data-f="partyEmail" value="${esc(F.partyEmail||'')}" placeholder="name@…"></label></div></div>`
-   :`<label class="field"><span>Lieferadresse (optional)</span><textarea class="inp" data-f="partyAddress" rows="2" placeholder="Straße Nr., PLZ Ort">${esc(F.partyAddress)}</textarea></label>`}
+   :`<details class="card" style="margin:-2px 0 12px;padding:10px 14px 0" ${F.partyAddress?'':'open'}><summary class="cb-l" style="cursor:pointer;padding-bottom:10px">Lieferadresse${F.partyAddress?': '+esc(F.partyAddress.replace(/\n/g,', ')):' (optional)'}</summary>${addrFields(F.addr,'data-addr')}</details>`}
 function applyFCust(){if(F.type!=='verkauf')return;const pr=effPr(F.party,F.partnerId);reprice(F.items,F.pr,pr);F.pr=pr;F.fApplied=norm(F.party)}
 // Kunde im Formular geändert: nur Kundenbox, Kacheln und Preise neu – das Namensfeld bleibt (Tastatur bleibt offen)
 function refreshFormCust(){if(!F)return;
@@ -1637,7 +1647,7 @@ async function saveEntry(){
     const shipF=F.type==='einkauf'&&F.shipToEk!==false&&c.sub>0?1+num(F.extra)/c.sub:1;
     e.items=F.items.map(i=>{const p=prodById(i.pid);return{pid:i.pid,name:i.name||p?.name||'?',qty:num(i.qty),price:r2(num(i.price)),ek:r2(F.type==='verkauf'?num(i.ek??p?.ek):num(i.price)*shipF),tax:i.tax??(S.settings.kleinunternehmer?0:num(p?.tax??S.settings.defaultTax)),unit:i.unit||p?.unit||'Stk'}});
     if(F.type==='einkauf'){e.extra=r2(num(F.extra));e.shipToEk=F.shipToEk!==false;if(!e.extra){delete e.extra;delete e.shipToEk}}
-    if(F.type==='verkauf'){const sv=shipVals();Object.assign(e,{partyAddress:F.partyAddress.trim(),extra:r2(sv.extra),regular:c.regular,discount:c.discount,cogs:c.cogs});const ps=partnerSnap(F.partnerId,old?.partner);if(ps)e.partner=ps;else delete e.partner;
+    if(F.type==='verkauf'){const sv=shipVals();Object.assign(e,{partyAddress:F.partyAddress.trim(),partyAddr:cleanAddr(F.addr),extra:r2(sv.extra),regular:c.regular,discount:c.discount,cogs:c.cogs});const ps=partnerSnap(F.partnerId,old?.partner);if(ps)e.partner=ps;else delete e.partner;
       if(F.shipTouched){if(sv.porto==null){delete e.porto;if(e.ship)e.ship={...e.ship,porto:null}}else{e.porto=r2(sv.porto);if(e.ship)e.ship={...e.ship,porto:e.porto||null}}}}
   }
   const prev=old?paysOf(old).map(p=>({...p})):[];let pays;
@@ -1652,8 +1662,9 @@ async function saveEntry(){
   const kind=e.type==='verkauf'?'kunde':e.type==='einkauf'?'lieferant':null;
   if(kind&&e.party){const r=recByName(kind,e.party);const addr=(e.partyAddress||'').trim();
     const ph=kind==='kunde'?String(F.partyPhone||'').trim():'',em=kind==='kunde'?String(F.partyEmail||'').trim():'';
-    if(!r)await Store.put(KIND[kind].col,{id:newId(),name:e.party,address:addr,phone:ph,email:em,note:''}).catch(()=>{});
-    else if((addr&&!r.address)||(ph&&!r.phone)||(em&&!r.email))await Store.put(KIND[kind].col,{...r,address:r.address||addr,phone:r.phone||ph,email:r.email||em}).catch(()=>{});}
+    const pa=kind==='kunde'&&e.partyAddr&&Object.keys(e.partyAddr).length?e.partyAddr:null;
+    if(!r)await Store.put(KIND[kind].col,{id:newId(),name:e.party,address:addr,...(pa?{addr:pa}:{}),phone:ph,email:em,note:''}).catch(()=>{});
+    else if((addr&&!r.address)||(ph&&!r.phone)||(em&&!r.email))await Store.put(KIND[kind].col,{...r,address:r.address||addr,...(!r.address&&pa?{addr:pa}:{}),phone:r.phone||ph,email:r.email||em}).catch(()=>{});}
   if(F.type==='einkauf'&&old)await adjustEk(old,e);
   if(F.type==='einkauf'&&F.updateEk&&!old){const sm=stockMap();const isIn=e.delivered!==false;const msg=[];const byP={};
     e.items.forEach(i=>{byP[i.pid]=byP[i.pid]||{q:0,v:0};byP[i.pid].q+=num(i.qty);byP[i.pid].v+=num(i.qty)*num(i.ek)});
@@ -2677,6 +2688,7 @@ document.addEventListener('input',ev=>{
   if(t.id==='codesQ'){UI.codesQ=t.value;const tb=$('#codesTbl');if(tb)tb.innerHTML=codesTable();return}
   if(F&&t.id&&/^np(Name|Qty|Ek|Vk|Cat)$/.test(t.id)){F.npv=F.npv||{};F.npv[t.id]=t.value;return}
   if(!F)return;
+  if(t.dataset.addr){F.addr=F.addr||{};F.addr[t.dataset.addr]=t.value;F.partyAddress=composeAddr(F.addr);return}
   if(t.dataset.f==='ship'){F.ship=t.value;F.shipTouched=true;updateSummary();return}
   if(t.dataset.f==='party'&&F.type==='verkauf'){F.party=t.value;const v=t.value.trim();if((!v&&F.fApplied)||(isKnownCust(v)&&norm(v)!==F.fApplied)){applyFCust();refreshFormCust()}else updateSummary();
     const pd=$('#partyData');if(pd&&F.pdNew&&!isNewCust(v))pd.innerHTML=partyDataHTML();return}
@@ -2688,7 +2700,7 @@ document.addEventListener('change',async ev=>{
   if(t.dataset.attEntry&&t.files.length){const id=t.dataset.attEntry;const metas=await storeFiles([...t.files],id);t.value='';
     if(metas.length){const e=S.entries.find(x=>x.id===id);await Store.put('entries',{...e,att:[...(e.att||[]),...metas]}).catch(()=>{});toast(metas.length===1?'Beleg gespeichert':metas.length+' Belege gespeichert');openEntry(id)}return}
   if(t.dataset.attForm&&F&&t.files.length){const metas=await storeFiles([...t.files],F.id||F.newId);t.value='';F.att=[...(F.att||[]),...metas];renderEntryForm();return}
-  if(t.id==='lb_toName'&&LB){const c=custByName(t.value);if(c&&c.name!==LB.custName){LB.custName=c.name;const a=splitAddr(c.address);lbFields();Object.assign(LB,{custName:c.name,toName:c.name,toExtra:a.extra,toStreet:a.street,toZip:a.zip,toCity:a.city,toCountry:a.country||'Österreich',toPhone:c.phone||''});setTimeout(renderLabelForm,0)}else refreshLabel();return}
+  if(t.id==='lb_toName'&&LB){const c=custByName(t.value);if(c&&c.name!==LB.custName){LB.custName=c.name;const a=getAddr(c.addr,c.address);lbFields();Object.assign(LB,{custName:c.name,toName:c.name,toExtra:a.extra,toStreet:a.street,toZip:a.zip,toCity:a.city,toCountry:a.country||'Österreich',toPhone:c.phone||''});setTimeout(renderLabelForm,0)}else refreshLabel();return}
   if(t.id==='lb_xFrom'){try{localStorage.setItem('kb_xfrom',t.checked?'1':'0')}catch{}}
   if(t.id&&t.id.startsWith('lb_')&&LB){refreshLabel();return}
   if(t.id==='coOpen'){UI.kopen=t.checked;return}
@@ -2712,7 +2724,8 @@ document.addEventListener('change',async ev=>{
     const pd=$('#partyData');if(pd&&isNewCust(F.party)!==F.pdNew)pd.innerHTML=partyDataHTML()}
   if(t.dataset.f==='party'&&F.type==='verkauf'&&!F.partnerId){const lp=await askPartner(t.value.trim(),'f'+(F.id||F.newId));
     if(lp&&F){F.partnerId=lp.id;const sel=document.querySelector('[data-f="partnerId"]');if(sel)sel.value=F.partnerId;applyFCust();refreshFormCust();toast('Vermittler eingetragen: '+lp.name)}}
-  if(t.dataset.f==='party'&&F.type==='verkauf'){const c=custByName(t.value);if(c&&c.address&&!F.partyAddress.trim()){F.partyAddress=c.address;const ta=document.querySelector('[data-f="partyAddress"]');if(ta)ta.value=c.address}return}
+  if(!F)return;
+  if(t.dataset.f==='party'&&F.type==='verkauf'){const c=custByName(t.value);if(c&&c.address&&!F.partyAddress.trim()){F.partyAddress=c.address;F.addr=getAddr(c.addr,c.address);const pd=$('#partyData');if(pd)pd.innerHTML=partyDataHTML()}return}
   if(t.type==='checkbox'&&t.dataset.f){F[t.dataset.f]=t.checked;updateSummary();return}
   if(t.tagName==='SELECT'&&t.dataset.f){F[t.dataset.f]=t.value}
 });
@@ -2726,7 +2739,7 @@ function fitVals(){fitQ=0;document.querySelectorAll(FIT_SEL).forEach(el=>{el.sty
 const fitSoon=()=>{if(!fitQ)fitQ=requestAnimationFrame(fitVals)};
 new MutationObserver(fitSoon).observe(document.body,{childList:true,subtree:true});
 addEventListener('resize',fitSoon);document.fonts&&document.fonts.ready.then(fitSoon);
-const APP_VER='63';
+const APP_VER='64';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
