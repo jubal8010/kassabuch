@@ -1039,9 +1039,9 @@ function openLabel(o={}){
   const a=splitAddr(e?.partyAddress||c?.address||''),s=splitAddr(st.address);
   const prev=e?.ship||{};
   LB={entryId:e?.id||null,custName:c?.name||null,
-    toName:name,toExtra:a.extra,toStreet:a.street,toZip:a.zip,toCity:a.city,toCountry:a.country||'Österreich',toPhone:c?.phone||'',
+    toName:name,toExtra:a.extra,toStreet:a.street,toZip:a.zip,toCity:a.city,toCountry:a.country||'Österreich',toPhone:c?.phone||e?.partyPhone||'',
     fromName:st.company||st.owner||'',fromStreet:s.street+(s.extra?', '+s.extra:''),fromZip:s.zip,fromCity:s.city,fromCountry:s.country||'Österreich',
-    content:e?(e.items||[]).map(i=>`${i.qty}× ${i.name}`).join(', '):'',ref:e?(e.invoiceNo?'Rechnung '+e.invoiceNo:'Bestellung '+fdate(e.orderDate||e.date)):'',
+    content:e?(e.items||[]).map(i=>`${i.qty}× ${i.name}`).join(', '):'',ref:e?(e.orderNo?'Bestellung '+fmtOrder(e.orderNo):'')+(e.invoiceNo?(e.orderNo?' · ':'')+'Rechnung '+e.invoiceNo:'')||('Bestellung '+fdate(e.orderDate||e.date)):'',
     xFrom:(()=>{try{return localStorage.getItem('kb_xfrom')!=='0'}catch{return true}})(),weight:prev.weight||'',fragile:false,noBend:false,up:false,fmt:UI.lblFmt||'a6',
     tracking:prev.tracking||'',porto:'',bookPorto:true};
   renderLabelForm();
@@ -2726,7 +2726,7 @@ function fitVals(){fitQ=0;document.querySelectorAll(FIT_SEL).forEach(el=>{el.sty
 const fitSoon=()=>{if(!fitQ)fitQ=requestAnimationFrame(fitVals)};
 new MutationObserver(fitSoon).observe(document.body,{childList:true,subtree:true});
 addEventListener('resize',fitSoon);document.fonts&&document.fonts.ready.then(fitSoon);
-const APP_VER='62';
+const APP_VER='63';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
