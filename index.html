@@ -62,7 +62,6 @@ button:disabled{opacity:.45;cursor:not-allowed}
 h1{font-size:30px;font-weight:650;letter-spacing:-.03em;line-height:1.1;margin:0;text-wrap:balance}
 h2{font-size:18px;font-weight:650;letter-spacing:-.015em;color:var(--ink);margin:28px 0 10px;display:flex;align-items:center;gap:8px}
 .h-n{display:inline-grid;place-items:center;min-width:22px;height:22px;padding:0 7px;border-radius:99px;background:var(--surface-2);color:var(--muted);font-size:12.5px;font-weight:650;font-variant-numeric:tabular-nums;letter-spacing:0}
-.h-x{font-size:13px;font-weight:600;color:var(--accent);margin-left:auto}
 .add-btn{border:0;background:var(--accent);color:var(--accent-ink);font-weight:650;font-size:14px;border-radius:99px;padding:9px 16px;white-space:nowrap;flex-shrink:0}
 .sec-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:28px 0 10px}
 .sec-head h2{margin:0}
@@ -436,7 +435,10 @@ button.bar-col{border:0;background:none;padding:0;border-radius:4px}
 <script>
 /* ---------- helpers ---------- */
 const $=s=>document.querySelector(s);
-const r2=n=>Math.round((+n||0)*100)/100;
+const r2=n=>{n=+n||0;const r=Math.sign(n)*Math.round(Math.abs(n)*100+1e-7)/100;return r||0};
+// Kleine Einstellungen (Filter, Sortierung …) im Browser merken
+const lsGet=(k,d)=>{try{return localStorage.getItem(k)??d}catch{return d}};
+const lsSet=(k,v)=>{try{localStorage.setItem(k,v)}catch{}};
 const num=v=>{const n=parseFloat(String(v).replace(',','.'));return isFinite(n)?n:0};
 const EUR=new Intl.NumberFormat('de-AT',{style:'currency',currency:'EUR'});
 const eur=n=>EUR.format(r2(n));
@@ -461,16 +463,16 @@ const DEF={owner:'',company:'',address:'',email:'',phone:'',uidNr:'',iban:'',
   invoiceYear:new Date().getFullYear(),nextInvoice:1,partners:[],payDays:14,payTerms:'Zahlbar innerhalb von 14 Tagen ohne Abzug.'};
 
 const S={settings:{...DEF},products:[],entries:[],customers:[],suppliers:[],recurring:[]};
-const UI={ofilt:(()=>{try{return localStorage.getItem('kb_ofilt')||'alle'}catch{return'alle'}})(),osort:(()=>{try{return localStorage.getItem('kb_osort')||'alt'}catch{return'alt'}})(),csort:(()=>{try{return localStorage.getItem('kb_csort')||'zuletzt'}catch{return'zuletzt'}})(),lblFmt:(()=>{try{return localStorage.getItem('kb_lblfmt')||'a6'}catch{return'a6'}})(),ktab:'kunde',cart:[],kq:'',ksort:(()=>{try{return localStorage.getItem('kb_ksort')||'az'}catch{return'az'}})(),kstage:(()=>{try{return localStorage.getItem('kb_kstage')||'geplant'}catch{return'geplant'}})(),kcat:'alle',kpay:'bar',kparty:'',remTone:(()=>{try{return localStorage.getItem('kb_tone')||'du'}catch{return'du'}})(),cq:'',pq:'',pcat:'alle',psort:(()=>{try{return localStorage.getItem('kb_psort')||'kat'}catch{return'kat'}})(),screen:'start',period:'monat',filter:'alle',q:'',lagerCat:'alle',year:new Date().getFullYear(),ready:false};
+const UI={ofilt:lsGet('kb_ofilt','alle'),osort:lsGet('kb_osort','alt'),csort:lsGet('kb_csort','zuletzt'),lblFmt:lsGet('kb_lblfmt','a6'),ktab:'kunde',cart:[],kq:'',ksort:lsGet('kb_ksort','az'),kstage:lsGet('kb_kstage','geplant'),kcat:'alle',kpay:'bar',kparty:'',remTone:lsGet('kb_tone','du'),cq:'',pq:'',pcat:'alle',psort:lsGet('kb_psort','kat'),screen:'start',period:'monat',filter:'alle',q:'',lagerCat:'alle',year:new Date().getFullYear(),ready:false};
 const LKEY='kassabuch_v1';
 
-/* ---------- storage: cloud (db) with local fallback ---------- */
+/* ---------- Speicher: alles lokal auf dem Gerät (localStorage), Belege in IndexedDB ---------- */
 const Store={
-  mode:'local',base:null,downloads:null,got:{s:false,p:false,e:false},
+  mode:'local',
   loadLocal(){try{const v=JSON.parse(localStorage.getItem(LKEY)||'null');if(v){S.settings={...DEF,...v.settings};S.products=v.products||[];S.entries=v.entries||[];S.customers=v.customers||[];S.suppliers=v.suppliers||[];S.recurring=v.recurring||[]}}catch{}},
   saveLocal(){if(this.mode!=='local')return;try{localStorage.setItem(LKEY,JSON.stringify(S));saveWarn(false)}catch(e){console.error(e);saveWarn(true)}},
   async connect(){
-    this.loadLocal();this.downloads=true;UI.ready=true;
+    this.loadLocal();UI.ready=true;
     try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist()}catch{}
     try{localStorage.setItem('kb_test','1');localStorage.removeItem('kb_test')}catch{saveWarn(true)}
     render();
@@ -483,19 +485,13 @@ const Store={
   async put(col,obj,keepStamp){
     const clean=JSON.parse(JSON.stringify(obj));
     if(!(keepStamp&&clean.updated))clean.updated=new Date().toISOString();
-    if(this.mode==='cloud'){
-      try{await this.base.collection(col).doc(obj.id).set(clean)}catch(e){toast(e.code==='quota_exceeded'?'Speicher voll – bitte alte Einträge löschen.':'Speichern fehlgeschlagen. Bitte erneut versuchen.');throw e}
-    }else{const a=S[col];const i=a.findIndex(x=>x.id===obj.id);i>=0?a[i]=clean:a.push(clean);if(!this.batching){this.saveLocal();render()}}
+    const a=S[col];const i=a.findIndex(x=>x.id===obj.id);i>=0?a[i]=clean:a.push(clean);if(!this.batching){this.saveLocal();render()}
   },
   async del(col,id){
-    if(this.mode==='cloud'){try{await this.base.collection(col).doc(id).delete()}catch{toast('Löschen fehlgeschlagen.');}}
-    else{S[col]=S[col].filter(x=>x.id!==id);if(!this.batching){this.saveLocal();render()}}
+    S[col]=S[col].filter(x=>x.id!==id);if(!this.batching){this.saveLocal();render()}
   },
   async setSettings(s){
-    S.settings={...s};
-    if(this.mode==='cloud'){try{await this.base.set(JSON.parse(JSON.stringify(s)))}catch{toast('Einstellungen konnten nicht gespeichert werden.')}}
-    else{this.saveLocal()}
-    render();
+    S.settings={...s};this.saveLocal();render();
   },
   async save(name,data){
     const ext=name.split('.').pop().toLowerCase();
@@ -524,7 +520,7 @@ function pendingMap(){
 }
 const KIND={kunde:{col:'customers',type:'verkauf',one:'Kunde',many:'Kunden'},lieferant:{col:'suppliers',type:'einkauf',one:'Lieferant',many:'Lieferanten'}};
 const live=e=>!e.cancelled&&!e.storno;
-/* Fortlaufende Bestellnummer für Verkäufe: #0001, #0002 … – wird nie neu vergeben */
+/* Bestellnummer für Verkäufe (neue: zufällig 4-stellig, alte: #0001 …) – wird nie neu vergeben */
 const fmtOrder=n=>n?'#'+String(n).padStart(4,'0'):'';
 const needsOrderNo=e=>e.type==='verkauf'&&!e.storno&&!e.sample&&(!e.orderNo||!e.pickupCode);
 // Abholcode: zufällige 5-stellige Zahl, eindeutig. Kommt NICHT aufs Paket – der Kunde nennt ihn bei der Abholung.
@@ -555,7 +551,6 @@ const provBase=(e,pt)=>{const goods=num(e.total)-Math.max(0,num(e.extra));return
 // Provision = % von (Gewinn der Ware ohne Kunden-Versand − ungedecktes Porto): Porto wird VOR der Provision abgezogen
 const provAmt=e=>{const pt=e.partner;if(!pt)return 0;return r2(Math.max(0,provBase(e,pt)-shipNet(e))*num(pt.pct)/100)};
 const saleProfit=e=>r2(num(e.total)-num(e.cogs)-portoCost(e)-provAmt(e));
-const provDesc=pt=>`${esc(pt.name)} · ${num(pt.pct)} % ${BASES[pt.base||'roh']}`;
 // Ausgabe mit Partner geteilt: sein Anteil wird von seiner offenen Provision abgezogen
 const shareAmt=e=>e&&e.costShare?r2(num(e.total)*num(e.costShare.pct)/100):0;
 function partnerStats(id){
@@ -589,7 +584,6 @@ function partyList(kind){
   Object.values(m).forEach(c=>{if(c.rec)c.name=c.rec.name;c.offen=r2(c.offen);c.umsatz=r2(c.umsatz)});
   return Object.values(m);
 }
-const customerList=()=>partyList('kunde');
 // Umsatz im Schnitt pro Monat: vom Monat des ersten Kaufs bis heute (inkl. laufendem Monat)
 function custMonthly(c){const ds=c.entries.filter(e=>e.delivered!==false&&live(e)).map(e=>e.date).sort();if(!ds.length)return null;
   const [y0,m0]=ds[0].split('-').map(Number),[y1,m1]=today().split('-').map(Number),months=Math.max(1,(y1-y0)*12+(m1-m0)+1);
@@ -737,7 +731,7 @@ function filterPicker(){const q=norm(UI.fq||'');let n=0;
   document.querySelectorAll('.tiles.mini .tile').forEach(b=>{const ok=!q||norm(b.dataset.name||'').includes(q);b.hidden=!ok;if(ok)n++});
   document.querySelectorAll('.tiles.mini .tiles-head').forEach(h=>{h.hidden=!!q});
   const e=$('#fqEmpty');if(e)e.hidden=n>0}
-UI.fold=(()=>{try{return JSON.parse(localStorage.getItem('kb_fold')||'{}')}catch{return{}}})();
+UI.fold=(()=>{try{return JSON.parse(lsGet('kb_fold','{}'))}catch{return{}}})();
 const isOpen=(k,def)=>UI.fold[k]??def;
 const foldHead=(k,def,title,count)=>`<button class="fold-head" data-act="fold" data-v="${k}" data-def="${def?1:0}" aria-expanded="${isOpen(k,def)}"><h2>${title}${count!=null?` <span class="h-n">${count}</span>`:''}</h2><span class="fold-ic" aria-hidden="true"></span></button>`;
 function header(t,act,sub){
@@ -759,9 +753,11 @@ function entryRow(e){
   else status='<span class="pill open">Offen</span>';
   return `<button class="row" data-act="open-entry" data-id="${e.id}"${e.type==='verkauf'&&e.delivered===false&&live(e)?' data-swipe="1"':''}><span class="tag ${tagCls}">${tagTxt}</span>
    <span style="min-width:0"><span class="row-title" style="display:block">${esc(title)}${e.sample?'<span class="pill ex">Beispiel</span>':''}</span>
-   <span class="row-sub" style="display:block"><span class="d">${e.orderNo?fmtOrder(e.orderNo)+' · ':''}${fdShort(e.date)}</span>${e.partner?`<span class="pos" style="font-weight:600">über ${esc(e.partner.name)}</span>${what||e.invoiceNo||(e.att||[]).length?', ':''}`:''}${[what,e.invoiceNo?'Nr. '+e.invoiceNo:'',(e.att||[]).length?'mit Beleg':''].filter(Boolean).map(esc).join(', ')}</span>${openOrd&&(e.items||[]).length?`<span class="row-items">${Object.values(e.items.reduce((m,i)=>{const k=(i.pid||i.name)+'|'+(i.bundle||'');(m[k]=m[k]||{...i,qty:0}).qty+=num(i.qty);return m},{})).map(i=>`<span><b class="num">${num(i.qty)}×</b> ${esc(i.name)}${i.bundle?` <small class="muted">· ${esc(i.bundle)}</small>`:''}</span>`).join('')}</span>`:''}${e.note&&e.note!=='Kasse'&&!e.recurringId?`<span class="row-sub" style="display:block;color:var(--ink);opacity:.75">✎ ${esc(e.note)}</span>`:''}</span>
+   <span class="row-sub" style="display:block"><span class="d">${e.orderNo?fmtOrder(e.orderNo)+' · ':''}${fdShort(e.date)}</span>${e.partner?`<span class="pos" style="font-weight:600">über ${esc(e.partner.name)}</span>${what||e.invoiceNo||(e.att||[]).length?', ':''}`:''}${[what,e.invoiceNo?'Nr. '+e.invoiceNo:'',(e.att||[]).length?'mit Beleg':''].filter(Boolean).map(esc).join(', ')}</span>${openOrd&&(e.items||[]).length?`<span class="row-items">${mergeItems(e.items).map(i=>`<span><b class="num">${num(i.qty)}×</b> ${esc(i.name)}${i.bundle?` <small class="muted">· ${esc(i.bundle)}</small>`:''}</span>`).join('')}</span>`:''}${e.note&&e.note!=='Kasse'&&!e.recurringId?`<span class="row-sub" style="display:block;color:var(--ink);opacity:.75">✎ ${esc(e.note)}</span>`:''}</span>
    <span class="row-amt"><span class="num ${cls}">${sign}${eur(e.total)}</span>${status}</span></button>`;
 }
+// Gleiche Produkte zusammenfassen (z. B. Bundle-Zeilen, die wegen eines Rest-Cents geteilt sind)
+const mergeItems=(items,byBundle=true)=>Object.values((items||[]).reduce((m,i)=>{const k=(i.pid||i.name)+'|'+(byBundle?i.bundle||'':'');(m[k]=m[k]||{...i,qty:0}).qty+=num(i.qty);return m},{}));
 const sorted=l=>[...l].sort((a,b)=>(b.date+(b.created||'')).localeCompare(a.date+(a.created||'')));
 
 function vStart(){
@@ -774,7 +770,7 @@ function vStart(){
   const now=new Date(),ty=now.getFullYear(),tm=now.getMonth();
   const prevKey=UI.period==='monat'?(tm===0?`${ty-1}-12`:`${ty}-${pad(tm)}`):UI.period==='jahr'?String(ty-1):null;
   const pt=prevKey?totals(d=>String(d).startsWith(prevKey)):null;
-  const cmp=(cur,prev)=>{if(!pt)return'';if(!prev)return cur?'':'';const c=(cur-prev)/Math.abs(prev);return `<b class="${c>=0?'pos':'neg'}">${c>=0?'▲':'▼'} ${Math.abs(Math.round(c*100))} %</b> vs. ${UI.period==='monat'?'Vormonat':'Vorjahr'}`};
+  const cmp=(cur,prev)=>{if(!pt||!prev)return'';const c=(cur-prev)/Math.abs(prev);return `<b class="${c>=0?'pos':'neg'}">${c>=0?'▲':'▼'} ${Math.abs(Math.round(c*100))} %</b> vs. ${UI.period==='monat'?'Vormonat':'Vorjahr'}`};
   const sales=S.entries.filter(e=>e.type==='verkauf'&&e.delivered!==false&&live(e)&&inPeriod(e.date,UI.period));
   const avg=t.n?t.umsatz/t.n:0,marge=t.umsatz>0?Math.round(t.roh/t.umsatz*100):null;
   const pc={},cc={};sales.forEach(e=>{(e.items||[]).forEach(i=>{const k=i.pid||i.name;pc[k]=pc[k]||{n:i.name,q:0,r:0};pc[k].q+=num(i.qty);pc[k].r+=num(i.qty)*num(i.price)*pf(e)});if(e.party){cc[e.party]=(cc[e.party]||0)+num(e.total)}});
@@ -941,7 +937,8 @@ function vKunden(){
   const all=partyList(kind);
   const CS=kd?{zuletzt:'Zuletzt gekauft',umsatz:'Meister Umsatz',monat:'Ø Umsatz pro Monat',kaeufe:'Meiste Käufe',offen:'Offen zu zahlen',nachkauf:'Nachkauf fällig',name:'Name A–Z'}
     :{zuletzt:'Zuletzt geliefert',umsatz:'Meister Einkauf',kaeufe:'Meiste Lieferungen',offen:'Du schuldest',name:'Name A–Z'};
-  const cs=CS[UI.csort]?UI.csort:'zuletzt',nm=(a,b)=>a.name.localeCompare(b.name,'de'),mo=c=>custMonthly(c)?.avg||0,rb=c=>{const r=rebuyInfo(c.name);return r&&r.due?r.since-r.every:-1e9};
+  all.forEach(c=>{c.mo=kd?custMonthly(c):null;c.pr=kd?custPr(c.name):null});
+  const cs=CS[UI.csort]?UI.csort:'zuletzt',nm=(a,b)=>a.name.localeCompare(b.name,'de'),mo=c=>c.mo?.avg||0,rbM={},rb=c=>{if(!(c.name in rbM)){const r=rebuyInfo(c.name);rbM[c.name]=r&&r.due?r.since-r.every:-1e9}return rbM[c.name]};
   const cmp={zuletzt:(a,b)=>(b.last||'').localeCompare(a.last||'')||nm(a,b),umsatz:(a,b)=>b.umsatz-a.umsatz||nm(a,b),monat:(a,b)=>mo(b)-mo(a)||nm(a,b),kaeufe:(a,b)=>b.n-a.n||nm(a,b),
     offen:(a,b)=>b.offen-a.offen||b.bestellt-a.bestellt||nm(a,b),nachkauf:(a,b)=>rb(b)-rb(a)||nm(a,b),name:nm}[cs];
   let l=[...all].sort(cmp);
@@ -954,7 +951,7 @@ function vKunden(){
   ${offen||best?`<p class="hint" style="margin:0 0 10px">${offen?`${kd?'Offen zu zahlen':'Du schuldest noch'}: <b class="warn">${eur(offen)}</b>`:''}${offen&&best?' · ':''}${best?`<b class="pos">${best} Bestellung${best>1?'en':''}</b> ${kd?'noch nicht geliefert':'unterwegs'}`:''}</p>`:''}
   <div class="list">${l.length?l.map(c=>`<button class="row" data-act="party" data-kind="${kind}" data-name="${esc(c.name)}"><span class="tag ${kd?'vk':'ek'}">${esc(initials(c.name))}</span>
     <span style="min-width:0"><span class="row-title" style="display:block">${esc(c.name)}</span>
-    <span class="row-sub" style="display:block">${c.n} ${kd?(c.n===1?'Kauf':'Käufe'):(c.n===1?'Lieferung':'Lieferungen')}${c.last?', zuletzt '+fdShort(c.last):''}</span>${kd&&(custMonthly(c)||hasDisc(custPr(c.name)))?`<span class="row-sub" style="display:block">${custMonthly(c)?`Ø ${eur(custMonthly(c).avg)} pro Monat`:''}${custMonthly(c)&&hasDisc(custPr(c.name))?' · ':''}${hasDisc(custPr(c.name))?`<b class="pos">${prLabel(custPr(c.name))}</b>`:''}</span>`:''}</span>
+    <span class="row-sub" style="display:block">${c.n} ${kd?(c.n===1?'Kauf':'Käufe'):(c.n===1?'Lieferung':'Lieferungen')}${c.last?', zuletzt '+fdShort(c.last):''}</span>${kd&&(c.mo||hasDisc(c.pr))?`<span class="row-sub" style="display:block">${c.mo?`Ø ${eur(c.mo.avg)} pro Monat`:''}${c.mo&&hasDisc(c.pr)?' · ':''}${hasDisc(c.pr)?`<b class="pos">${prLabel(c.pr)}</b>`:''}</span>`:''}</span>
     <span class="row-amt"><span class="num">${eur(c.umsatz)}</span>${c.bestellt?`<span class="pill ord">${c.bestellt} bestellt</span>`:c.offen>0.005?`<span class="pill open">${eur(c.offen)} offen</span>`:''}</span></button>`).join('')
     :`<div class="empty"><b>${q?'Nichts gefunden':'Noch keine '+K.many}</b>${q?'':`${K.many} entstehen automatisch bei der ersten Buchung – oder du legst sie hier an.`}</div>`}</div>`;
 }
@@ -1013,7 +1010,6 @@ function openPartyForm(kind,name){
    <p class="hint">Wird in Kasse und Formular automatisch angewendet. Einkaufspreis + 0 % = genau zum Einkaufspreis.</p>`})():''}
    <button class="btn" data-act="save-party">Speichern</button>`);
 }
-let CF=null;
 async function saveParty(){
   const K=KIND[PF.kind];const name=$('#cName').value.trim();if(!name){toast('Bitte einen Namen eingeben.');return}
   const other=recByName(PF.kind,name);
@@ -1046,7 +1042,7 @@ function openLabel(o={}){
     toName:name,toExtra:a.extra,toStreet:a.street,toZip:a.zip,toCity:a.city,toCountry:a.country||'Österreich',toPhone:c?.phone||e?.partyPhone||'',
     fromName:st.company||st.owner||'',fromStreet:s.street+(s.extra?', '+s.extra:''),fromZip:s.zip,fromCity:s.city,fromCountry:s.country||'Österreich',
     content:e?(e.items||[]).map(i=>`${i.qty}× ${i.name}`).join(', '):'',ref:e?(e.orderNo?'Bestellung '+fmtOrder(e.orderNo):'')+(e.invoiceNo?(e.orderNo?' · ':'')+'Rechnung '+e.invoiceNo:'')||('Bestellung '+fdate(e.orderDate||e.date)):'',
-    xFrom:(()=>{try{return localStorage.getItem('kb_xfrom')!=='0'}catch{return true}})(),weight:prev.weight||'',fragile:false,noBend:false,up:false,fmt:UI.lblFmt||'a6',
+    xFrom:lsGet('kb_xfrom','1')!=='0',weight:prev.weight||'',fragile:false,noBend:false,up:false,fmt:UI.lblFmt||'a6',
     tracking:prev.tracking||'',porto:'',bookPorto:true};
   renderLabelForm();
 }
@@ -1100,7 +1096,7 @@ function renderLabelForm(){
 }
 function refreshLabel(){lbFields();const p=$('#lbPrev');if(p)p.innerHTML=labelHTML(LB)}
 function loadPdfLib(){if(window.jspdf)return Promise.resolve(true);return new Promise(res=>{const s=document.createElement('script');s.src='jspdf.umd.min.js';s.onload=()=>res(!!window.jspdf);s.onerror=()=>res(false);document.head.appendChild(s)})}
-const pdfTxt=t=>String(t??'').replace(/[↑↓]/g,'').replace(/[–—]/g,'-').replace(/[„“”]/g,'"').replace(/[‚‘’]/g,"'").replace(/[^\x20-\x7E\xA0-\xFF€]/g,'');
+const pdfTxt=t=>pdfSafe(t??'');
 function drawLabel(doc,L,ox,oy){
   const W=100,H=150,M=6,PT=0.3528;
   const T=(str,x,y,size,style='normal',color=17,opt={})=>{doc.setFont('helvetica',style);doc.setFontSize(size);doc.setTextColor(color);doc.text(pdfTxt(str),ox+x,oy+y,opt)};
@@ -1145,8 +1141,12 @@ async function labelPDF(){
   doc.setProperties({title:'Versandlabel '+pdfTxt(LB.toName)});
   const fn=('Versandlabel_'+LB.toName).replace(/[^\wäöüÄÖÜß-]+/g,'_').slice(0,60)+'.pdf';
   await Store.save(fn,doc.output('blob'));
-  if(LB.custName){const c=custByName(LB.custName);if(c&&!c.address){Store.put('customers',{...c,addr:cleanAddr({street:LB.toStreet,extra:LB.toExtra,zip:LB.toZip,city:LB.toCity,country:LB.toCountry}),address:composeAddr({street:LB.toStreet,extra:LB.toExtra,zip:LB.toZip,city:LB.toCity,country:LB.toCountry})}).catch(()=>{})}}
+  rememberLabelAddr();
 }
+// Kunde ohne Adresse: die Adresse vom Label beim Kunden hinterlegen
+function rememberLabelAddr(){if(!LB.custName)return;const c=custByName(LB.custName);if(!c||c.address)return;
+  const a={street:LB.toStreet,extra:LB.toExtra,zip:LB.toZip,city:LB.toCity,country:LB.toCountry};
+  Store.put('customers',{...c,addr:cleanAddr(a),address:composeAddr(a)}).catch(()=>{})}
 function printNow(cls){
   const done=()=>{document.body.classList.remove(cls);const ps=$('#lblPage');if(ps)ps.textContent='';window.removeEventListener('afterprint',done)};
   document.body.classList.add(cls);window.addEventListener('afterprint',done);
@@ -1160,7 +1160,7 @@ function printLabel(){
   let ps=$('#lblPage');if(!ps){ps=document.createElement('style');ps.id='lblPage';document.head.appendChild(ps)}
   ps.textContent=LB.fmt==='a6'?'@page{size:100mm 150mm;margin:0}':'@page{size:A4;margin:12mm}';
   printNow('print-lbl');
-  if(LB.custName){const c=custByName(LB.custName);if(c&&!c.address){Store.put('customers',{...c,addr:cleanAddr({street:LB.toStreet,extra:LB.toExtra,zip:LB.toZip,city:LB.toCity,country:LB.toCountry}),address:composeAddr({street:LB.toStreet,extra:LB.toExtra,zip:LB.toZip,city:LB.toCity,country:LB.toCountry})}).catch(()=>{})}}
+  rememberLabelAddr();
 }
 async function saveShipment(){
   lbFields();const e=S.entries.find(x=>x.id===LB.entryId);if(!e)return;
@@ -1193,7 +1193,10 @@ const bundles=()=>(S.settings.bundles||[]).filter(b=>b&&b.items&&b.items.length)
 const bundleById=id=>(S.settings.bundles||[]).find(b=>b.id===id);
 const bundleVk=b=>r2((b.items||[]).reduce((s,i)=>s+num(i.qty)*num(prodById(i.pid)?.vk),0));
 const bundleEk=b=>r2((b.items||[]).reduce((s,i)=>s+num(i.qty)*num(prodById(i.pid)?.ek),0));
-const bundleFree=(b,sm,pm)=>Math.min(...(b.items||[]).map(i=>{const p=prodById(i.pid);return p?Math.floor(((sm[i.pid]||0)-(pm.res[i.pid]||0))/Math.max(1,num(i.qty))):0}));
+// Wie viele Bundles gehen sich mit dem freien Bestand noch aus (abzüglich dessen, was schon im Warenkorb liegt)
+const bundleFree=(b,sm,pm,use={})=>Math.min(...(b.items||[]).map(i=>prodById(i.pid)?Math.floor(((sm[i.pid]||0)-(pm.res[i.pid]||0)-(use[i.pid]||0))/Math.max(1,num(i.qty))):0));
+// Stück je Produkt im Warenkorb – Bundles in ihre Produkte gerechnet
+const cartUse=()=>{const u={};UI.cart.forEach(c=>{if(c.bid)(bundleById(c.bid)?.items||[]).forEach(i=>u[i.pid]=(u[i.pid]||0)+num(i.qty)*c.qty);else u[c.pid]=(u[c.pid]||0)+c.qty});return u};
 // Bundle in einzelne Positionen zerlegen; Paketpreis anteilig nach Normalpreis verteilt → Lager, Wareneinsatz und Statistik stimmen
 function expandBundle(b,n,price){const tot=r2(num(price??b.price)*n),vk=bundleVk(b)||1,its=(b.items||[]).filter(i=>prodById(i.pid));let rest=tot;
   return its.flatMap((i,k)=>{const p=prodById(i.pid),q=num(i.qty)*n;let line=k<its.length-1?r2(tot*num(i.qty)*num(p.vk)/vk):rest;rest=r2(rest-line);
@@ -1202,7 +1205,7 @@ function expandBundle(b,n,price){const tot=r2(num(price??b.price)*n),vk=bundleVk
     return extra>0.004&&q>1?[{...base,qty:q-1,price:unit},{...base,qty:1,price:r2(unit+extra)}]:[{...base,qty:q,price:r2(line/q)}]})}
 let BD=null;
 function openBundleForm(id){const b=id?bundleById(id):null;BD=b?JSON.parse(JSON.stringify(b)):{id:null,name:'',price:'',items:[{pid:S.products[0]?.id||'',qty:1}],active:true};openSheet(id?'Bundle bearbeiten':'Neues Bundle','<div id="bdBody"></div>');bundleFormRender()}
-function bundleFormRender(){const el=$('#bdBody');if(!el)return;const vk=bundleVk(BD),ek=bundleEk(BD),pr=num(BD.price);
+function bundleFormRender(){const el=$('#bdBody');if(!el)return;const vk=bundleVk(BD);
   el.innerHTML=`<label class="field"><span>Name</span><input class="inp" id="bdName" value="${esc(BD.name)}" placeholder="z. B. Starter-Set"></label>
    <div class="field"><span>Enthaltene Produkte</span></div>
    <div class="items">${BD.items.map((it,i)=>`<div class="item" style="grid-template-columns:minmax(0,1fr) 64px 28px"><label>Produkt<select class="inp" data-bd="${i}" data-k="pid">${S.products.map(p=>`<option value="${p.id}" ${p.id===it.pid?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label>
@@ -1257,7 +1260,7 @@ function custBox(ctx){
   const pid=ctx==='f'?F&&F.partnerId:UI.kpartner,own=custPr(name),pr=effPr(name,pid),open=UI.prEdit===ctx,h=custHistory(name),last=h&&h.last;
   const via=!own&&pr?` <span class="muted" style="font-weight:500">über ${esc(partnerById(pid)?.name||'Partner')}</span>`:'';
   return `<div class="cust-box">
-   ${last?`<div class="cb-row"><span class="cb-t"><span class="cb-l">Zuletzt gekauft am ${fdShort(last.date)}</span>${last.items.filter(i=>prodById(i.pid)).map(i=>`${num(i.qty)}× ${esc(i.name)}`).join(', ')}</span><button class="btn ghost sm" data-act="cust-again" data-v="${ctx}">Nochmal</button></div>`:''}
+   ${last?`<div class="cb-row"><span class="cb-t"><span class="cb-l">Zuletzt gekauft am ${fdShort(last.date)}</span>${mergeItems(last.items.filter(i=>prodById(i.pid)),false).map(i=>`${num(i.qty)}× ${esc(i.name)}`).join(', ')}</span><button class="btn ghost sm" data-act="cust-again" data-v="${ctx}">Nochmal</button></div>`:''}
    <div class="cb-row"><span class="cb-t"><span class="cb-l">Preise für ${esc(name)}</span><b class="${hasDisc(pr)?'pos':''}">${prLabel(pr)}</b>${via}</span><button class="link" data-act="pr-edit" data-v="${ctx}">${open?'Fertig':hasDisc(pr)?'Ändern':'Rabatt geben'}</button></div>
    ${open?prEditor(ctx,name,hasDisc(pr)?pr:null):''}</div>`;
 }
@@ -1280,7 +1283,7 @@ async function setCustPr(ctx,mode,pct){
   if(ctx==='f')applyFCust();else{const pr=effPr(name,UI.kpartner);reprice(UI.cart,UI.kpr,pr);UI.kpr=pr}
   if(ctx==='f')refreshFormCust();else render();
 }
-function lastPartnerFor(name){const l=sorted(S.entries.filter(e=>e.type==='verkauf'&&e.partner&&norm(e.party)===norm(name)))[0];return l&&partnerById(l.partner.id)?l.partner:null}
+function lastPartnerFor(name){const l=sorted(S.entries.filter(e=>e.type==='verkauf'&&e.partner&&norm(e.party)===norm(name)))[0],p=l&&partnerById(l.partner.id);return p&&p.active!==false?l.partner:null}
 // Schnellkasse: Kunde übernehmen → Preise anpassen, Vermittler vorschlagen
 function applyKCust(){const name=(UI.kparty||'').trim();UI.kApplied=norm(name);
   const pr=effPr(name,UI.kpartner);reprice(UI.cart,UI.kpr,pr);UI.kpr=pr}
@@ -1301,14 +1304,15 @@ function vKasse(){
   if(UI.kcat!=='alle'&&!cats.includes(UI.kcat))UI.kcat='alle';
   let l=S.products.filter(p=>UI.kcat==='alle'||(p.cat||'Allgemein')===UI.kcat);
   const bq=norm(UI.kq),bshow=(UI.kcat==='alle'||UI.kcat==='Bundles')?bl.filter(b=>!bq||norm(b.name).includes(bq)):[];
-  const btile=b=>{const inC=UI.cart.find(c=>c.bid===b.id),fr=bundleFree(b,sm,pm)-(inC?inC.qty:0),vk=bundleVk(b);
+  const use=cartUse();
+  const btile=b=>{const inC=UI.cart.find(c=>c.bid===b.id),fr=bundleFree(b,sm,pm,use),vk=bundleVk(b);
     return `<button class="tile ${inC?'on':''}" data-act="cart-bundle" data-id="${b.id}">${inC?`<span class="tile-q">${inC.qty}</span>`:''}<span class="tile-n">${esc(b.name)}</span><span class="tile-h">Bundle · ${b.items.length} Produkte</span><span class="tile-p num cp">${eur(b.price)}${vk>num(b.price)+0.004?`<s>${eur(vk)}</s>`:''}</span><span class="tile-s ${fr<0?'neg':''}">${fr<0?'zu wenig auf Lager':fr+' möglich'}</span></button>`};
   if(UI.kcat==='Bundles')l=[];
   const q=norm(UI.kq);if(q)l=l.filter(p=>norm(p.name+' '+(p.sku||'')+' '+(p.ean||'')).includes(q));
   l=sortProducts(l,UI.ksort,sm);
   const cf=custFirst(l,UI.kparty);
   const n=UI.cart.reduce((s,c)=>s+c.qty,0);
-  const tile=p=>{const inC=UI.cart.find(c=>c.pid===p.id);const free=(sm[p.id]||0)-(pm.res[p.id]||0)-(inC?inC.qty:0);const hx=cf.h&&cf.h.prod[p.id];
+  const tile=p=>{const inC=UI.cart.find(c=>c.pid===p.id);const free=(sm[p.id]||0)-(pm.res[p.id]||0)-(use[p.id]||0);const hx=cf.h&&cf.h.prod[p.id];
     return `<button class="tile ${inC?'on':''}" data-act="cart-add" data-id="${p.id}">${inC?`<span class="tile-q">${inC.qty}</span>`:''}<span class="tile-n">${esc(p.name)}</span>${hx?histLine(hx):''}${tilePrice(p,UI.kpr)}<span class="tile-s ${free<0?'neg':''}">${free<0?'zu wenig auf Lager':free+' übrig'}</span></button>`};
   return header('Kasse',canScan()?'<button class="add-btn" data-act="scan" data-v="kasse">Scannen</button>':'')+`
   ${S.products.length?`<input class="search cust" id="kcust" list="kcList" autocomplete="off" placeholder="Kunde (optional)" value="${esc(UI.kparty||'')}" aria-label="Kunde"><datalist id="kcList">${custNames().map(c=>`<option value="${esc(c)}">`).join('')}</datalist>${custBox('k')}`:''}
@@ -1464,11 +1468,11 @@ function vMehr(){
   <div class="card">
    <p class="muted">Deine Daten liegen nur auf diesem Gerät, nirgends sonst.${S.settings.lastBackup?' Letzter Export: '+fdate(S.settings.lastBackup)+'.':' Noch nichts exportiert.'}</p>
    <div class="btn-row" style="margin-bottom:10px">
-    <button class="btn sm" data-act="export-json" ${Store.downloads?'':'disabled'}>⤓ Alles exportieren</button>
+    <button class="btn sm" data-act="export-json">⤓ Alles exportieren</button>
     <label class="btn ghost sm" style="text-align:center">⤒ Importieren<input type="file" id="importFile" accept=".json,application/json,text/plain,application/octet-stream" hidden></label>
    </div>
    <p class="hint" style="margin:0 0 10px"><b>Auf ein anderes Handy übertragen:</b> „Alles exportieren“ tippen und die Datei per AirDrop, WhatsApp oder Mail schicken. Am anderen Handy die Datei in „Dateien“ sichern, Kassabuch öffnen, hier „Importieren“ und „Alles ersetzen“ wählen. Enthalten sind Produkte, Buchungen, Kunden mit ihren Preisen, Lieferanten, Partner, Einstellungen und Belege. Die Datei dient gleichzeitig als Backup.</p>
-   <div class="btn-row"><button class="btn ghost sm" data-act="export-csv" ${Store.downloads?'':'disabled'}>Buchungen als CSV</button></div>
+   <div class="btn-row"><button class="btn ghost sm" data-act="export-csv">Buchungen als CSV</button></div>
    ${hasSample?'<button class="btn danger sm" style="margin-top:10px" data-act="clear-sample">Beispieldaten entfernen</button>':''}
   </div>
   <button class="btn danger" style="margin-top:14px" data-act="wipe-all">Alle Daten auf diesem Gerät löschen</button>`;
@@ -1519,7 +1523,7 @@ function initShip(e){
   const ex=e?Math.max(0,num(e.extra)):0,pk=e&&portoKnown(e)?portoOf(e):null;
   F.extra0=ex;F.porto0=pk;F.shipTouched=false;F.shipPartial=null;
   if(ex>0){F.shipPays=true;F.ship=String(ex);if(pk!=null&&Math.abs(pk-ex)>0.004)F.shipPartial=pk}
-  else{F.shipPays=pk!=null&&pk>0?false:(()=>{try{return localStorage.getItem('kb_shippays')!=='0'}catch{return true}})();F.ship=pk!=null&&pk>0?String(pk):''}
+  else{F.shipPays=pk!=null&&pk>0?false:lsGet('kb_shippays','1')!=='0';F.ship=pk!=null&&pk>0?String(pk):''}
 }
 function shipVals(){
   if(!F.shipTouched)return{extra:num(F.extra0),porto:F.porto0};
@@ -1528,7 +1532,7 @@ function shipVals(){
   return{extra:0,porto:A||null};
 }
 function productPicker(t){
-  const sm=stockMap();const cats=[...new Set(S.products.map(p=>p.cat||'Allgemein'))].sort((a,b)=>a.localeCompare(b,'de'));
+  const cats=[...new Set(S.products.map(p=>p.cat||'Allgemein'))].sort((a,b)=>a.localeCompare(b,'de'));
   if(!UI.fcat||(UI.fcat!=='alle'&&!cats.includes(UI.fcat)))UI.fcat='alle';
   return `<div class="picker"><input class="search" id="fq" type="search" placeholder="Produkt suchen …" value="${esc(UI.fq||'')}" style="margin-bottom:8px">${cats.length>1?`<div class="chips">${['alle',...cats].map(c=>`<button class="chip ${UI.fcat===c?'on':''}" data-act="fcat" data-v="${esc(c)}">${c==='alle'?'Alle':esc(c)}</button>`).join('')}</div>`:''}
    ${S.products.length>1?sortSelect('fsort',UI.ksort):''}
@@ -1678,7 +1682,7 @@ function updateSummary(){
     <div class="l"><span>Rohertrag</span><span class="num ${c.total-c.cogs>=0?'pos':'neg'}">${eur(c.total-c.cogs)}</span></div>
     ${profitLines({total:c.total,cogs:c.cogs,extra:sv.extra,porto:sv.porto,partner:partnerSnap(F.partnerId,F.partner)})}`;
   }else if(F.type==='einkauf'){const vw=r2(F.items.reduce((s,i)=>s+num(i.qty)*num(prodById(i.pid)?.vk),0));
-    const sh=$('#shipShare');if(sh){const q=F.items.reduce((s,i)=>s+num(i.qty),0);sh.textContent=c.ship>0&&F.shipToEk!==false&&c.sub>0?`(+${Math.round(c.ship/c.sub*1000)/10} % je Stück)`:''}
+    const sh=$('#shipShare');if(sh){sh.textContent=c.ship>0&&F.shipToEk!==false&&c.sub>0?`(+${Math.round(c.ship/c.sub*1000)/10} % je Stück)`:''}
     el.innerHTML=`${c.ship?`<div class="l"><span>Ware</span><span class="num">${eur(c.sub)}</span></div><div class="l"><span>Versandkosten</span><span class="num">${eur(c.ship)}</span></div>`:''}<div class="l big"><span>Einkaufssumme</span><span class="num">${eur(c.total)}</span></div>
     <div class="l"><span>Verkaufswert (VK)</span><span class="num">${eur(vw)}</span></div>
     <div class="l"><span>Möglicher Rohertrag</span><span class="num ${vw-c.total>=0?'pos':'neg'}">${eur(vw-c.total)}${vw>0?' · '+Math.round((vw-c.total)/vw*100)+' %':''}</span></div>`;
@@ -1734,7 +1738,7 @@ async function saveEntry(){
 function openPickup(id,res){const e=id?S.entries.find(x=>x.id===id):null;
   openSheet('Abholung prüfen',`<p class="muted" style="margin:-6px 0 12px">Die Bestellnummer steht auf dem Paket, den Abholcode nennt dir der Kunde.</p>
    ${res?`<div class="banner ${res.ok?'':'alert'}" style="${res.ok?'background:var(--accent-soft);color:var(--accent)':''}">${res.msg}</div>`:''}
-   <div class="grid2"><label class="field"><span>Bestellnummer</span><input class="inp num" id="pkNo" inputmode="numeric" placeholder="#0042" value="${e?fmtOrder(e.orderNo):esc(UI.pkNo||'')}"></label>
+   <div class="grid2"><label class="field"><span>Bestellnummer</span><input class="inp num" id="pkNo" inputmode="numeric" placeholder="#4821" value="${e?fmtOrder(e.orderNo):esc(UI.pkNo||'')}"></label>
     <label class="field"><span>Abholcode</span><input class="inp num" id="pkCode" inputmode="numeric" maxlength="5" placeholder="5 Ziffern" autocomplete="off" style="letter-spacing:.12em"></label></div>
    <button class="btn" data-act="pickup-check">Prüfen</button>
    <p class="hint" style="margin-top:10px">Jede Prüfung wird bei der Bestellung protokolliert – auch falsche Codes.</p>
@@ -1929,7 +1933,7 @@ function stockCSV(){
 async function stockPDF(){
   if(!await loadPdfLib()){toast('PDF konnte nicht geladen werden.');return}
   const rows=stockRows(),st=S.settings;const {jsPDF}=window.jspdf;const doc=new jsPDF({unit:'mm',format:'a4'});
-  const E=n=>eur(n).replace(/ | /g,' ');const W=210,M=14;let Y=18;
+  const E=pdfE;const W=210,M=14;let Y=18;
   const ink=[22,32,27],mut=[102,116,108],acc=[28,106,88],line=[212,219,211];
   const t=rows.reduce((a,r)=>({q:a.q+Math.max(0,r.q),e:a.e+r.wEk,v:a.v+r.wVk}),{q:0,e:0,v:0});
   doc.setFont('helvetica','bold');doc.setFontSize(17);doc.setTextColor(...ink);doc.text('Lagerbestand'+(UI.lagerCat!=='alle'?' · '+UI.lagerCat:''),M,Y);
@@ -1965,7 +1969,7 @@ async function adjustEk(oldE,newE){
 }
 /* ---------- PDF: Preisliste für einen Kunden ---------- */
 const pdfE=n=>eur(n).replace(/\u00a0|\u202f/g,' ');
-const pdfSafe=t=>String(t||'').replace(/[„“”]/g,'"').replace(/[‚‘’]/g,"'").replace(/[–—]/g,'-').replace(/…/g,'...').replace(/[^\x00-\xff€]/g,'');
+const pdfSafe=t=>String(t??'').replace(/[„“”]/g,'"').replace(/[‚‘’]/g,"'").replace(/[–—]/g,'-').replace(/…/g,'...').replace(/[^\x20-\x7E\xA0-\xFF€]/g,'');
 const fileSafe=t=>String(t||'').trim().replace(/[^\wäöüÄÖÜß-]+/g,'_').replace(/^_+|_+$/g,'');
 function pdfHead(doc,title,sub,right){const st=S.settings,W=210,M=14;
   doc.setFont('helvetica','bold');doc.setFontSize(19);doc.setTextColor(22,32,27);doc.text(pdfSafe(title),M,20);
@@ -2310,7 +2314,7 @@ function finCSV(y){
 async function finPDF(y){
   if(!await loadPdfLib()){toast('PDF konnte nicht geladen werden.');return}
   const {a,t,ex,months}=finRows(y),st=S.settings;const {jsPDF}=window.jspdf;const doc=new jsPDF({unit:'mm',format:'a4'});
-  const E=n=>eur(n).replace(/ | /g,' ');const W=210,M=18;let Y=20;
+  const E=pdfE;const W=210,M=18;let Y=20;
   const ink=[22,32,27],mut=[102,116,108],acc=[28,106,88],line=[212,219,211];
   doc.setTextColor(...ink);doc.setFont('helvetica','bold');doc.setFontSize(18);doc.text(`Finanzübersicht ${a.ys}`,M,Y);
   doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(...mut);
@@ -2497,6 +2501,8 @@ async function importJSON(file){
       const ds=data.settings||{},st=S.settings;
       S.settings={...st,categories:[...new Set([...st.categories,...(ds.categories||[])])],expenseCats:[...new Set([...st.expenseCats,...(ds.expenseCats||[])])],
         partners:[...(st.partners||[]),...(ds.partners||[]).filter(x=>!(st.partners||[]).some(y=>y.id===x.id))],
+        bundles:[...(st.bundles||[]),...(ds.bundles||[]).filter(x=>!(st.bundles||[]).some(y=>y.id===x.id))],
+        usedOrders:[...new Set([...(st.usedOrders||[]),...(ds.usedOrders||[])])].slice(-20000),
         nextInvoice:ds.invoiceYear===st.invoiceYear?Math.max(num(st.nextInvoice),num(ds.nextInvoice)):st.nextInvoice,
         owner:st.owner||ds.owner||'',company:st.company||ds.company||'',address:st.address||ds.address||'',uidNr:st.uidNr||ds.uidNr||'',iban:st.iban||ds.iban||''};
     }
@@ -2512,20 +2518,19 @@ async function loadSample(){
   const ps=[{id:'ex-nb',name:'Notizbuch A5 liniert',cat:'Allgemein',unit:'Stk',ek:3.2,vk:7.9,tax:20,stockStart:0,sample:true},
     {id:'ex-kuli',name:'Kugelschreiber 3er-Set',cat:'Allgemein',unit:'Set',ek:1.1,vk:3.5,tax:20,stockStart:0,sample:true},
     {id:'ex-tasche',name:'Baumwolltasche natur',cat:'Allgemein',unit:'Stk',ek:2.8,vk:9,tax:20,stockStart:0,sample:true}];
-  for(const p of ps)await Store.put('products',p).catch(()=>{});
   const c=new Date().toISOString();
   const es=[{id:'ex-e1',created:c,type:'einkauf',date:d(1),party:'Beispiel-Großhandel',method:'ueb',paid:true,note:'',total:94,sample:true,items:[{pid:'ex-nb',name:ps[0].name,qty:20,price:3.2,ek:3.2,tax:20,unit:'Stk'},{pid:'ex-tasche',name:ps[2].name,qty:10,price:2.8,ek:2.8,tax:20,unit:'Stk'},{pid:'ex-kuli',name:ps[1].name,qty:0,price:1.1,ek:1.1,tax:20,unit:'Set'}].filter(i=>i.qty)},
     {id:'ex-e2',created:c,type:'verkauf',date:d(2),party:'Beispielkundin A',method:'bar',paid:true,note:'',total:24.8,regular:24.8,discount:0,extra:0,cogs:9.2,sample:true,items:[{pid:'ex-nb',name:ps[0].name,qty:2,price:7.9,ek:3.2,tax:20,unit:'Stk'},{pid:'ex-tasche',name:ps[2].name,qty:1,price:9,ek:2.8,tax:20,unit:'Stk'}]},
     {id:'ex-e3',created:c,type:'verkauf',date:d(3),party:'Beispielkunde B',method:'ueb',paid:false,note:'',total:38.3,regular:38.3,discount:0,extra:4.5,cogs:12,sample:true,items:[{pid:'ex-nb',name:ps[0].name,qty:2,price:7.9,ek:3.2,tax:20,unit:'Stk'},{pid:'ex-tasche',name:ps[2].name,qty:2,price:9,ek:2.8,tax:20,unit:'Stk'}]},
     {id:'ex-e4',created:c,type:'ausgabe',date:d(3),party:'Versandkosten',expenseCat:'Versand',method:'karte',paid:true,note:'',total:6.2,sample:true}];
   es[0].total=r2(es[0].items.reduce((s,i)=>s+i.qty*i.price,0));
-  for(const e of es)await Store.put('entries',e).catch(()=>{});
+  await Store.bulk(async()=>{for(const p of ps)await Store.put('products',p).catch(()=>{});for(const e of es)await Store.put('entries',e).catch(()=>{})});
   toast('Beispieldaten geladen – unter „Mehr“ wieder entfernbar');
 }
 async function clearSample(){
   if(!await ask('Alle als Beispiel markierten Produkte und Buchungen löschen?'))return;
-  for(const e of S.entries.filter(x=>x.sample))await Store.del('entries',e.id);
-  for(const p of S.products.filter(x=>x.sample))await Store.del('products',p.id);
+  await Store.bulk(async()=>{for(const e of S.entries.filter(x=>x.sample))await Store.del('entries',e.id);
+    for(const p of S.products.filter(x=>x.sample))await Store.del('products',p.id)});
   toast('Beispieldaten entfernt');
 }
 
@@ -2557,7 +2562,7 @@ document.addEventListener('click',async ev=>{
       await Store.setSettings({...S.settings,partners:partners().filter(p=>p.id!==id)});closeSheet();toast('Partner gelöscht');break}
     case'payout-partner':openPayout(id);break;
     case'save-payout':savePayout(id);break;
-    case'fold':{const def=b.dataset.def==='1';UI.fold[v]=!isOpen(v,def);try{localStorage.setItem('kb_fold',JSON.stringify(UI.fold))}catch{}render();break}
+    case'fold':{const def=b.dataset.def==='1';UI.fold[v]=!isOpen(v,def);lsSet('kb_fold',JSON.stringify(UI.fold));render();break}
     case'stock-export':{const k=await choose(`Lagerbestand${UI.lagerCat!=='alle'?' · '+UI.lagerCat:''} exportieren`,[['pdf','PDF','Liste nach Kategorie mit Bestand, Preisen und Warenwert – zum Ausdrucken'],['csv','Excel / Numbers (CSV)','Alle Zahlen als Tabelle zum Weiterrechnen']]);
       if(k==='pdf')stockPDF();else if(k==='csv')stockCSV();break}
     case'rebuy-snooze':{const sn={...(S.settings.rebuySnooze||{})};const ri=rebuyInfo(b.dataset.name);sn[norm(b.dataset.name)]=addDaysTo(today(),Math.max(7,Math.round((ri?.every||14)/2)));
@@ -2585,7 +2590,6 @@ document.addEventListener('click',async ev=>{
     case'deliver':{const e=S.entries.find(x=>x.id===id);if(!await deliverEntry(id))break;
       closeSheet();toast(e.type==='verkauf'?'Als übergeben markiert':'Ware ist im Lager');break}
     case'pickup':openPickup(id||null);break;
-    case'cancel-order':cancelOrder(id);break;
     case'uncancel':uncancelOrder(id);break;
     case'price-pdf':toast('Preisliste wird erstellt …');priceListPDF(b.dataset.name||'');break;
     case'partner-pdf':{const k=await choose('Provisionsabrechnung – welcher Zeitraum?',[['monat',periodRange('monat').label,'Laufender Monat bis heute'],['vormonat',periodRange('vormonat').label,'Ganzer letzter Monat'],['jahr',periodRange('jahr').label,'Seit 1. Jänner'],['alle','Gesamter Zeitraum','Alle vermittelten Verkäufe']]);if(k)partnerPDF(id,k);break}
@@ -2600,10 +2604,9 @@ document.addEventListener('click',async ev=>{
     case'pcat':UI.pcat=v;render();break;
     case'hide-stock-hint':await Store.setSettings({...S.settings,hideStockHint:true});break;
     case'fstage':F.stage=v;F.delivered=v==='uebergeben';if(!F.id)F.payStatus=v==='uebergeben'?'1':'0';renderEntryForm();break;
-    case'mark-ready':{const e=S.entries.find(x=>x.id===id);await Store.put('entries',setStage(e,'fertig')).catch(()=>{});closeSheet();toast('Als abgepackt markiert');break}
     case'mark-stage':{const e=S.entries.find(x=>x.id===id);await Store.put('entries',setStage(e,v)).catch(()=>{});toast(v==='fertig'?'Als abgepackt markiert':'Jetzt abpacken');openEntry(id);break}
     case'save-note':{const e=S.entries.find(x=>x.id===id);await Store.put('entries',{...e,note:$('#noteEdit').value.trim()}).catch(()=>{});toast('Notiz gespeichert');openEntry(id);break}
-    case'kstage':coKeep();UI.kstage=v;UI.kopen=undefined;try{localStorage.setItem('kb_kstage',v)}catch{}openCheckout();break;
+    case'kstage':coKeep();UI.kstage=v;UI.kopen=undefined;lsSet('kb_kstage',v);openCheckout();break;
     case'party':openParty(b.dataset.kind,b.dataset.name);break;
     case'ktab':UI.ktab=v;UI.cq='';render();break;
     case'new-party':openPartyForm(b.dataset.kind);break;
@@ -2622,15 +2625,15 @@ document.addEventListener('click',async ev=>{
       toast('Zahlung erfasst');openEntry(id);break}
     case'del-pay':{const e=S.entries.find(x=>x.id===id);if(!await ask('Diese Zahlung entfernen?','Entfernen'))break;const pays=[...paysOf(e)];pays.splice(+b.dataset.i,1);const ne={...e,payments:pays};ne.paid=isPaid(ne);await Store.put('entries',ne).catch(()=>{});openEntry(id);break}
     case'remind':openReminder(id);break;
-    case'rem-tone':UI.remTone=v;try{localStorage.setItem('kb_tone',v)}catch{}openReminder(id);break;
+    case'rem-tone':UI.remTone=v;lsSet('kb_tone',v);openReminder(id);break;
     case'rem-copy':{const txt=$('#remText').value;try{await navigator.clipboard.writeText(txt);await markReminded(id);toast('Text kopiert – Erinnerung vermerkt')}catch{const ta=$('#remText');ta.focus();ta.select();toast('Text markiert – jetzt kopieren')}break}
     case'rem-share':{const txt=$('#remText').value;if(navigator.share){try{await navigator.share({text:txt});await markReminded(id);toast('Erinnerung vermerkt')}catch(err){if(!err||err.name!=='AbortError')toast('Teilen nicht möglich – bitte kopieren.')}}
       else{try{await navigator.clipboard.writeText(txt);await markReminded(id);toast('Text kopiert – Erinnerung vermerkt')}catch{toast('Bitte den Text kopieren.')}}break}
     case'show-overdue':UI.filter='ueberfaellig';UI.screen='buchungen';render();scrollTo(0,0);break;
     case'view-att':viewAtt(id);break;
     case'kcat':UI.kcat=v;render();break;
-    case'ofilt':UI.ofilt=v;try{localStorage.setItem('kb_ofilt',v)}catch{}render();break;
-    case'osort':UI.osort=UI.osort==='neu'?'alt':'neu';try{localStorage.setItem('kb_osort',UI.osort)}catch{}render();break;
+    case'ofilt':UI.ofilt=v;lsSet('kb_ofilt',v);render();break;
+    case'osort':UI.osort=UI.osort==='neu'?'alt':'neu';lsSet('kb_osort',UI.osort);render();break;
     case'cart-add':cartAdd(id);render();break;
     case'cart-bundle':{const bb=bundleById(id);if(!bb)break;const c=UI.cart.find(x=>x.bid===id);if(c)c.qty++;else UI.cart.push({bid:id,qty:1,price:num(bb.price)});render();break}
     case'f-bundle':{const bb=bundleById(id);if(!bb||!F)break;F.items=F.items.filter(i=>i.pid);F.items.push(...expandBundle(bb,1).map(i=>({...i,name:prodById(i.pid)?.name})));renderEntryForm();toast(bb.name+' hinzugefügt');break}
@@ -2652,7 +2655,6 @@ document.addEventListener('click',async ev=>{
       toast('Letzter Einkauf übernommen');break}
     case'co-save':doCheckout();break;
     case'scan':startScan(code=>handleScan(v,code));break;
-    case'annual':openAnnual(v);break;
     case'fin-export':{const k=await choose(`Finanzübersicht ${v} – nur Zahlen, ohne Produkte und Kunden.`,[['pdf','PDF','Monate, Einnahmen, Ausgaben, Überschuss, Rohertrag – zum Weitergeben'],['csv','Excel / Numbers (CSV)','Dieselben Zahlen als Tabelle zum Weiterrechnen'],['view','Jahresübersicht ansehen','Ausführliche Steuer-Übersicht mit Drucken']]);
       if(k==='pdf')finPDF(v);else if(k==='csv')finCSV(v);else if(k==='view')openAnnual(v);break}
     case'save-annual':saveAnnual(v);break;
@@ -2663,7 +2665,7 @@ document.addEventListener('click',async ev=>{
     case'invoice':invoice(id);break;
     case'save-invoice':saveInvoice(id);break;
     case'label':openLabel({entryId:id,name:b.dataset.name});break;
-    case'lb-fmt':lbFields();LB.fmt=v;UI.lblFmt=v;try{localStorage.setItem('kb_lblfmt',v)}catch{}renderLabelForm();break;
+    case'lb-fmt':lbFields();LB.fmt=v;UI.lblFmt=v;lsSet('kb_lblfmt',v);renderLabelForm();break;
     case'lb-print':printLabel();break;
     case'lb-pdf':labelPDF();break;
     case'lb-ship':saveShipment();break;
@@ -2671,8 +2673,11 @@ document.addEventListener('click',async ev=>{
     case'new-product':openProduct();break;
     case'edit-product':closeSheet();openProduct(id);break;
     case'save-product':saveProduct();break;
-    case'del-product':{const used=S.entries.some(e=>(e.items||[]).some(i=>i.pid===P.id));
-      if(await ask(used?'Produkt löschen? Bestehende Buchungen behalten den Produktnamen.':'Produkt löschen?')){await Store.del('products',P.id);closeSheet();toast('Produkt gelöscht')}break}
+    case'del-product':{const used=S.entries.some(e=>(e.items||[]).some(i=>i.pid===P.id)),inB=(S.settings.bundles||[]).filter(x=>(x.items||[]).some(i=>i.pid===P.id));
+      if(await ask((used?'Produkt löschen? Bestehende Buchungen behalten den Produktnamen.':'Produkt löschen?')+(inB.length?` Es wird auch aus ${inB.length===1?'dem Bundle':'den Bundles'} ${inB.map(x=>'„'+x.name+'“').join(', ')} entfernt.`:''))){
+        await Store.del('products',P.id);
+        if(inB.length)await Store.setSettings({...S.settings,bundles:(S.settings.bundles||[]).map(x=>({...x,items:(x.items||[]).filter(i=>i.pid!==P.id)})).filter(x=>x.items.length)});
+        closeSheet();toast('Produkt gelöscht')}break}
     case'stock':openStock(id);break;
     case'prod':openProductStats(id);break;
     case'reorder':{const p=prodById(id);const ps=productStats(p);closeSheet();openEntryForm('einkauf',null,{items:[{pid:p.id,qty:ps.suggest,price:p.ek}],delivered:false,paid:false,updateEk:true});break}
@@ -2718,19 +2723,20 @@ async function finishOrder(id){const e=S.entries.find(x=>x.id===id);if(!e||e.del
 /* Offene Bestellung stornieren (noch nicht übergeben): bleibt mit Nummer erhalten, zählt aber nirgends mehr */
 async function cancelOrder(id){const e=S.entries.find(x=>x.id===id);if(!e||e.delivered!==false||!live(e))return;
   if(e.invoiceNo){stornoEntry(id);return}
-  const paid=paidSum(e);
-  if(!await ask(`Bestellung ${fmtOrder(e.orderNo)||''} ${e.party?'von '+e.party+' ':''}stornieren?${paid>0.005?` Die Anzahlung von ${eur(paid)} wird als Rückerstattung gebucht.`:''}`,'Stornieren'))return;
+  const paid=paidSum(e),lk=e.ship?[]:S.entries.filter(x=>x.type==='ausgabe'&&x.shipFor===id);
+  if(!await ask(`Bestellung ${fmtOrder(e.orderNo)||''} ${e.party?'von '+e.party+' ':''}stornieren?${paid>0.005?` Die Anzahlung von ${eur(paid)} wird als Rückerstattung gebucht.`:''}${lk.length?' Die gebuchte Porto-Ausgabe wird entfernt, weil nichts verschickt wurde.':''}`,'Stornieren'))return;
   const ne={...e,cancelled:true,cancelledAt:new Date().toISOString()};delete ne.ready;delete ne.packing;
   if(paid>0.005)ne.payments=[...paysOf(e),{date:today(),amount:-paid,method:e.method||'bar',note:'Rückerstattung'}];ne.paid=isPaid(ne);
-  try{await Store.put('entries',ne)}catch{return}toast(`${fmtOrder(e.orderNo)||'Bestellung'} storniert`)}
+  try{await Store.bulk(async()=>{await Store.put('entries',ne);for(const x of lk)await Store.del('entries',x.id)})}catch{return}toast(`${fmtOrder(e.orderNo)||'Bestellung'} storniert`)}
 async function uncancelOrder(id){const e=S.entries.find(x=>x.id===id);if(!e||!e.cancelled||e.cancelledBy)return;
   const ne={...e};delete ne.cancelled;delete ne.cancelledAt;ne.payments=paysOf(e).filter(p=>p.note!=='Rückerstattung');ne.paid=isPaid(ne);
-  try{await Store.put('entries',ne)}catch{return}toast('Stornierung aufgehoben');openEntry(id)}
+  try{await Store.put('entries',ne)}catch{return}
+  if(!e.ship&&portoKnown(ne)&&portoOf(ne)>0&&!S.entries.some(x=>x.type==='ausgabe'&&x.shipFor===id))await upsertPorto(ne,portoOf(ne),true,'karte');
+  toast('Stornierung aufgehoben');openEntry(id)}
 /* Langes Antippen einer Kachel = 1 Stück weniger (bei 1 Stück: abwählen) */
 const LP={t:null,el:null,x:0,y:0,skip:false};
 function tileMinus(el){const id=el.dataset.id;if(el.dataset.act==='cart-bundle'){const c=UI.cart.find(x=>x.bid===id);if(!c)return;c.qty--;UI.cart=UI.cart.filter(x=>!x.bid||x.qty>0);render();toast(c.qty>0?`Bundle: noch ${c.qty}`:'Bundle abgewählt');return}
   const p=prodById(id);if(!p)return;
-  if(el.dataset.act==='cart-bundle'){const c=UI.cart.find(x=>x.bid===el.dataset.id);if(!c)return;c.qty--;UI.cart=UI.cart.filter(x=>x.bid?x.qty>0:true);render();toast(c.qty>0?`noch ${c.qty}`:'Bundle abgewählt');return}
   if(el.dataset.act==='cart-add'){const c=UI.cart.find(x=>x.pid===id);if(!c)return;cartAdd(id,-1);render();toast(c.qty>0?`${p.name}: noch ${c.qty}`:`${p.name} abgewählt`)}
   else if(el.dataset.act==='f-add'&&F){const i=F.items.findIndex(x=>x.pid===id);if(i<0)return;const it=F.items[i];it.qty=num(it.qty)-1;
     if(it.qty<=0){F.items.splice(i,1);if(!F.items.length)F.items.push({pid:'',qty:1,price:0})}renderEntryForm();toast(it.qty>0?`${p.name}: noch ${it.qty}`:`${p.name} abgewählt`)}
@@ -2748,7 +2754,6 @@ document.addEventListener('input',ev=>{
   if(t.id==='noteEdit'){const b=$('#noteBtn');if(b)b.hidden=false;return}
   if(t.id==='coGiven'){UI.kgiven=t.value;coRefresh();return}
   if(t.id==='coRecv'){coRefresh();return}
-  if(t.id==='coOpen'){UI.kopen=t.checked;return}
   if(t.id==='coPartner'){coKeep();UI.kpartner=t.value;const pr=effPr(UI.kparty,UI.kpartner);if(!samePr(pr,UI.kpr)){reprice(UI.cart,UI.kpr,pr);UI.kpr=pr;render();openCheckout()}else coRefresh();return}
   if(t.id&&t.id.startsWith('lb_')&&LB){refreshLabel();return}
   if(t.id==='q'||t.id==='cq'||t.id==='pq'||t.id==='kq'){UI[t.id]=t.value;renderKeep(t.id);return}
@@ -2774,7 +2779,7 @@ document.addEventListener('change',async ev=>{
     if(metas.length){const e=S.entries.find(x=>x.id===id);await Store.put('entries',{...e,att:[...(e.att||[]),...metas]}).catch(()=>{});toast(metas.length===1?'Beleg gespeichert':metas.length+' Belege gespeichert');openEntry(id)}return}
   if(t.dataset.attForm&&F&&t.files.length){const metas=await storeFiles([...t.files],F.id||F.newId);t.value='';F.att=[...(F.att||[]),...metas];renderEntryForm();return}
   if(t.id==='lb_toName'&&LB){const c=custByName(t.value);if(c&&c.name!==LB.custName){LB.custName=c.name;const a=getAddr(c.addr,c.address);lbFields();Object.assign(LB,{custName:c.name,toName:c.name,toExtra:a.extra,toStreet:a.street,toZip:a.zip,toCity:a.city,toCountry:a.country||'Österreich',toPhone:c.phone||''});setTimeout(renderLabelForm,0)}else refreshLabel();return}
-  if(t.id==='lb_xFrom'){try{localStorage.setItem('kb_xfrom',t.checked?'1':'0')}catch{}}
+  if(t.id==='lb_xFrom'){lsSet('kb_xfrom',t.checked?'1':'0')}
   if(t.id&&t.id.startsWith('lb_')&&LB){refreshLabel();return}
   if(t.id==='coOpen'){UI.kopen=t.checked;return}
   if(F&&t.id==='npCat'){F.npv=F.npv||{};F.npv.npCat=t.value;return}
@@ -2782,10 +2787,10 @@ document.addEventListener('change',async ev=>{
   if(t.id==='prPct'){const c=t.dataset.c,cur=custPr(ctxName(c))||(c==='f'?partnerPr(F&&F.partnerId):partnerPr(UI.kpartner));if(cur&&t.value!=='')setCustPr(c,cur.mode,t.value);return}
   if(t.id==='coParty'){const hadP=!!UI.kpartner,oldPr=UI.kpr;coKeep();await askPartnerK();render();
     if(!samePr(oldPr,UI.kpr)||(!hadP&&UI.kpartner))openCheckout();return}
-  if(t.id==='ksort'||t.id==='fsort'){UI.ksort=t.value;try{localStorage.setItem('kb_ksort',t.value)}catch{}if(t.id==='fsort'&&F)renderEntryForm();else render();return}
+  if(t.id==='ksort'||t.id==='fsort'){UI.ksort=t.value;lsSet('kb_ksort',t.value);if(t.id==='fsort'&&F)renderEntryForm();else render();return}
   if(BD&&t.dataset.bd!==undefined){BD.items[+t.dataset.bd][t.dataset.k]=t.value;bundleSum();return}
-  if(t.id==='csort'){UI.csort=t.value;try{localStorage.setItem('kb_csort',t.value)}catch{}render();return}
-  if(t.id==='psort'){UI.psort=t.value;try{localStorage.setItem('kb_psort',t.value)}catch{}render();return}
+  if(t.id==='csort'){UI.csort=t.value;lsSet('kb_csort',t.value);render();return}
+  if(t.id==='psort'){UI.psort=t.value;lsSet('kb_psort',t.value);render();return}
   if(t.id==='importFile'&&t.files[0]){importJSON(t.files[0]);t.value='';return}
   if(!F)return;
   if(t.dataset.k==='pid'){const it=F.items[+t.dataset.row];it.pid=t.value;delete it.ek;delete it.name;delete it.tax;delete it.unit;const p=prodById(t.value);if(p)it.price=F.type==='verkauf'?custPrice(p,F.pr):p.ek;renderEntryForm();return}
@@ -2794,7 +2799,7 @@ document.addEventListener('change',async ev=>{
   if(t.dataset.f==='shareId'){F.shareId=t.value;renderEntryForm();return}
   if(t.dataset.f==='partnerId'){F.partnerId=t.value;applyFCust();refreshFormCust();return}
   if(t.dataset.f==='shipPays'){F.shipPays=t.checked;F.shipTouched=true;if(F.shipPartial!=null){F.ship=String(F.shipPartial);F.shipPartial=null;const el=document.querySelector('[data-f="ship"]');if(el)el.value=F.ship}
-    try{localStorage.setItem('kb_shippays',t.checked?'1':'0')}catch{}updateSummary();return}
+    lsSet('kb_shippays',t.checked?'1':'0');updateSummary();return}
   if(t.dataset.f==='party'&&F.type==='verkauf'){F.party=t.value;if(norm(t.value)!==F.fApplied){applyFCust();refreshFormCust()}
     const pd=$('#partyData');if(pd&&isNewCust(F.party)!==F.pdNew)pd.innerHTML=partyDataHTML()}
   if(t.dataset.f==='party'&&F.type==='verkauf'&&!F.partnerId){const lp=await askPartner(t.value.trim(),'f'+(F.id||F.newId));
@@ -2814,7 +2819,7 @@ function fitVals(){fitQ=0;document.querySelectorAll(FIT_SEL).forEach(el=>{el.sty
 const fitSoon=()=>{if(!fitQ)fitQ=requestAnimationFrame(fitVals)};
 new MutationObserver(fitSoon).observe(document.body,{childList:true,subtree:true});
 addEventListener('resize',fitSoon);document.fonts&&document.fonts.ready.then(fitSoon);
-const APP_VER='66';
+const APP_VER='67';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
