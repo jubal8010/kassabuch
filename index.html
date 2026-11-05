@@ -417,6 +417,8 @@ button.bar-col{border:0;background:none;padding:0;border-radius:4px}
   body.print-inv .inv{min-width:0}
 }
 @media (max-width:420px){.item{grid-template-columns:minmax(0,1fr) 54px 80px 26px}}
+.cinfo{background:var(--surface-2);border-radius:8px;padding:8px 10px;margin:0 0 10px;font-size:14px;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text}
+.cinfo b{display:block;font-size:11px;font-weight:700;letter-spacing:.03em;color:var(--muted);margin-bottom:1px}
 .dhint{display:block;background:var(--yel-soft);border-left:3px solid var(--yel-dot);border-radius:8px;padding:8px 10px;margin:6px 0 0;font-size:13.5px;line-height:1.4;color:var(--ink);white-space:pre-wrap;overflow-wrap:anywhere}
 .dhint b{display:block;font-size:11px;font-weight:700;letter-spacing:.03em;opacity:.75;margin-bottom:1px}
 .dhint.big{font-size:15px;padding:10px 12px;margin:0 0 12px}
@@ -947,7 +949,7 @@ function vKunden(){
   const cmp={zuletzt:(a,b)=>(b.last||'').localeCompare(a.last||'')||nm(a,b),umsatz:(a,b)=>b.umsatz-a.umsatz||nm(a,b),monat:(a,b)=>mo(b)-mo(a)||nm(a,b),kaeufe:(a,b)=>b.n-a.n||nm(a,b),
     offen:(a,b)=>b.offen-a.offen||b.bestellt-a.bestellt||nm(a,b),nachkauf:(a,b)=>rb(b)-rb(a)||nm(a,b),name:nm}[cs];
   let l=[...all].sort(cmp);
-  const q=norm(UI.cq);if(q)l=l.filter(c=>norm(c.name+' '+(c.rec?.phone||'')+' '+(c.rec?.email||'')).includes(q));
+  const q=norm(UI.cq);if(q)l=l.filter(c=>norm(c.name+' '+(c.rec?.phone||'')+' '+(c.rec?.email||'')+' '+(c.rec?.note||'')).includes(q));
   const offen=all.reduce((s,c)=>s+Math.max(0,c.offen),0),best=all.reduce((s,c)=>s+c.bestellt,0);
   return header(K.many,`<button class="add-btn" data-act="new-party" data-kind="${kind}">+ ${K.one}</button>`)+`
   <div class="seg" style="margin-bottom:12px"><button class="${kd?'on':''}" data-act="ktab" data-v="kunde">Kunden</button><button class="${kd?'':'on'}" data-act="ktab" data-v="lieferant">Lieferanten</button></div>
@@ -992,7 +994,8 @@ function openParty(kind,name){
    <div class="card" style="margin-bottom:14px">
     ${r.address?`<p>${esc(r.address).replace(/\n/g,'<br>')}</p>`:'<p class="muted">Keine Adresse hinterlegt</p>'}
     ${r.phone||r.email?`<p class="muted" style="user-select:text">${esc([r.phone,r.email].filter(Boolean).join(' · '))}</p>`:''}
-    ${r.note?`<p class="muted">${esc(r.note)}</p>`:''}
+    ${r.note?`<div class="cinfo"><b>Infos</b>${esc(r.note)}</div>`:''}
+    ${kd&&r.deliveryHint?`<div style="margin:0 0 10px">${hintBox('Standard: '+r.deliveryHint)}</div>`:''}
     ${kd?`<p>Preise: <b class="${hasDisc(custPr(c.name))?'pos':''}">${prLabel(custPr(c.name))}</b></p>`:''}
     ${kd?detail:''}
     <button class="btn ghost sm" data-act="edit-party" data-kind="${kind}" data-name="${esc(c.name)}">${kd?'Kontakt & Preise bearbeiten':'Kontaktdaten bearbeiten'}</button>
@@ -1008,7 +1011,9 @@ function openPartyForm(kind,name){
    <div class="field" style="margin-bottom:4px"><span>${kind==='kunde'?'Lieferadresse':'Adresse'}</span></div>${addrFields(getAddr(r.addr,r.address||''),'data-caddr')}
    <div class="grid2"><label class="field"><span>Telefon</span><input class="inp" id="cPhone" type="tel" value="${esc(r.phone||'')}"></label>
     <label class="field"><span>E-Mail</span><input class="inp" id="cMail" type="email" value="${esc(r.email||'')}"></label></div>
-   <label class="field"><span>Notiz</span><input class="inp" id="cNote" value="${esc(r.note||'')}" placeholder="${kind==='kunde'?'z. B. bevorzugt Abholung':'z. B. Kundennr., Mindestbestellwert, Shop-Link'}"></label>
+   <label class="field"><span>${kind==='kunde'?'Infos zum Kunden':'Infos zum Lieferanten'}</span><textarea class="inp" id="cNote" rows="4" placeholder="${kind==='kunde'?'z. B. Ziel: Muskelaufbau · trinkt Whey nur Schoko · zahlt meist bar · Geburtstag 12. März · erreichbar ab 17 Uhr':'z. B. Kundennr., Mindestbestellwert, Lieferzeit, Ansprechpartner, Shop-Link'}">${esc(r.note||'')}</textarea></label>
+   ${kind==='kunde'?`<label class="field"><span>Standard-Hinweis für Zusteller</span><textarea class="inp" id="cHint" rows="2" placeholder="z. B. Hintereingang, 2. Stock, vorher anrufen">${esc(r.deliveryHint||'')}</textarea></label>
+   <p class="hint">Wird bei neuen Bestellungen automatisch als „Hinweis für Zusteller“ eingetragen – dort pro Bestellung änderbar.</p>`:''}
    ${kind==='kunde'?(()=>{const pr=r.price&&(r.price.mode==='rabatt'||r.price.mode==='ek')?r.price:null;return `<div class="field"><span>Preise für diesen Kunden</span><div class="grid2">
      <select class="inp" id="cPrMode"><option value="vk">Normalpreis</option><option value="rabatt" ${pr?.mode==='rabatt'?'selected':''}>Rabatt %</option><option value="ek" ${pr?.mode==='ek'?'selected':''}>Einkaufspreis + %</option></select>
      <input class="inp num" id="cPrPct" type="number" inputmode="decimal" min="0" step="1" placeholder="%" value="${pr?num(pr.pct):''}" aria-label="Prozent"></div></div>
@@ -1021,6 +1026,7 @@ async function saveParty(){
   if(other&&other.id!==PF.id){toast('Diesen Namen gibt es schon.');return}
   const base=PF.id?S[K.col].find(x=>x.id===PF.id)||{}:{};
   const rec={...base,id:PF.id||newId(),name,address:composeAddr(Object.fromEntries([...document.querySelectorAll('[data-caddr]')].map(x=>[x.dataset.caddr,x.value]))),addr:cleanAddr(Object.fromEntries([...document.querySelectorAll('[data-caddr]')].map(x=>[x.dataset.caddr,x.value]))),phone:$('#cPhone').value.trim(),email:$('#cMail').value.trim(),note:$('#cNote').value.trim()};
+  if($('#cHint')){const h=$('#cHint').value.trim();if(h)rec.deliveryHint=h;else delete rec.deliveryHint}
   if($('#cPrMode')){const m=$('#cPrMode').value;if(m==='rabatt'||m==='ek')rec.price={mode:m,pct:Math.max(0,r2(num($('#cPrPct').value)))};else delete rec.price}
   try{await Store.put(K.col,rec)}catch{return}
   if(PF.oldName&&norm(PF.oldName)!==norm(name)){
@@ -1264,7 +1270,9 @@ function custBox(ctx){
   const name=ctxName(ctx);if(!name)return'';
   const pid=ctx==='f'?F&&F.partnerId:UI.kpartner,own=custPr(name),pr=effPr(name,pid),open=UI.prEdit===ctx,h=custHistory(name),last=h&&h.last;
   const via=!own&&pr?` <span class="muted" style="font-weight:500">über ${esc(partnerById(pid)?.name||'Partner')}</span>`:'';
+  const info=custByName(name)?.note;
   return `<div class="cust-box">
+   ${info?`<div class="cb-row"><span class="cb-t"><span class="cb-l">Infos zu ${esc(name)}</span><span style="white-space:pre-wrap">${esc(info)}</span></span></div>`:''}
    ${last?`<div class="cb-row"><span class="cb-t"><span class="cb-l">Zuletzt gekauft am ${fdShort(last.date)}</span>${mergeItems(last.items.filter(i=>prodById(i.pid)),false).map(i=>`${num(i.qty)}× ${esc(i.name)}`).join(', ')}</span><button class="btn ghost sm" data-act="cust-again" data-v="${ctx}">Nochmal</button></div>`:''}
    <div class="cb-row"><span class="cb-t"><span class="cb-l">Preise für ${esc(name)}</span><b class="${hasDisc(pr)?'pos':''}">${prLabel(pr)}</b>${via}</span><button class="link" data-act="pr-edit" data-v="${ctx}">${open?'Fertig':hasDisc(pr)?'Ändern':'Rabatt geben'}</button></div>
    ${open?prEditor(ctx,name,hasDisc(pr)?pr:null):''}</div>`;
@@ -1348,7 +1356,7 @@ function openCheckout(){
    <div class="field"><span>Übergabe</span></div>
    <div class="seg" style="margin-bottom:12px">${[['uebergeben','Jetzt übergeben'],['geplant','Bestellung aufnehmen']].map(([k,l])=>`<button class="${(UI.kstage||'geplant')===k?'on':''}" data-act="kstage" data-v="${k}">${l}</button>`).join('')}</div>
    <label class="check"><input type="checkbox" id="coOpen" ${(UI.kopen??((UI.kstage||'geplant')==='geplant'))?'checked':''}> Noch nicht bezahlt (offen buchen)</label>
-   <label class="field"><span>Hinweis für den Zusteller (optional)</span><textarea class="inp" id="coHint" rows="2" placeholder="z. B. Hintereingang, vorher anrufen …">${esc(UI.khint||'')}</textarea></label>
+   <label class="field"><span>Hinweis für den Zusteller (optional)</span><textarea class="inp" id="coHint" rows="2" placeholder="z. B. Hintereingang, vorher anrufen …">${esc(UI.khint||custByName(UI.kparty)?.deliveryHint||'')}</textarea></label>
    <label class="field"><span>Notiz (optional)</span><textarea class="inp" id="coNote" rows="2" placeholder="z. B. Abholung Freitag, Geschenkverpackung …">${esc(UI.knote||'')}</textarea></label>
    <button class="btn" data-act="co-save">${(UI.kstage||'geplant')==='geplant'?'Bestellung speichern':'Verkauf buchen'} · <span id="coBtn">${eur(cartTotal())}</span></button>`);
   coRefresh();
@@ -1515,6 +1523,7 @@ function openEntryForm(type,e,preset){
   F=e?JSON.parse(JSON.stringify(e)):{id:null,newId:newId(),type,date:today(),party:'',partyAddress:'',items:[],extra:0,override:'',method:'bar',paid:true,delivered:true,note:'',expenseCat:S.settings.expenseCats[0]||'Sonstiges',amount:'',updateEk:true,att:[]};
   if(!e&&type==='verkauf'){F.delivered=false;F.paid=false}
   if(preset)Object.assign(F,preset);
+  if(!e&&type==='verkauf'&&!F.deliveryNote&&F.party)F.deliveryNote=custByName(F.party)?.deliveryHint||'';
   ['party','partyAddress','note','deliveryNote'].forEach(k=>F[k]=F[k]||'');F.addr=getAddr(F.partyAddr,F.partyAddress);F.items=F.items||[];F.att=F.att||[];F.delivered=F.type==='ausgabe'||F.delivered!==false;
   F.payStatus=e?(isPaid(e)?'1':isPartial(e)?'p':'0'):(F.paid===false?'0':'1');
   F.stage=F.delivered?'uebergeben':(F.ready?'fertig':F.packing?'abpacken':'geplant');
@@ -1798,9 +1807,9 @@ function openEntry(id){
    <p style="margin:0 0 ${e.type==='verkauf'&&(e.partyAddress||custByName(e.party)?.address||custByName(e.party)?.phone)?'8px':'12px'};font-weight:700;font-size:16px">${esc(e.party||(e.type==='verkauf'?'Laufkunde':TYPES[e.type]))}${e.sample?'<span class="pill ex">Beispiel</span>':''}</p>
    ${e.type==='verkauf'&&!e.storno?(e.deliveryNote?`<div class="dhint big" style="display:flex;gap:10px;align-items:flex-start"><span style="flex:1;min-width:0"><b>Hinweis für Zusteller</b>${esc(e.deliveryNote)}</span>${live(e)?`<button class="link" style="padding:0;font-size:13px" data-act="edit-hint" data-id="${e.id}">ändern</button>`:''}</div>`
      :live(e)?`<div class="linkrow" style="margin:-4px 0 10px"><button class="link" data-act="edit-hint" data-id="${e.id}">+ Hinweis für Zusteller</button></div>`:''):''}
-   ${e.type==='verkauf'?(()=>{const c=custByName(e.party),ad=e.partyAddress||c?.address||'',ph=c?.phone||'';if(!ad&&!ph)return'';
+   ${e.type==='verkauf'?(()=>{const c=custByName(e.party),ad=e.partyAddress||c?.address||'',ph=c?.phone||'',inf=c?.note||'';if(!ad&&!ph&&!inf)return'';
      return `<div class="card" style="margin-bottom:12px;padding:10px 14px"><div style="display:flex;gap:10px;align-items:flex-start"><div style="flex:1;min-width:0;line-height:1.45;user-select:text">${ad?esc(ad).replace(/\n/g,'<br>'):'<span class="muted">Keine Lieferadresse</span>'}${ph?`<br><a href="tel:${esc(ph.replace(/[^\d+]/g,''))}" style="color:var(--accent);font-weight:600">${esc(ph)}</a>`:''}</div>
-       ${ad?`<a class="btn ghost sm" style="width:auto;text-decoration:none" target="_blank" rel="noopener" href="https://maps.apple.com/?q=${encodeURIComponent(ad.replace(/\n/g,', '))}">Karte</a>`:''}</div></div>`})():''}
+       ${ad?`<a class="btn ghost sm" style="width:auto;text-decoration:none" target="_blank" rel="noopener" href="https://maps.apple.com/?q=${encodeURIComponent(ad.replace(/\n/g,', '))}">Karte</a>`:''}</div>${inf?`<div class="cinfo" style="margin:8px 0 0"><b>Infos zum Kunden</b>${esc(inf)}</div>`:''}</div>`})():''}
    ${UI.pickOk===e.id?`<div class="done-banner" style="margin-bottom:12px">✓ Abholcode stimmt – Bestellung ${fmtOrder(e.orderNo)} gehört ${esc(e.party||'dem Kunden')}.${e.delivered===false?' Jetzt übergeben:':''}</div>`:''}
    ${e.type==='verkauf'&&e.orderNo&&!e.storno?`<div class="card" style="margin-bottom:12px;padding:4px 14px">
     <div class="kv"><span>Bestellnummer <small class="muted">(aufs Paket)</small></span><b>${fmtOrder(e.orderNo)}</b></div>
@@ -2820,6 +2829,8 @@ document.addEventListener('change',async ev=>{
   if(t.dataset.f==='party'&&F.type==='verkauf'&&!F.partnerId){const lp=await askPartner(t.value.trim(),'f'+(F.id||F.newId));
     if(lp&&F){F.partnerId=lp.id;const sel=document.querySelector('[data-f="partnerId"]');if(sel)sel.value=F.partnerId;applyFCust();refreshFormCust();toast('Vermittler eingetragen: '+lp.name)}}
   if(!F)return;
+  if(t.dataset.f==='party'&&F.type==='verkauf'){const c0=custByName(t.value),dn=document.querySelector('[data-f="deliveryNote"]');
+    if(!F.id&&c0?.deliveryHint&&!String(F.deliveryNote||'').trim()){F.deliveryNote=c0.deliveryHint;if(dn)dn.value=F.deliveryNote}}
   if(t.dataset.f==='party'&&F.type==='verkauf'){const c=custByName(t.value);if(c&&c.address&&!F.partyAddress.trim()){F.partyAddress=c.address;F.addr=getAddr(c.addr,c.address);const pd=$('#partyData');if(pd)pd.innerHTML=partyDataHTML()}return}
   if(t.type==='checkbox'&&t.dataset.f){F[t.dataset.f]=t.checked;updateSummary();return}
   if(t.tagName==='SELECT'&&t.dataset.f){F[t.dataset.f]=t.value}
@@ -2834,7 +2845,7 @@ function fitVals(){fitQ=0;document.querySelectorAll(FIT_SEL).forEach(el=>{el.sty
 const fitSoon=()=>{if(!fitQ)fitQ=requestAnimationFrame(fitVals)};
 new MutationObserver(fitSoon).observe(document.body,{childList:true,subtree:true});
 addEventListener('resize',fitSoon);document.fonts&&document.fonts.ready.then(fitSoon);
-const APP_VER='68';
+const APP_VER='69';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
