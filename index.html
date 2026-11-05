@@ -554,16 +554,25 @@ const portoCost=e=>portoKnown(e)?portoOf(e):Math.max(0,num(e.extra)); // unbekan
 const shipNet=e=>r2(Math.max(0,portoCost(e)-Math.max(0,num(e.extra)))); // Porto, das der Versand des Kunden NICHT deckt
 const provBase=(e,pt)=>{const goods=num(e.total)-Math.max(0,num(e.extra));return pt.base==='umsatz'?goods:goods-num(e.cogs)};
 // Provision = % von (Gewinn der Ware ohne Kunden-Versand − ungedecktes Porto): Porto wird VOR der Provision abgezogen
-const provAmt=e=>{const pt=e.partner;if(!pt)return 0;return r2(Math.max(0,provBase(e,pt)-shipNet(e))*num(pt.pct)/100)};
-const saleProfit=e=>r2(num(e.total)-num(e.cogs)-portoCost(e)-provAmt(e));
+/* Ausgeführt durch (Mittelsmann): bekommt % vom Gewinn der Ware (nach ungedecktem Porto) oder vom Umsatz.
+   Sein Anteil wird VOR der Vermittler-Provision abgezogen – du und der Vermittler tragt ihn also anteilig. */
+const EX_BASES={roh:'vom Gewinn',umsatz:'vom Umsatz'};
+const execSnap=(id,pct,base,old)=>{if(!id)return null;const p=partnerById(id)||(old&&old.id===id?old:null);if(!p)return null;return{id,name:p.name,pct:r2(num(pct)),base:base==='umsatz'?'umsatz':'roh'}};
+const execBase=e=>{const x=e.exec;if(!x)return 0;const goods=num(e.total)-Math.max(0,num(e.extra));return r2(Math.max(0,x.base==='umsatz'?goods:goods-num(e.cogs)-shipNet(e)))};
+const execAmt=e=>e&&e.exec?r2(execBase(e)*num(e.exec.pct)/100):0;
+const provNet=e=>{const pt=e.partner;return pt?r2(Math.max(0,provBase(e,pt)-shipNet(e)-execAmt(e))):0}; // Basis der Vermittler-Provision
+const provAmt=e=>{const pt=e.partner;if(!pt)return 0;return r2(provNet(e)*num(pt.pct)/100)};
+const saleProfit=e=>r2(num(e.total)-num(e.cogs)-portoCost(e)-provAmt(e)-execAmt(e));
 // Ausgabe mit Partner geteilt: sein Anteil wird von seiner offenen Provision abgezogen
 const shareAmt=e=>e&&e.costShare?r2(num(e.total)*num(e.costShare.pct)/100):0;
 function partnerStats(id){
   const sales=S.entries.filter(e=>e.type==='verkauf'&&live(e)&&e.delivered!==false&&e.partner?.id===id);
   const pend=S.entries.filter(e=>e.type==='verkauf'&&live(e)&&e.delivered===false&&e.partner?.id===id);
-  const earned=r2(sales.reduce((s,e)=>s+provAmt(e),0)),paid=r2(S.entries.filter(e=>e.type==='ausgabe'&&e.partnerPayout===id).reduce((s,e)=>s+paidSum(e),0));
+  const xs=S.entries.filter(e=>e.type==='verkauf'&&live(e)&&e.exec?.id===id),xsales=xs.filter(e=>e.delivered!==false),xpend=xs.filter(e=>e.delivered===false);
+  const xEarned=r2(xsales.reduce((s,e)=>s+execAmt(e),0));
+  const earned=r2(sales.reduce((s,e)=>s+provAmt(e),0)+xEarned),paid=r2(S.entries.filter(e=>e.type==='ausgabe'&&e.partnerPayout===id).reduce((s,e)=>s+paidSum(e),0));
   const shares=S.entries.filter(e=>e.type==='ausgabe'&&e.costShare?.id===id),shared=r2(shares.reduce((s,e)=>s+shareAmt(e),0));
-  return{sales,pend,n:sales.length,umsatz:r2(sales.reduce((s,e)=>s+num(e.total),0)),earned,paid,shares,shared,open:r2(earned-paid-shared),pendAmt:r2(pend.reduce((s,e)=>s+provAmt(e),0))};
+  return{sales,pend,n:sales.length,umsatz:r2(sales.reduce((s,e)=>s+num(e.total),0)),earned,paid,shares,shared,open:r2(earned-paid-shared),xsales,xpend,xEarned,pendAmt:r2(pend.reduce((s,e)=>s+provAmt(e),0)+xpend.reduce((s,e)=>s+execAmt(e),0)),pendN:pend.length+xpend.length};
 }
 const partnerSelect=(attr,sel)=>partners().length?`<label class="field"><span>Vermittelt durch (Provision)</span><select class="inp" ${attr}><option value="">— niemand —</option>${partners().filter(p=>p.active!==false||p.id===sel).map(p=>`<option value="${p.id}" ${p.id===sel?'selected':''}>${esc(p.name)} · ${num(p.pct)} % ${BASES[p.base||'roh']}</option>`).join('')}</select></label>`:'';
 const pf=e=>{const sub=(e.items||[]).reduce((s,i)=>s+num(i.qty)*num(i.price),0);if(Math.abs(sub)<0.005)return 1;const f=(num(e.total)-num(e.extra))/sub;return isFinite(f)?Math.max(0,f):1};
@@ -692,7 +701,7 @@ function totals(pred){
     paysOf(e).forEach(p=>{if(!pred(p.date))return;const a=num(p.amount);
       if(e.type==='verkauf')t.ein+=a;else{t.aus+=a;if(e.type==='einkauf')t.warenAus+=a;else{const k=e.expenseCat||'Sonstiges';t.exp[k]=(t.exp[k]||0)+a}}});
     if(!del||!pred(e.date))return;
-    if(e.type==='verkauf'){t.umsatz+=amt;t.cogs+=num(e.cogs);if(!e.storno)t.versand+=portoCost(e);if(live(e)){t.n++;t.prov+=provAmt(e);t.offenFord+=Math.max(0,openAmt(e))}}
+    if(e.type==='verkauf'){t.umsatz+=amt;t.cogs+=num(e.cogs);if(!e.storno)t.versand+=portoCost(e);if(live(e)){t.n++;t.prov+=provAmt(e)+execAmt(e);t.offenFord+=Math.max(0,openAmt(e))}}
     else if(live(e))t.offenVerb+=Math.max(0,openAmt(e));
   });
   t.prov=r2(t.prov);t.versand=r2(t.versand);t.ueber=t.ein-t.aus;t.roh=t.umsatz-t.cogs;t.gewinn=r2(t.roh-t.versand-t.prov);return t;
@@ -1527,7 +1536,7 @@ function openEntryForm(type,e,preset){
   ['party','partyAddress','note','deliveryNote'].forEach(k=>F[k]=F[k]||'');F.addr=getAddr(F.partyAddr,F.partyAddress);F.items=F.items||[];F.att=F.att||[];F.delivered=F.type==='ausgabe'||F.delivered!==false;
   F.payStatus=e?(isPaid(e)?'1':isPartial(e)?'p':'0'):(F.paid===false?'0':'1');
   F.stage=F.delivered?'uebergeben':(F.ready?'fertig':F.packing?'abpacken':'geplant');
-  F.partnerId=F.partner?.id||F.partnerId||'';
+  F.partnerId=F.partner?.id||F.partnerId||'';F.execId=F.exec?.id||F.execId||'';F.execPct=F.exec?String(F.exec.pct):(F.execPct||'');F.execBase=F.exec?.base||F.execBase||'roh';
   UI.prEdit=null;initShip(e);F.shareId=F.costShare?.id||'';F.sharePct=F.costShare?String(F.costShare.pct):'50';F.pr=F.type==='verkauf'?effPr(F.party,F.partnerId):null;F.fApplied=norm(F.party);
   if(e){F.override=e.type==='verkauf'&&e.discount?String(e.total):'';F.amount=e.type==='ausgabe'?e.total:'';F.updateEk=false}
   if(F.type!=='ausgabe'&&!F.items.length)F.items.push({pid:'',qty:1,price:0});
@@ -1648,7 +1657,7 @@ function renderEntryForm(){
      <label class="field"><span>Versand €</span><input class="inp num" type="number" inputmode="decimal" min="0" step="0.01" data-f="ship" value="${esc(F.ship)}" placeholder="0 = kein Versand"></label>
      <label class="field"><span>Kunde zahlt</span><span class="switch"><input type="checkbox" role="switch" data-f="shipPays" ${F.shipPays?'checked':''}><span class="sw" aria-hidden="true"></span><span class="sw-v" aria-hidden="true"></span></span></label></div>
    <p class="hint" id="shipHint"></p>
-   <label class="field"><span>Endpreis € (bei Rabatt)</span><input class="inp num" type="number" inputmode="decimal" min="0" step="0.01" data-f="override" value="${F.override}" placeholder="leer = regulär"></label>${partnerSelect('data-f="partnerId"',F.partnerId)}`:''}
+   <label class="field"><span>Endpreis € (bei Rabatt)</span><input class="inp num" type="number" inputmode="decimal" min="0" step="0.01" data-f="override" value="${F.override}" placeholder="leer = regulär"></label>${partnerSelect('data-f="partnerId"',F.partnerId)}${execFields()}`:''}
    ${t==='einkauf'?`<label class="field"><span>Versandkosten €</span><input class="inp num" type="number" inputmode="decimal" min="0" step="0.01" data-f="extra" value="${F.extra||''}" placeholder="0"></label>
      <label class="check"><input type="checkbox" data-f="shipToEk" ${F.shipToEk!==false?'checked':''}><span>Versand anteilig in den Einkaufspreis einrechnen <small class="muted" id="shipShare"></small></span></label>`:''}
    ${t==='einkauf'&&!F.id?`<label class="check"><input type="checkbox" data-f="updateEk" ${F.updateEk?'checked':''}><span>Einkaufspreis im Produkt aktualisieren<br><small class="muted">als Durchschnitt mit dem Restbestand</small></span></label>`:''}
@@ -1674,6 +1683,12 @@ function renderEntryForm(){
   if($('.sheet-head h3'))$('.sheet-head h3').textContent=F.id?TYPES[t]+' bearbeiten':'Neue Buchung';
   updateSummary();fillThumbs();
 }
+// Auswahl „Ausgeführt durch“ (Formular und Bestellung)
+const execOptions=sel=>`<option value="">— ich selbst —</option>${partners().filter(p=>p.active!==false||p.id===sel).map(p=>`<option value="${p.id}" ${p.id===sel?'selected':''}>${esc(p.name)}</option>`).join('')}`;
+function execFields(){if(!partners().length)return'';
+  return `<div class="ship-row" style="grid-template-columns:minmax(0,1fr) 5.5em"><label class="field"><span>Ausgeführt durch</span><select class="inp" data-f="execId">${execOptions(F.execId)}</select></label>
+   ${F.execId?`<label class="field"><span>%</span><input class="inp num" type="number" inputmode="decimal" min="0" max="100" step="0.5" data-f="execPct" value="${esc(F.execPct)}"></label>`:''}</div>
+   ${F.execId?`<div class="seg" style="margin:-4px 0 12px">${Object.entries(EX_BASES).map(([k,l])=>`<button class="${F.execBase===k?'on':''}" data-act="fexb" data-v="${k}">${l}</button>`).join('')}</div>`:''}`}
 function formCalc(){
   if(F.type==='ausgabe')return{total:r2(num(F.amount))};
   const sub=r2(F.items.reduce((s,i)=>s+num(i.qty)*num(i.price),0));
@@ -1696,7 +1711,7 @@ function updateSummary(){
     <div class="l"><span>Wareneinsatz (EK)</span><span class="num">${eur(c.cogs)}</span></div>
     <div class="l big"><span>Gesamt</span><span class="num">${eur(c.total)}</span></div>
     <div class="l"><span>Rohertrag</span><span class="num ${c.total-c.cogs>=0?'pos':'neg'}">${eur(c.total-c.cogs)}</span></div>
-    ${profitLines({total:c.total,cogs:c.cogs,extra:sv.extra,porto:sv.porto,partner:partnerSnap(F.partnerId,F.partner)})}`;
+    ${profitLines({total:c.total,cogs:c.cogs,extra:sv.extra,porto:sv.porto,partner:partnerSnap(F.partnerId,F.partner),exec:execSnap(F.execId,F.execPct,F.execBase,F.exec)})}`;
   }else if(F.type==='einkauf'){const vw=r2(F.items.reduce((s,i)=>s+num(i.qty)*num(prodById(i.pid)?.vk),0));
     const sh=$('#shipShare');if(sh){sh.textContent=c.ship>0&&F.shipToEk!==false&&c.sub>0?`(+${Math.round(c.ship/c.sub*1000)/10} % je Stück)`:''}
     el.innerHTML=`${c.ship?`<div class="l"><span>Ware</span><span class="num">${eur(c.sub)}</span></div><div class="l"><span>Versandkosten</span><span class="num">${eur(c.ship)}</span></div>`:''}<div class="l big"><span>Einkaufssumme</span><span class="num">${eur(c.total)}</span></div>
@@ -1721,7 +1736,7 @@ async function saveEntry(){
     const shipF=F.type==='einkauf'&&F.shipToEk!==false&&c.sub>0?1+num(F.extra)/c.sub:1;
     e.items=F.items.map(i=>{const p=prodById(i.pid);return{...(i.bundle?{bundle:i.bundle}:{}),pid:i.pid,name:i.name||p?.name||'?',qty:num(i.qty),price:r2(num(i.price)),ek:r2(F.type==='verkauf'?num(i.ek??p?.ek):num(i.price)*shipF),tax:i.tax??(S.settings.kleinunternehmer?0:num(p?.tax??S.settings.defaultTax)),unit:i.unit||p?.unit||'Stk'}});
     if(F.type==='einkauf'){e.extra=r2(num(F.extra));e.shipToEk=F.shipToEk!==false;if(!e.extra){delete e.extra;delete e.shipToEk}}
-    if(F.type==='verkauf'){const sv=shipVals(),dn=String(F.deliveryNote||'').trim();if(dn)e.deliveryNote=dn;else delete e.deliveryNote;Object.assign(e,{partyAddress:F.partyAddress.trim(),partyAddr:cleanAddr(F.addr),extra:r2(sv.extra),regular:c.regular,discount:c.discount,cogs:c.cogs});const ps=partnerSnap(F.partnerId,old?.partner);if(ps)e.partner=ps;else delete e.partner;
+    if(F.type==='verkauf'){const sv=shipVals(),dn=String(F.deliveryNote||'').trim();if(dn)e.deliveryNote=dn;else delete e.deliveryNote;Object.assign(e,{partyAddress:F.partyAddress.trim(),partyAddr:cleanAddr(F.addr),extra:r2(sv.extra),regular:c.regular,discount:c.discount,cogs:c.cogs});const ps=partnerSnap(F.partnerId,old?.partner);if(ps)e.partner=ps;else delete e.partner;const xs=execSnap(F.execId,F.execPct,F.execBase,old?.exec);if(xs)e.exec=xs;else delete e.exec;
       if(F.shipTouched){if(sv.porto==null){delete e.porto;if(e.ship)e.ship={...e.ship,porto:null}}else{e.porto=r2(sv.porto);if(e.ship)e.ship={...e.ship,porto:e.porto||null}}}}
   }
   const prev=old?paysOf(old).map(p=>({...p})):[];let pays;
@@ -1876,7 +1891,7 @@ async function stornoEntry(id){
   toast('Storniert – Stornorechnung '+n.no);openEntry(s.id);
 }
 function openPartnerForm(id){
-  const p=id?partnerById(id):{name:'',pct:50,base:'roh',active:true};UI.pbase=p.base||'roh';
+  const p=id?partnerById(id):{name:'',pct:50,base:'roh',active:true};UI.pbase=p.base||'roh';UI.pxb=p.execBase||'roh';
   openSheet(id?'Partner bearbeiten':'Neuer Provisionspartner',`
    <label class="field"><span>Name</span><input class="inp" id="ptName" value="${esc(p.name)}" placeholder="z. B. Max"></label>
    <label class="field"><span>Provision %</span><input class="inp num" id="ptPct" type="number" inputmode="decimal" min="0" max="100" step="0.5" value="${p.pct}"></label>
@@ -1887,6 +1902,10 @@ function openPartnerForm(id){
      <select class="inp" id="ptPrMode"><option value="vk">Kein Rabatt</option><option value="rabatt" ${pr?.mode==='rabatt'?'selected':''}>Rabatt %</option><option value="ek" ${pr?.mode==='ek'?'selected':''}>Einkaufspreis + %</option></select>
      <input class="inp num" id="ptPrPct" type="number" inputmode="decimal" min="0" step="1" placeholder="%" value="${pr?num(pr.pct):''}" aria-label="Prozent"></div></div>
    <p class="hint" style="margin:0 0 12px">Wählst du diesen Partner bei einem Verkauf aus, bekommt der Kunde diese Preise automatisch – außer der Kunde hat eigene Preise.</p>`})()}
+   <div class="field" style="margin-top:4px"><span>Wenn er Bestellungen ausführt (Mittelsmann)</span></div>
+   <div class="grid2" style="grid-template-columns:5.5em minmax(0,1fr);align-items:start"><input class="inp num" id="ptXPct" type="number" inputmode="decimal" min="0" max="100" step="0.5" value="${p.execPct??3}" aria-label="Prozent">
+    <div class="seg">${Object.entries(EX_BASES).map(([k,l])=>`<button class="${UI.pxb===k?'on':''}" data-act="pxbase" data-v="${k}">${l}</button>`).join('')}</div></div>
+   <p class="hint" style="margin:6px 0 12px">Vorschlag, wenn du ihn bei einer Bestellung unter „Ausgeführt durch“ wählst – pro Bestellung änderbar. Sein Anteil wird vor der Vermittler-Provision abgezogen.</p>
    ${id?`<label class="check"><input type="checkbox" id="ptActive" ${p.active!==false?'checked':''}> Aktiv (bei neuen Verkäufen auswählbar)</label>`:''}
    <button class="btn" data-act="save-partner" data-id="${id||''}">Speichern</button>
    ${id?`<button class="btn danger" style="margin-top:8px" data-act="del-partner" data-id="${id}">Partner löschen</button>`:''}
@@ -1896,7 +1915,8 @@ async function savePartner(id){
   const name=$('#ptName').value.trim(),pct=num($('#ptPct').value);
   if(!name){toast('Bitte einen Namen eingeben.');return}if(!(pct>=0&&pct<=100)){toast('Prozent zwischen 0 und 100.');return}
   const list=[...partners()];const i=list.findIndex(x=>x.id===id);
-  const p={...(i>=0?list[i]:{id:newId()}),name,pct,base:UI.pbase||'roh',active:$('#ptActive')?$('#ptActive').checked:true};
+  const xp=num($('#ptXPct').value);if(!(xp>=0&&xp<=100)){toast('Ausführungs-Prozent zwischen 0 und 100.');return}
+  const p={...(i>=0?list[i]:{id:newId()}),name,pct,base:UI.pbase||'roh',execPct:r2(xp),execBase:UI.pxb||'roh',active:$('#ptActive')?$('#ptActive').checked:true};
   const pm=$('#ptPrMode').value;if(pm==='rabatt'||pm==='ek')p.price={mode:pm,pct:Math.max(0,r2(num($('#ptPrPct').value)))};else delete p.price;
   if(i>=0)list[i]=p;else list.push(p);
   await Store.setSettings({...S.settings,partners:list});closeSheet();toast('Partner gespeichert');
@@ -1905,16 +1925,17 @@ function openPartner(id){
   const p=partnerById(id);if(!p)return;const ps=partnerStats(id);
   const pays=sorted(S.entries.filter(e=>e.type==='ausgabe'&&e.partnerPayout===id)).reverse();
   openSheet(p.name,`
-   <p class="muted" style="margin:-6px 0 12px">${num(p.pct)} % ${BASES[p.base||'roh']}${p.active===false?' · inaktiv':''}</p>
+   <p class="muted" style="margin:-6px 0 12px">Vermittlung ${num(p.pct)} % ${BASES[p.base||'roh']} · Ausführung ${fmtPct(p.execPct??3)} % ${EX_BASES[p.execBase||'roh']}${p.active===false?' · inaktiv':''}</p>
    <div class="kpis" style="margin:0 0 12px">
     <div class="kpi"><div class="lbl">Offen auszuzahlen</div><div class="val ${ps.open>0.005?'warn':''}">${eur(ps.open)}</div></div>
     <div class="kpi"><div class="lbl">Bereits ausgezahlt</div><div class="val">${eur(ps.paid)}</div>${ps.shared?`<div class="sub2">+ ${eur(ps.shared)} Kostenanteile</div>`:''}</div>
-    <div class="kpi"><div class="lbl">Provision gesamt</div><div class="val">${eur(ps.earned)}</div><div class="sub2">${ps.n} ${ps.n===1?'Verkauf':'Verkäufe'} · Umsatz ${eur(ps.umsatz)}</div></div>
-    <div class="kpi"><div class="lbl">In offenen Bestellungen</div><div class="val">${eur(ps.pendAmt)}</div><div class="sub2">${ps.pend.length} noch nicht übergeben</div></div>
+    <div class="kpi"><div class="lbl">Provision gesamt</div><div class="val">${eur(ps.earned)}</div><div class="sub2">${ps.n} vermittelt · Umsatz ${eur(ps.umsatz)}${ps.xsales.length?` · ${ps.xsales.length} ausgeführt (${eur(ps.xEarned)})`:''}</div></div>
+    <div class="kpi"><div class="lbl">In offenen Bestellungen</div><div class="val">${eur(ps.pendAmt)}</div><div class="sub2">${ps.pendN} noch nicht übergeben</div></div>
    </div>
    ${ps.open>0.005?`<button class="btn" style="margin-bottom:8px" data-act="payout-partner" data-id="${id}">${eur(ps.open)} auszahlen</button>`:''}
    <div class="btn-row" style="margin-bottom:14px"><button class="btn ghost" data-act="partner-pdf" data-id="${id}">⤓ Abrechnung als PDF</button><button class="btn ghost" data-act="edit-partner" data-id="${id}">Bearbeiten</button></div>
    ${ps.sales.length?`<div class="eyebrow" style="margin-bottom:6px">Vermittelte Verkäufe</div><div class="list" style="margin-bottom:14px">${sorted(ps.sales).reverse().slice(0,30).map(e=>`<button class="row" data-act="open-entry" data-id="${e.id}"><span class="tag vk">${ICON.in}</span><span style="min-width:0"><span class="row-title" style="display:block">${esc(e.party||'Laufkunde')}</span><span class="row-sub" style="display:block">${fdate(e.date)} · ${eur(e.total)}</span></span><span class="row-amt"><span class="num">${eur(provAmt(e))}</span><span class="row-sub">Provision</span></span></button>`).join('')}</div>`:''}
+   ${ps.xsales.length||ps.xpend.length?`<div class="eyebrow" style="margin-bottom:6px">Ausgeführte Bestellungen</div><div class="list" style="margin-bottom:14px">${[...sorted(ps.xpend).reverse(),...sorted(ps.xsales).reverse().slice(0,30)].map(e=>`<button class="row" data-act="open-entry" data-id="${e.id}"><span class="tag vk">${ICON.in}</span><span style="min-width:0"><span class="row-title" style="display:block">${fmtOrder(e.orderNo)} ${esc(e.party||'Laufkunde')}</span><span class="row-sub" style="display:block">${fdate(e.date)} · ${fmtPct(e.exec.pct)} % ${EX_BASES[e.exec.base||'roh']}${e.delivered===false?' · noch offen':''}</span></span><span class="row-amt"><span class="num">${eur(execAmt(e))}</span><span class="row-sub">Ausführung</span></span></button>`).join('')}</div>`:''}
    ${ps.shares.length?`<div class="eyebrow" style="margin-bottom:6px">Geteilte Ausgaben (von Provision abgezogen)</div><div class="card" style="padding:4px 14px;margin-bottom:14px">${sorted(ps.shares).map(e=>`<div class="kv" data-act="open-entry" data-id="${e.id}" style="cursor:pointer"><span>${fdate(e.date)} · ${esc(e.party||e.expenseCat||'Ausgabe')} <small class="muted">${fmtPct(e.costShare.pct)} % von ${eur(e.total)}</small></span><b>${eur(shareAmt(e))}</b></div>`).join('')}</div>`:''}
    ${pays.length?`<div class="eyebrow" style="margin-bottom:6px">Auszahlungen</div><div class="card" style="padding:4px 14px">${pays.map(e=>`<div class="kv"><span>${fdate(e.date)} · ${METHODS[e.method]||''}</span><b>${eur(e.total)}</b></div>`).join('')}</div>`:''}`);
 }
@@ -2032,21 +2053,29 @@ async function partnerPDF(id,k){
   const pays=S.entries.filter(e=>e.type==='ausgabe'&&e.partnerPayout===id&&inR(e.date)).sort((a,b)=>a.date.localeCompare(b.date));
   const shs=ps.shares.filter(e=>inR(e.date)).sort((a,b)=>a.date.localeCompare(b.date)),shP=r2(shs.reduce((s,e)=>s+shareAmt(e),0));
   const {jsPDF}=window.jspdf;const doc=new jsPDF({unit:'mm',format:'a4'});const W=210,M=14;const ink=[22,32,27],mut=[102,116,108],acc=[28,106,88],line=[212,219,211],neg=[173,58,45];
+  const xs=ps.xsales.filter(e=>inR(e.date)).sort((a,b)=>(a.date+(a.created||'')).localeCompare(b.date+(b.created||''))),showV=sales.length||!xs.length||ps.sales.length;
   let Y=pdfHead(doc,'Provisionsabrechnung',`${pt.name} · ${rg.label}`,[`Erstellt ${fdate(today())}`]);
   doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(...mut);
-  doc.text(pdfSafe(`Vereinbarung: ${fmtPct(pt.pct)} % ${BASES[pt.base||'roh']}. Versand, den der Kunde zahlt, zählt nicht mit; ungedecktes Porto wird vorher abgezogen.`),M,Y);Y+=9;
+  if(showV)doc.text(pdfSafe(`Vereinbarung: ${fmtPct(pt.pct)} % ${BASES[pt.base||'roh']}. Versand, den der Kunde zahlt, zählt nicht mit; ungedecktes Porto und Ausführungs-Provisionen werden vorher abgezogen.`),M,Y,{maxWidth:W-2*M});if(showV)Y+=11;
   const cx=[M,M+22,M+40,W-M-56,W-M-28,W-M];const hd=['DATUM','NR.','KUNDE','UMSATZ',pt.base==='umsatz'?'BASIS':'ROHERTRAG','PROVISION'];
   const head=()=>{doc.setFont('helvetica','bold');doc.setFontSize(8);doc.setTextColor(...mut);hd.forEach((h,i)=>i>=3?doc.text(h,cx[i],Y,{align:'right'}):doc.text(h,cx[i],Y));doc.setDrawColor(...line);doc.line(M,Y+2,W-M,Y+2);Y+=7};
-  head();let sU=0,sB=0,sP=0;
+  let sU=0,sB=0,sP=0;if(showV){head();
   if(!sales.length){doc.setFont('helvetica','normal');doc.setFontSize(10);doc.setTextColor(...mut);doc.text('Keine vermittelten Verkäufe in diesem Zeitraum.',M,Y);Y+=8}
   for(const e of sales){if(Y>262){doc.addPage();Y=20;head()}
-    const p=e.partner,base=r2(Math.max(0,provBase(e,p)-shipNet(e))),pv=provAmt(e),um=r2(num(e.total)-Math.max(0,num(e.extra)));sU+=um;sB+=base;sP+=pv;
+    const base=provNet(e),pv=provAmt(e),um=r2(num(e.total)-Math.max(0,num(e.extra)));sU+=um;sB+=base;sP+=pv;
     doc.setFont('helvetica','normal');doc.setFontSize(9.5);doc.setTextColor(...ink);
     doc.text(fdate(e.date),cx[0],Y);doc.text(fmtOrder(e.orderNo)||'-',cx[1],Y);doc.text(doc.splitTextToSize(pdfSafe(e.party||'Laufkunde'),cx[3]-cx[2]-24)[0],cx[2],Y);
     doc.text(pdfE(um),cx[3],Y,{align:'right'});doc.text(pdfE(base),cx[4],Y,{align:'right'});doc.setFont('helvetica','bold');doc.text(pdfE(pv),cx[5],Y,{align:'right'});
     doc.setDrawColor(236,240,235);doc.line(M,Y+2.2,W-M,Y+2.2);Y+=6.8}
   doc.setDrawColor(...ink);doc.line(M,Y-2.6,W-M,Y-2.6);Y+=2;doc.setFont('helvetica','bold');doc.setFontSize(10);doc.setTextColor(...ink);
-  doc.text(`Summe (${sales.length} ${sales.length===1?'Verkauf':'Verkäufe'})`,M,Y);doc.text(pdfE(sU),cx[3],Y,{align:'right'});doc.text(pdfE(sB),cx[4],Y,{align:'right'});doc.setTextColor(...acc);doc.text(pdfE(sP),cx[5],Y,{align:'right'});Y+=12;
+  doc.text(`Summe (${sales.length} ${sales.length===1?'Verkauf':'Verkäufe'})`,M,Y);doc.text(pdfE(sU),cx[3],Y,{align:'right'});doc.text(pdfE(sB),cx[4],Y,{align:'right'});doc.setTextColor(...acc);doc.text(pdfE(sP),cx[5],Y,{align:'right'});Y+=12}
+  if(xs.length){if(Y>240){doc.addPage();Y=20}doc.setFont('helvetica','bold');doc.setFontSize(10.5);doc.setTextColor(...ink);doc.text('Ausgeführte Bestellungen',M,Y);Y+=7;
+    const hx=['DATUM','NR.','KUNDE','BASIS','SATZ','BETRAG'];doc.setFontSize(8);doc.setTextColor(...mut);hx.forEach((h,i)=>i>=3?doc.text(h,cx[i],Y,{align:'right'}):doc.text(h,cx[i],Y));doc.setDrawColor(...line);doc.line(M,Y+2,W-M,Y+2);Y+=7;let xB=0,xP=0;
+    for(const e of xs){if(Y>262){doc.addPage();Y=20}const b=execBase(e),a=execAmt(e);xB+=b;xP+=a;doc.setFont('helvetica','normal');doc.setFontSize(9.5);doc.setTextColor(...ink);
+      doc.text(fdate(e.date),cx[0],Y);doc.text(fmtOrder(e.orderNo)||'-',cx[1],Y);doc.text(doc.splitTextToSize(pdfSafe(e.party||'Laufkunde'),cx[3]-cx[2]-24)[0],cx[2],Y);
+      doc.text(pdfE(b),cx[3],Y,{align:'right'});doc.text(pdfSafe(`${fmtPct(e.exec.pct)} % ${e.exec.base==='umsatz'?'Ums.':'Gew.'}`),cx[4],Y,{align:'right'});doc.setFont('helvetica','bold');doc.text(pdfE(a),cx[5],Y,{align:'right'});
+      doc.setDrawColor(236,240,235);doc.line(M,Y+2.2,W-M,Y+2.2);Y+=6.8}
+    doc.setDrawColor(...ink);doc.line(M,Y-2.6,W-M,Y-2.6);Y+=2;doc.setFont('helvetica','bold');doc.setFontSize(10);doc.setTextColor(...ink);doc.text(`Summe (${xs.length})`,M,Y);doc.text(pdfE(xB),cx[3],Y,{align:'right'});doc.setTextColor(...acc);doc.text(pdfE(xP),cx[5],Y,{align:'right'});Y+=12;sP=r2(sP+xP)}
   const box=(lines)=>{if(Y>250){doc.addPage();Y=20}const h=lines.length*6.5+6;doc.setFillColor(243,246,242);doc.roundedRect(M,Y-5,W-2*M,h,2,2,'F');
     lines.forEach(([l,v,c,b])=>{doc.setFont('helvetica',b?'bold':'normal');doc.setFontSize(10);doc.setTextColor(...ink);doc.text(pdfSafe(l),M+5,Y);doc.setTextColor(...(c||ink));doc.text(v,W-M-5,Y,{align:'right'});Y+=6.5});Y+=8};
   if(pays.length){doc.setFont('helvetica','bold');doc.setFontSize(10.5);doc.setTextColor(...ink);doc.text('Auszahlungen in diesem Zeitraum',M,Y);Y+=6;
@@ -2055,15 +2084,15 @@ async function partnerPDF(id,k){
     shs.forEach(e=>{if(Y>270){doc.addPage();Y=20}doc.setFont('helvetica','normal');doc.setFontSize(9.5);doc.text(pdfSafe(`${fdate(e.date)} · ${e.party||e.expenseCat||'Ausgabe'} · ${fmtPct(e.costShare.pct)} % von ${pdfE(e.total)}`),M,Y);doc.text(pdfE(shareAmt(e)),W-M,Y,{align:'right'});Y+=6});Y+=4}
   box([['Provision in diesem Zeitraum',pdfE(sP),acc,true],['Ausgezahlt in diesem Zeitraum',pdfE(pays.reduce((s,e)=>s+num(e.total),0))],...(shs.length||ps.shared?[['Kostenanteile in diesem Zeitraum','− '+pdfE(shP)]]:[]),
     ['Provision gesamt (seit Beginn)',pdfE(ps.earned)],['Ausgezahlt gesamt',pdfE(ps.paid)],...(ps.shared?[['Kostenanteile gesamt','− '+pdfE(ps.shared)]]:[]),['Offener Betrag heute',pdfE(ps.open),ps.open>0.005?neg:ink,true]]);
-  if(ps.pend.length){doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(...mut);
-    doc.text(pdfSafe(`Noch nicht fällig: ${pdfE(ps.pendAmt)} aus ${ps.pend.length} offenen ${ps.pend.length===1?'Bestellung':'Bestellungen'}${(n=>n?' ('+n+')':'')(ps.pend.map(e=>fmtOrder(e.orderNo)).filter(Boolean).join(', '))} – fällig bei Übergabe.`),M,Y,{maxWidth:W-2*M});}
+  if(ps.pendN){doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(...mut);
+    doc.text(pdfSafe(`Noch nicht fällig: ${pdfE(ps.pendAmt)} aus ${ps.pendN} offenen ${ps.pendN===1?'Bestellung':'Bestellungen'}${(n=>n?' ('+n+')':'')([...ps.pend,...ps.xpend].map(e=>fmtOrder(e.orderNo)).filter(Boolean).join(', '))} – fällig bei Übergabe.`),M,Y,{maxWidth:W-2*M});}
   await Store.save(`Provision_${fileSafe(pt.name)}_${fileSafe(rg.label)}.pdf`,doc.output('blob'));
 }
 /* ---------- Steuer-Rücklage, Nachkauf ---------- */
 function taxReserveCard(t,label){const pc=num(S.settings.taxReserve);if(!pc)return'';const base=Math.max(0,t.ueber);
   const r=r2(base*pc/100);return `<div class="card" style="margin-top:10px;padding:8px 14px"><div class="kv" style="border:0"><span>Steuer-Rücklage ${label??''} (${pc} % vom Überschuss)</span><b class="warn">${eur(r)}</b></div><div class="kv"><span>Frei verfügbar</span><b class="pos">${eur(Math.max(0,t.ueber)-r)}</b></div></div>`}
 function openProvTotal(){return r2(partners().reduce((s,p)=>s+Math.max(0,partnerStats(p.id).open),0))}
-function pendProv(){let a=0,n=0;partners().forEach(p=>{const ps=partnerStats(p.id);a+=ps.pendAmt;n+=ps.pend.length});return{amt:r2(a),n}}
+function pendProv(){let a=0,n=0;partners().forEach(p=>{const ps=partnerStats(p.id);a+=ps.pendAmt;n+=ps.pendN});return{amt:r2(a),n}}
 function rebuyInfo(name){
   const es=S.entries.filter(e=>e.type==='verkauf'&&live(e)&&norm(e.party)===norm(name));
   if(es.some(e=>e.delivered===false))return null;
@@ -2112,13 +2141,24 @@ async function wipeAll(){
 }
 /* Porto / Gewinn je Verkauf */
 function profitLines(e,editId){
-  const pt=e.partner,known=portoKnown(e),pv=pt?provAmt(e):0,sn=shipNet(e);
-  if(!pt&&!known&&!num(e.extra)&&!editId)return'';
+  const pt=e.partner,known=portoKnown(e),pv=pt?provAmt(e):0,sn=shipNet(e),x=e.exec,xa=execAmt(e);
+  if(!pt&&!x&&!known&&!num(e.extra)&&!editId)return'';
   const porto=`<div class="l"><span>Porto (zahlst du)${editId?` <button class="link" style="padding:0 0 0 6px;font-size:13px" data-act="porto" data-id="${editId}">${known?'ändern':'eintragen'}</button>`:''}</span><span class="num">${known?'−'+eur(portoOf(e)):num(e.extra)?'<span class="muted" style="font-family:var(--f-ui);font-size:12px">= Versand vom Kunden</span>':'–'}</span></div>`;
-  const prov=pt?`<div class="l"><span>Provision ${esc(pt.name)}<br><small class="muted">${num(pt.pct)} % ${BASES[pt.base||'roh']}${sn?` nach Abzug von ${eur(sn)} Porto`:''}${e.delivered===false?' · fällig bei Übergabe':''}</small></span><span class="num neg">−${eur(pv)}</span></div>`:'';
-  const show=pt||known||num(e.extra);
-  return porto+prov+(show?`<div class="l"><span><b>Dein Gewinn</b></span><span class="num ${saleProfit(e)>=0?'pos':'neg'}"><b>${eur(saleProfit(e))}</b></span></div>`:'');
+  const exl=x||editId?`<div class="l"><span>${x?`Ausgeführt durch ${esc(x.name)}<br><small class="muted">${fmtPct(x.pct)} % ${EX_BASES[x.base||'roh']}${e.delivered===false?' · fällig bei Übergabe':''}</small>`:'Ausgeführt durch'}${editId?` <button class="link" style="padding:0 0 0 6px;font-size:13px" data-act="exec" data-id="${editId}">${x?'ändern':'eintragen'}</button>`:''}</span><span class="num ${x?'neg':''}">${x?'−'+eur(xa):'–'}</span></div>`:'';
+  const prov=pt?`<div class="l"><span>Provision ${esc(pt.name)}<br><small class="muted">${num(pt.pct)} % ${BASES[pt.base||'roh']}${sn||xa?` nach Abzug von ${[sn?eur(sn)+' Porto':'',xa?eur(xa)+' Ausführung':''].filter(Boolean).join(' und ')}`:''}${e.delivered===false?' · fällig bei Übergabe':''}</small></span><span class="num neg">−${eur(pv)}</span></div>`:'';
+  const show=pt||x||known||num(e.extra);
+  return porto+exl+prov+(show?`<div class="l"><span><b>Dein Gewinn</b></span><span class="num ${saleProfit(e)>=0?'pos':'neg'}"><b>${eur(saleProfit(e))}</b></span></div>`:'');
 }
+function openExec(id){const e=S.entries.find(x=>x.id===id);if(!e)return;const x=e.exec;UI.xb=x?.base||'roh';
+  openSheet('Ausgeführt durch',`<p class="muted" style="margin:-6px 0 12px">${fmtOrder(e.orderNo)}${e.party?' · '+esc(e.party):''} · ${eur(e.total)}</p>
+   <label class="field"><span>Wer hat die Bestellung ausgeführt?</span><select class="inp" id="xId">${execOptions(x?.id||'')}</select></label>
+   <div id="xMore">${execMore(x?.id||'',x?String(x.pct):'')}</div>
+   <button class="btn" data-act="save-exec" data-id="${id}">Speichern</button>
+   ${partners().length?'':`<p class="hint" style="margin-top:10px">Lege die Person zuerst unter Mehr → Provisionspartner an.</p>`}`)}
+function execMore(pid,pct){const pt=partnerById(pid);if(!pid||!pt)return'';
+  return `<label class="field"><span>Provision %</span><input class="inp num" id="xPct" type="number" inputmode="decimal" min="0" max="100" step="0.5" value="${esc(pct||String(pt.execPct??3))}"></label>
+   <div class="seg" style="margin-bottom:8px">${Object.entries(EX_BASES).map(([k,l])=>`<button class="${UI.xb===k?'on':''}" data-act="xb" data-v="${k}">${l}</button>`).join('')}</div>
+   <p class="hint" style="margin:0 0 12px">„Vom Gewinn“ = Verkaufspreis − Einkaufspreis − Porto, das du zahlst. Sein Anteil wird vor der Vermittler-Provision abgezogen – du und der Vermittler tragt ihn anteilig (bei 50 % Vermittler-Provision je zur Hälfte).</p>`}
 function openPorto(id){
   const e=S.entries.find(x=>x.id===id);if(!e)return;const linked=S.entries.find(x=>x.type==='ausgabe'&&x.shipFor===id);
   openSheet('Porto für diesen Verkauf',`<p class="muted" style="margin:-6px 0 12px">${esc(e.party||'Laufkunde')} · ${fdate(e.date)}${num(e.extra)?' · Kunde zahlt '+eur(e.extra)+' Versand':' · Kunde zahlt keinen Versand'}</p>
@@ -2485,9 +2525,9 @@ async function saveSettings(){
 /* ---------- data ---------- */
 function exportCSV(){
   const q=s=>`"${String(s??'').replace(/"/g,'""')}"`;const d=n=>r2(n).toFixed(2).replace('.',',');
-  const head=['Datum','Art','Bestellnr.','Rechnungsnr.','Kunde/Lieferant/Beschreibung','Positionen','Kategorie','Betrag','Bezahlt','Wareneinsatz','Zahlungsart','Status','Lieferung','Sendungsnr.','Belege','Notiz','Vermittler','Provision','Porto (du)','Hinweis Zusteller'];
+  const head=['Datum','Art','Bestellnr.','Rechnungsnr.','Kunde/Lieferant/Beschreibung','Positionen','Kategorie','Betrag','Bezahlt','Wareneinsatz','Zahlungsart','Status','Lieferung','Sendungsnr.','Belege','Notiz','Vermittler','Provision','Ausgeführt durch','Ausführung','Porto (du)','Hinweis Zusteller'];
   const rows=sorted(S.entries).reverse().map(e=>[fdate(e.date),TYPES[e.type],fmtOrder(e.orderNo),e.invoiceNo||'',e.party||'',(e.items||[]).map(i=>`${i.qty}x ${i.name} à ${d(i.price)}`).join(' | '),e.expenseCat||(e.type==='einkauf'?'Wareneinkauf':''),
-    (e.type==='verkauf'?'':'-')+d(e.total),(e.type==='verkauf'?'':'-')+d(paidSum(e)),e.type==='verkauf'?d(e.cogs):'',METHODS[e.method]||'',e.cancelled?'storniert':e.storno?'Storno':isPaid(e)?'bezahlt':isPartial(e)?'teilweise':'offen',e.type==='ausgabe'?'':e.delivered===false?'bestellt':'geliefert',e.ship?.tracking||'',(e.att||[]).length,e.note||'',e.partner?.name||'',e.partner?d(provAmt(e)):'',e.type==='verkauf'&&portoKnown(e)?d(portoOf(e)):'',e.deliveryNote||''].map(q).join(';'));
+    (e.type==='verkauf'?'':'-')+d(e.total),(e.type==='verkauf'?'':'-')+d(paidSum(e)),e.type==='verkauf'?d(e.cogs):'',METHODS[e.method]||'',e.cancelled?'storniert':e.storno?'Storno':isPaid(e)?'bezahlt':isPartial(e)?'teilweise':'offen',e.type==='ausgabe'?'':e.delivered===false?'bestellt':'geliefert',e.ship?.tracking||'',(e.att||[]).length,e.note||'',e.partner?.name||'',e.partner?d(provAmt(e)):'',e.exec?.name||'',e.exec?d(execAmt(e)):'',e.type==='verkauf'&&portoKnown(e)?d(portoOf(e)):'',e.deliveryNote||''].map(q).join(';'));
   return Store.save(`Buchungen_${today()}.csv`,'﻿'+[head.map(q).join(';'),...rows].join('\r\n'));
 }
 async function exportJSON(){
@@ -2574,6 +2614,7 @@ document.addEventListener('click',async ev=>{
     case'new-partner':openPartnerForm();break;
     case'edit-partner':openPartnerForm(id);break;
     case'open-partner':openPartner(id);break;
+    case'pxbase':UI.pxb=v;b.parentElement.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));break;
     case'pbase':UI.pbase=v;b.parentElement.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));break;
     case'save-partner':savePartner(id);break;
     case'del-partner':{const ps=partnerStats(id);if(!await ask(ps.open>0.005?`${partnerById(id)?.name||'Partner'} hat noch ${eur(ps.open)} offene Provision. Nach dem Löschen taucht sie nirgends mehr auf – vorher auszahlen oder auf inaktiv setzen. Trotzdem löschen?`:ps.n||ps.pend.length?'Partner löschen? Bestehende Verkäufe behalten ihre Provision.':'Partner löschen?'))break;
@@ -2588,6 +2629,12 @@ document.addEventListener('click',async ev=>{
     case'wipe-all':openWipe();break;
     case'wipe-confirm':wipeAll();break;
     case'porto':openPorto(id);break;
+    case'fexb':F.execBase=v;b.parentElement.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));updateSummary();break;
+    case'exec':openExec(id);break;
+    case'xb':UI.xb=v;b.parentElement.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));break;
+    case'save-exec':{const e=S.entries.find(x=>x.id===id);if(!e)break;const pid=$('#xId').value,ne={...e},xs=execSnap(pid,$('#xPct')?.value,UI.xb,e.exec);
+      if(xs&&!(xs.pct>=0&&xs.pct<=100)){toast('Prozent zwischen 0 und 100.');break}
+      if(xs)ne.exec=xs;else delete ne.exec;await Store.put('entries',ne).catch(()=>{});toast(xs?`Ausgeführt durch ${xs.name} · ${eur(execAmt(ne))}`:'Ausführung entfernt');openEntry(id);break}
     case'save-porto':savePorto(id);break;
     case'fcat':UI.fcat=v;renderEntryForm();break;
     case'f-add':{const p=prodById(id);if(!p||!F)break;const row=F.items.find(i=>i.pid===p.id);
@@ -2820,7 +2867,9 @@ document.addEventListener('change',async ev=>{
   if(t.dataset.k==='pid'){const it=F.items[+t.dataset.row];it.pid=t.value;delete it.ek;delete it.name;delete it.tax;delete it.unit;const p=prodById(t.value);if(p)it.price=F.type==='verkauf'?custPrice(p,F.pr):p.ek;renderEntryForm();return}
   if(t.dataset.f==='paid'){F.payStatus=t.value;return}
   if(t.dataset.f==='delivered'){F.delivered=t.value==='1';if(!F.id)F.payStatus=F.delivered?'1':'0';renderEntryForm();return}
+  if(t.id==='xId'){const pt=partnerById(t.value);if(pt)UI.xb=pt.execBase||'roh';$('#xMore').innerHTML=execMore(t.value,'');return}
   if(t.dataset.f==='shareId'){F.shareId=t.value;renderEntryForm();return}
+  if(t.dataset.f==='execId'){F.execId=t.value;const pt=partnerById(t.value);if(pt){F.execPct=String(pt.execPct??3);F.execBase=pt.execBase||'roh'}renderEntryForm();return}
   if(t.dataset.f==='partnerId'){F.partnerId=t.value;applyFCust();refreshFormCust();return}
   if(t.dataset.f==='shipPays'){F.shipPays=t.checked;F.shipTouched=true;if(F.shipPartial!=null){F.ship=String(F.shipPartial);F.shipPartial=null;const el=document.querySelector('[data-f="ship"]');if(el)el.value=F.ship}
     lsSet('kb_shippays',t.checked?'1':'0');updateSummary();return}
@@ -2845,7 +2894,7 @@ function fitVals(){fitQ=0;document.querySelectorAll(FIT_SEL).forEach(el=>{el.sty
 const fitSoon=()=>{if(!fitQ)fitQ=requestAnimationFrame(fitVals)};
 new MutationObserver(fitSoon).observe(document.body,{childList:true,subtree:true});
 addEventListener('resize',fitSoon);document.fonts&&document.fonts.ready.then(fitSoon);
-const APP_VER='69';
+const APP_VER='70';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
