@@ -667,8 +667,6 @@ const baseOf=p=>(p.base||p.name||'').trim();
 const variantsOf=p=>S.products.filter(x=>norm(baseOf(x))===norm(baseOf(p))).sort((a,b)=>(a.variant||'').localeCompare(b.variant||'','de',{numeric:true}));
 const fullName=(b,v)=>v?`${b} ${v}`:b;
 const codeSlug=(t,n)=>String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/ß/g,'SS').replace(/[^A-Z0-9]+/g,'').slice(0,n);
-function suggestCode(b,v,selfId){const root=[codeSlug(b,8),codeSlug(v,6)].filter(Boolean).join('-')||'ART';let c=root,i=2;
-  while(S.products.some(x=>x.id!==selfId&&x.sku&&norm(x.sku)===norm(c)))c=root+'-'+i++;return c}
 const varPill=p=>p.variant?` <span class="pill var">${esc(p.variant)}</span>`:'';
 function openProductStats(id){
   const p=prodById(id);if(!p)return;const ps=productStats(p);
@@ -2461,14 +2459,19 @@ async function saveRec(){
 
 /* ---------- product form ---------- */
 let P=null;
-function openProduct(id,preset){
-  const st=S.settings;const p=id?prodById(id):null;
+/* Produktcode: automatisch aus Wirkstoff + Variation (folgt beim Umbenennen). Ein selbst eingetragener Code bleibt, bis du das Feld leerst. */
+const codeRoot=(b,v)=>[codeSlug(b,8),codeSlug(v,6)].filter(Boolean).join('-')||'ART';
+const isAutoCode=(sku,b,v)=>!sku||new RegExp('^'+codeRoot(b,v)+'(-\\d+)?$','i').test(sku);
+let PV=null; // weitere Variationen im Produktformular
+function openProduct(id,preset,addRow){
+  const st=S.settings;const p=id?prodById(id):null,sm=stockMap();
   P=p?{...p}:{id:null,name:'',cat:st.categories[0]||'Allgemein',sku:'',unit:'Stk',ek:'',vk:'',tax:st.defaultTax,stockStart:0,low:'',ean:''};
   if(preset)Object.assign(P,preset);
+  PV={mainAuto:isAutoCode(P.sku,baseOf(P),P.variant),rows:(p?variantsOf(p).filter(x=>x.id!==p.id):[]).map(x=>({id:x.id,variant:x.variant||'',ek:x.ek,vk:x.vk,sku:x.sku||'',auto:isAutoCode(x.sku,baseOf(x),x.variant),stock:sm[x.id]||0}))};
+  if(addRow)PV.rows.push({id:null,variant:'',ek:P.ek,vk:P.vk,sku:'',auto:true,stock:0,isNew:true});
   openSheet(p?'Produkt bearbeiten':'Neues Produkt',`
    <div class="grid2" style="grid-template-columns:minmax(0,1.6fr) minmax(0,1fr)"><label class="field"><span>Wirkstoff / Produkt</span><input class="inp" id="pName" value="${esc(P.base??P.name)}" placeholder="z. B. BPC-157"></label>
     <label class="field"><span>Variation</span><input class="inp" id="pVar" value="${esc(P.variant||'')}" placeholder="z. B. 10 mg"></label></div>
-   ${P.id&&variantsOf(P).length>1?`<p class="hint" style="margin:-4px 0 10px">${variantsOf(P).length} Variationen: ${variantsOf(P).map(v=>esc(v.variant||'ohne')).join(', ')}. Änderst du den Wirkstoff-Namen, wird er bei allen Variationen geändert.</p>`:''}
    <div class="grid2"><label class="field"><span>Kategorie</span><select class="inp" id="pCat">${[...new Set([...st.categories,P.cat])].map(c=>`<option ${c===P.cat?'selected':''}>${esc(c)}</option>`).join('')}</select></label>
     <label class="field"><span>Produktcode</span><input class="inp" id="pSku" value="${esc(P.sku||'')}" placeholder="automatisch" autocapitalize="characters"></label></div>
    <div class="field"><span>Barcode / EAN (optional)</span><div class="inline"><input class="inp" id="pEan" inputmode="numeric" value="${esc(P.ean||'')}" placeholder="zum Scannen an der Kasse">${canScan()?'<button class="btn ghost sm" data-act="scan" data-v="ean">Scannen</button>':''}</div></div>
@@ -2479,26 +2482,49 @@ function openProduct(id,preset){
    <div class="grid2"><label class="field"><span>${p?'Anfangsbestand':'Bestand jetzt'}</span><input class="inp num" id="pStock" type="number" step="1" value="${P.stockStart}"></label>
     <label class="field"><span>Warnen ab Bestand</span><input class="inp num" id="pLow" type="number" min="0" step="1" value="${P.low??''}" placeholder="${st.lowStock}"></label></div>
    <label class="check"><input type="checkbox" id="pNoReorder" ${P.noReorder?'checked':''}><span>Nicht mehr nachbestellen<br><small class="muted">Auslaufartikel – keine Nachbestell-Hinweise mehr</small></span></label>
+   <div class="field" style="margin-top:6px"><span>Weitere Variationen</span></div>
+   <div id="pVars">${pvHTML()}</div>
+   <button class="add-row" data-act="pv-add" style="margin-bottom:6px">+ Variation</button>
+   <p class="hint" style="margin:0 0 12px">Jede Variation ist ein eigenes Produkt mit eigenem Bestand, Preis und Produktcode. Der Code entsteht automatisch aus Wirkstoff und Variation und ändert sich mit, wenn du sie umbenennst.</p>
    ${p?'<p class="hint">Preisänderungen gelten nur für neue Buchungen. Bereits gebuchte Verkäufe und Einkäufe behalten ihren damaligen Preis, Einkaufspreis und Namen. Den Bestand korrigierst du am einfachsten im Lager.</p>':''}
    <button class="btn" data-act="save-product">${p?'Speichern':'Produkt anlegen'}</button>
    ${p?'<button class="btn danger" style="margin-top:8px" data-act="del-product">Produkt löschen</button>':''}`);
+  pvCodes();if(addRow)setTimeout(()=>document.querySelector(`[data-pv="${PV.rows.length-1}"][data-k="variant"]`)?.focus(),80);
 }
+function pvHTML(){return PV.rows.length?`<div class="items">${PV.rows.map((r,i)=>`<div class="item" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr)${r.isNew?' 28px':''}">
+    <label>Variation<input class="inp" data-pv="${i}" data-k="variant" value="${esc(r.variant)}" placeholder="z. B. 20 mg"></label>
+    <label>Produktcode<input class="inp" data-pv="${i}" data-k="sku" value="${esc(r.sku)}" placeholder="automatisch" autocapitalize="characters"></label>
+    ${r.isNew?`<button class="x" data-act="pv-rm" data-i="${i}" aria-label="Entfernen">✕</button>`:''}
+    <div class="grid3" style="grid-column:1/-1"><label>EK €<input class="inp num" type="number" inputmode="decimal" min="0" step="0.01" data-pv="${i}" data-k="ek" value="${esc(r.ek)}"></label>
+     <label>VK €<input class="inp num" type="number" inputmode="decimal" min="0" step="0.01" data-pv="${i}" data-k="vk" value="${esc(r.vk)}"></label>
+     ${r.isNew?`<label>Bestand<input class="inp num" type="number" step="1" data-pv="${i}" data-k="stock" value="${esc(r.stock)}"></label>`:`<label>Bestand<span class="inp" style="display:block;background:transparent;border-color:transparent;padding-left:2px">${r.stock}</span></label>`}</div></div>`).join('')}</div>`:''}
+// Codes neu berechnen: eigene Codes bleiben, automatische folgen Wirkstoff + Variation, alles eindeutig
+function pvCodes(){if(!PV||!$('#pName'))return;const base=$('#pName').value.trim(),ids=new Set([P.id,...PV.rows.map(r=>r.id)].filter(Boolean));
+  const taken=new Set(S.products.filter(x=>!ids.has(x.id)&&x.sku).map(x=>norm(x.sku))),need=PV.rows.length>0||!!$('#pVar').value.trim();
+  const ent=[{v:$('#pVar').value.trim(),auto:PV.mainAuto,el:$('#pSku'),keep:P.sku||'',set:()=>{}},...PV.rows.map((r,i)=>({v:r.variant.trim(),auto:r.auto,el:document.querySelector(`[data-pv="${i}"][data-k="sku"]`),keep:r.sku,set:c=>{r.sku=c}}))];
+  ent.forEach(e=>{if(!e.auto&&e.el&&e.el.value.trim())taken.add(norm(e.el.value.trim()))});
+  ent.forEach(e=>{if(!e.auto||!e.el)return;let c='';if(need){const root=codeRoot(base,e.v);c=root;let i=2;while(taken.has(norm(c)))c=root+'-'+i++;taken.add(norm(c))}else c=e.keep;e.el.value=c;e.set(c)})}
 async function saveProduct(){
   const base=$('#pName').value.trim(),variant=($('#pVar')?.value||'').trim();if(!base){toast('Bitte eine Bezeichnung eingeben.');return}
-  const name=fullName(base,variant),oldBase=P.id?baseOf(prodById(P.id)||P):null;
-  if(variant&&S.products.some(x=>x.id!==P.id&&norm(baseOf(x))===norm(base)&&norm(x.variant||'')===norm(variant))){toast(`„${name}“ gibt es schon.`);return}
-  let sku=($('#pSku')?.value||'').trim();if(!sku&&(variant||variantsOf({base}).some(x=>x.id!==P.id)))sku=suggestCode(base,variant,P.id);
-  if(sku&&S.products.some(x=>x.id!==P.id&&x.sku&&norm(x.sku)===norm(sku))){toast(`Produktcode ${sku} gehört schon zu einem anderen Produkt.`);return}
+  pvCodes();
+  const name=fullName(base,variant),ids=new Set([P.id,...PV.rows.map(r=>r.id)].filter(Boolean));
+  const grp=[{id:P.id,variant,sku:$('#pSku').value.trim()},...PV.rows.map(r=>({id:r.id,variant:r.variant.trim(),sku:r.sku.trim()}))];
+  if(grp.length>1&&grp.some(g=>!g.variant)){toast(variant?'Bitte jeder Variation einen Namen geben.':'Bitte auch diesem Produkt eine Variation geben (z. B. 5 mg).');return}
+  const vn=grp.map(g=>norm(g.variant)).filter(Boolean),dupV=vn.find((v,i)=>vn.indexOf(v)!==i);if(dupV){toast(`Variation „${dupV}“ kommt doppelt vor.`);return}
+  const clash=grp.find(g=>S.products.some(x=>!ids.has(x.id)&&norm(baseOf(x))===norm(base)&&norm(x.variant||'')===norm(g.variant)));if(clash){toast(`„${fullName(base,clash.variant)}“ gibt es schon.`);return}
+  const cs=grp.map(g=>norm(g.sku)).filter(Boolean),dupC=cs.find((c,i)=>cs.indexOf(c)!==i)||cs.find(c=>S.products.some(x=>!ids.has(x.id)&&x.sku&&norm(x.sku)===c));
+  if(dupC){toast(`Produktcode ${dupC.toUpperCase()} gibt es schon.`);return}
   const ean=($('#pEan')?.value||'').trim();
   if(ean&&S.products.some(x=>x.ean===ean&&x.id!==P.id)){toast('Dieser Barcode gehört schon zu einem anderen Produkt.');return}
-  const p={...P,id:P.id||newId(),name,base,variant,ean,cat:$('#pCat').value,sku,unit:$('#pUnit').value.trim()||'Stk',
+  const p={...P,id:P.id||newId(),name,base,variant,ean,cat:$('#pCat').value,sku:grp[0].sku,unit:$('#pUnit').value.trim()||'Stk',
     ek:r2(num($('#pEk').value)),vk:r2(num($('#pVk').value)),tax:$('#pTax')?num($('#pTax').value):num(P.tax??S.settings.defaultTax),
     stockStart:Math.round(num($('#pStock').value)),low:$('#pLow').value===''?null:Math.round(num($('#pLow').value)),noReorder:$('#pNoReorder').checked};
   if(p.low===null)delete p.low;if(!p.noReorder)delete p.noReorder;if(!p.variant)delete p.variant;
-  // Wirkstoff umbenannt: alle Variationen mitziehen
-  const sibs=oldBase&&norm(oldBase)!==norm(base)?S.products.filter(x=>x.id!==p.id&&norm(baseOf(x))===norm(oldBase)):[];
-  try{await Store.bulk(async()=>{await Store.put('products',p);for(const x of sibs)await Store.put('products',{...x,base,name:fullName(base,x.variant)})})}catch{return}
-  closeSheet();toast(P.id?'Produkt gespeichert':'Produkt angelegt');
+  const others=PV.rows.map(r=>{const v=r.variant.trim(),o=r.id?prodById(r.id):{id:newId(),cat:p.cat,unit:p.unit,tax:p.tax,stockStart:Math.round(num(r.stock)),ean:''};
+    return{...o,base,variant:v,name:fullName(base,v),sku:r.sku.trim(),ek:r2(num(r.ek)),vk:r2(num(r.vk))}});
+  try{await Store.bulk(async()=>{await Store.put('products',p);for(const x of others)await Store.put('products',x)})}catch{return}
+  const nNew=PV.rows.filter(r=>r.isNew).length;
+  closeSheet();toast((P.id?'Produkt gespeichert':'Produkt angelegt')+(nNew?` · ${nNew} ${nNew===1?'Variation':'Variationen'} neu`:''));
 }
 function openStock(id){
   const p=prodById(id);const s=stockMap()[id];
@@ -2761,7 +2787,9 @@ document.addEventListener('click',async ev=>{
     case'lb-ship':saveShipment();break;
     case'print-invoice':printNow('print-inv');break;
     case'new-product':openProduct();break;
-    case'add-variant':{const s0=prodById(id);if(!s0)break;closeSheet();openProduct(null,{base:baseOf(s0),name:baseOf(s0),variant:'',cat:s0.cat,unit:s0.unit,tax:s0.tax,ek:s0.ek,vk:s0.vk,sku:'',ean:'',stockStart:0});setTimeout(()=>$('#pVar')?.focus(),80);break}
+    case'add-variant':closeSheet();openProduct(id,null,true);break;
+    case'pv-add':{PV.rows.push({id:null,variant:'',ek:$('#pEk').value,vk:$('#pVk').value,sku:'',auto:true,stock:0,isNew:true});$('#pVars').innerHTML=pvHTML();pvCodes();document.querySelector(`[data-pv="${PV.rows.length-1}"][data-k="variant"]`)?.focus();break}
+    case'pv-rm':{PV.rows.splice(+b.dataset.i,1);$('#pVars').innerHTML=pvHTML();pvCodes();break}
     case'edit-product':closeSheet();openProduct(id);break;
     case'save-product':saveProduct();break;
     case'del-product':{const used=S.entries.some(e=>(e.items||[]).some(i=>i.pid===P.id)),inB=(S.settings.bundles||[]).filter(x=>(x.items||[]).some(i=>i.pid===P.id));
@@ -2841,6 +2869,9 @@ document.addEventListener('click',ev=>{if(LP.skip){LP.skip=false;if(ev.target.cl
 document.addEventListener('contextmenu',ev=>{if(ev.target.closest('.tile'))ev.preventDefault()});
 document.addEventListener('input',ev=>{
   const t=ev.target;
+  if(t.dataset.pv!==undefined&&PV){const r=PV.rows[+t.dataset.pv];if(r){r[t.dataset.k]=t.value;if(t.dataset.k==='sku')r.auto=!t.value.trim();if(t.dataset.k==='variant')pvCodes()}return}
+  if(t.id==='pName'||t.id==='pVar'){pvCodes();return}
+  if(t.id==='pSku'&&PV){PV.mainAuto=!t.value.trim();return}
   if(t.dataset.cartPrice!==undefined){const c=UI.cart[+t.dataset.cartPrice];if(c)c.price=num(t.value);coRefresh();return}
   if(t.id==='noteEdit'){const b=$('#noteBtn');if(b)b.hidden=false;return}
   if(t.id==='coGiven'){UI.kgiven=t.value;coRefresh();return}
@@ -2914,7 +2945,7 @@ function fitVals(){fitQ=0;document.querySelectorAll(FIT_SEL).forEach(el=>{el.sty
 const fitSoon=()=>{if(!fitQ)fitQ=requestAnimationFrame(fitVals)};
 new MutationObserver(fitSoon).observe(document.body,{childList:true,subtree:true});
 addEventListener('resize',fitSoon);document.fonts&&document.fonts.ready.then(fitSoon);
-const APP_VER='71';
+const APP_VER='72';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
