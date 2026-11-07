@@ -122,6 +122,7 @@ button.row:hover{background:var(--surface-2)}
 .pill{display:inline-block;font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:99px;margin-top:3px;white-space:nowrap}
 .pill.open{background:var(--warn-soft);color:var(--warn)}
 .pill.ok{background:var(--surface-2);color:var(--muted)}
+.inp.err{border-color:var(--neg);box-shadow:0 0 0 3px var(--neg-soft)}
 .pill.var{background:var(--accent-soft);color:var(--accent);margin-left:4px;vertical-align:1px}
 .pill.ex{background:var(--surface-2);color:var(--muted);margin-left:4px}
 .grp-head{padding:8px 14px 7px;font-size:13px;font-weight:650;color:var(--ink);background:var(--surface-2);border-top:1px solid var(--line);display:flex;justify-content:space-between}
@@ -2492,7 +2493,7 @@ function openProduct(id,preset,addRow){
   pvCodes();if(addRow)setTimeout(()=>document.querySelector(`[data-pv="${PV.rows.length-1}"][data-k="variant"]`)?.focus(),80);
 }
 function pvHTML(){return PV.rows.length?`<div class="items">${PV.rows.map((r,i)=>`<div class="item" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr)${r.isNew?' 28px':''}">
-    <label>Variation<input class="inp" data-pv="${i}" data-k="variant" value="${esc(r.variant)}" placeholder="z. B. 20 mg"></label>
+    <label>Variation${!r.isNew&&!r.variant?' <small class="neg">(bisher ohne)</small>':''}<input class="inp" data-pv="${i}" data-k="variant" value="${esc(r.variant)}" placeholder="z. B. 20 mg"></label>
     <label>Produktcode<input class="inp" data-pv="${i}" data-k="sku" value="${esc(r.sku)}" placeholder="automatisch" autocapitalize="characters"></label>
     ${r.isNew?`<button class="x" data-act="pv-rm" data-i="${i}" aria-label="Entfernen">✕</button>`:''}
     <div class="grid3" style="grid-column:1/-1"><label>EK €<input class="inp num" type="number" inputmode="decimal" min="0" step="0.01" data-pv="${i}" data-k="ek" value="${esc(r.ek)}"></label>
@@ -2506,10 +2507,17 @@ function pvCodes(){if(!PV||!$('#pName'))return;const base=$('#pName').value.trim
   ent.forEach(e=>{if(!e.auto||!e.el)return;let c='';if(need){const root=codeRoot(base,e.v);c=root;let i=2;while(taken.has(norm(c)))c=root+'-'+i++;taken.add(norm(c))}else c=e.keep;e.el.value=c;e.set(c)})}
 async function saveProduct(){
   const base=$('#pName').value.trim(),variant=($('#pVar')?.value||'').trim();if(!base){toast('Bitte eine Bezeichnung eingeben.');return}
+  // Leere neue Zeilen (nichts eingetragen) einfach weglassen
+  const blank=r=>r.isNew&&!r.variant.trim()&&!String(r.sku||'').trim()||r.isNew&&!r.variant.trim()&&r.auto;
+  if(PV.rows.some(blank)){PV.rows=PV.rows.filter(r=>!blank(r));$('#pVars').innerHTML=pvHTML()}
   pvCodes();
   const name=fullName(base,variant),ids=new Set([P.id,...PV.rows.map(r=>r.id)].filter(Boolean));
   const grp=[{id:P.id,variant,sku:$('#pSku').value.trim()},...PV.rows.map(r=>({id:r.id,variant:r.variant.trim(),sku:r.sku.trim()}))];
-  if(grp.length>1&&grp.some(g=>!g.variant)){toast(variant?'Bitte jeder Variation einen Namen geben.':'Bitte auch diesem Produkt eine Variation geben (z. B. 5 mg).');return}
+  document.querySelectorAll('.inp.err').forEach(x=>x.classList.remove('err'));
+  const miss=grp.length>1?grp.findIndex(g=>!g.variant):-1;
+  if(miss>=0){const el=miss===0?$('#pVar'):document.querySelector(`[data-pv="${miss-1}"][data-k="variant"]`);
+    if(el){el.classList.add('err');el.scrollIntoView({block:'center',behavior:'smooth'});setTimeout(()=>el.focus(),250)}
+    toast(miss===0?'Oben bei „Variation“ fehlt noch der Name (z. B. 5 mg) – rot markiert.':PV.rows[miss-1]?.isNew?'Eine neue Variation hat noch keinen Namen – rot markiert. Namen eintragen oder mit ✕ entfernen.':'Ein Produkt mit gleichem Namen hat noch keine Variation – rot markiert. Bitte Namen eintragen (z. B. 5 mg).');return}
   const vn=grp.map(g=>norm(g.variant)).filter(Boolean),dupV=vn.find((v,i)=>vn.indexOf(v)!==i);if(dupV){toast(`Variation „${dupV}“ kommt doppelt vor.`);return}
   const clash=grp.find(g=>S.products.some(x=>!ids.has(x.id)&&norm(baseOf(x))===norm(base)&&norm(x.variant||'')===norm(g.variant)));if(clash){toast(`„${fullName(base,clash.variant)}“ gibt es schon.`);return}
   const cs=grp.map(g=>norm(g.sku)).filter(Boolean),dupC=cs.find((c,i)=>cs.indexOf(c)!==i)||cs.find(c=>S.products.some(x=>!ids.has(x.id)&&x.sku&&norm(x.sku)===c));
@@ -2869,6 +2877,7 @@ document.addEventListener('click',ev=>{if(LP.skip){LP.skip=false;if(ev.target.cl
 document.addEventListener('contextmenu',ev=>{if(ev.target.closest('.tile'))ev.preventDefault()});
 document.addEventListener('input',ev=>{
   const t=ev.target;
+  if(t.classList.contains('err')&&t.value.trim())t.classList.remove('err');
   if(t.dataset.pv!==undefined&&PV){const r=PV.rows[+t.dataset.pv];if(r){r[t.dataset.k]=t.value;if(t.dataset.k==='sku')r.auto=!t.value.trim();if(t.dataset.k==='variant')pvCodes()}return}
   if(t.id==='pName'||t.id==='pVar'){pvCodes();return}
   if(t.id==='pSku'&&PV){PV.mainAuto=!t.value.trim();return}
@@ -2945,7 +2954,7 @@ function fitVals(){fitQ=0;document.querySelectorAll(FIT_SEL).forEach(el=>{el.sty
 const fitSoon=()=>{if(!fitQ)fitQ=requestAnimationFrame(fitVals)};
 new MutationObserver(fitSoon).observe(document.body,{childList:true,subtree:true});
 addEventListener('resize',fitSoon);document.fonts&&document.fonts.ready.then(fitSoon);
-const APP_VER='73';
+const APP_VER='74';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
