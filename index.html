@@ -874,14 +874,17 @@ function vBuchungen(){
 
 function vLager(){
   const sm=stockMap(),pm=pendingMap();const cats=['alle',...new Set(S.products.map(p=>p.cat||'Allgemein'))];
-  let l=[...S.products].sort((a,b)=>(a.cat||'').localeCompare(b.cat||'')||a.name.localeCompare(b.name));
+  let l=[...S.products].sort((a,b)=>(a.cat||'').localeCompare(b.cat||'')||a.name.localeCompare(b.name,'de',{numeric:true}));
   if(UI.lagerCat!=='alle')l=l.filter(p=>(p.cat||'Allgemein')===UI.lagerCat);
+  const lq=norm(UI.lq||'');if(lq)l=l.filter(p=>norm([p.name,p.sku,p.ean,p.cat].filter(Boolean).join(' ')).includes(lq));
   const v={ek:0,vk:0,stk:0,inc:0};
   l.forEach(p=>{const q=Math.max(0,sm[p.id]);v.ek+=q*num(p.ek);v.vk+=q*num(p.vk);v.stk+=q;v.inc+=(pm.inc[p.id]||0)*num(p.ek)});
   const byCat={};S.products.forEach(p=>{const k=p.cat||'Allgemein';byCat[k]=(byCat[k]||0)+Math.max(0,sm[p.id])*num(p.ek)});
   return header('Lager','<button class="add-btn" data-act="new-product">+ Produkt</button>')+`${S.products.length?`<div class="btn-row" style="margin:-4px 0 12px"><button class="btn ghost sm" style="flex:0 1 auto;min-width:0" data-act="stock-export">⤓ Bestand exportieren</button><button class="btn ghost sm" style="flex:0 1 auto;min-width:0" data-act="price-pdf" data-name="">⤓ Preisliste</button><button class="btn ghost sm" style="flex:0 1 auto;min-width:0" data-act="order-list">Bestellliste</button></div>`:''}
+  ${S.products.length>3?`<input class="search" id="lq" type="search" placeholder="Im Lager suchen – Name, Code, Barcode …" value="${esc(UI.lq||'')}">`:''}
+  ${lq&&!l.length?`<div class="empty" style="margin-bottom:12px">Nichts gefunden für „${esc(UI.lq)}“${UI.lagerCat!=='alle'?' in '+esc(UI.lagerCat):''}.</div>`:''}
   ${cats.length>2?`<div class="chips">${cats.map(c=>`<button class="chip ${UI.lagerCat===c?'on':''}" data-act="lagercat" data-v="${esc(c)}">${c==='alle'?'Alle':esc(c)}</button>`).join('')}</div>`:''}
-  ${S.products.length?`<div class="kpi-main" style="margin:0 0 8px"><div class="lbl">Warenwert im Lager${UI.lagerCat!=='alle'?' · '+esc(UI.lagerCat):''} (zum Einkaufspreis)</div><div class="val">${eur(v.ek)}</div>
+  ${S.products.length&&!lq?`<div class="kpi-main" style="margin:0 0 8px"><div class="lbl">Warenwert im Lager${UI.lagerCat!=='alle'?' · '+esc(UI.lagerCat):''} (zum Einkaufspreis)</div><div class="val">${eur(v.ek)}</div>
    <div class="sub">${v.stk} Stück auf Lager${v.inc?` · dazu ${eur(v.inc)} bestellt`:''}</div></div>
   <div class="kpis" style="margin:0 0 14px">
    <div class="kpi"><div class="lbl">Verkaufswert (VK)</div><div class="val">${eur(v.vk)}</div></div>
@@ -2940,7 +2943,7 @@ document.addEventListener('input',ev=>{
   if(t.id==='coRecv'){coRefresh();return}
   if(t.id==='coPartner'){coKeep();UI.kpartner=t.value;const pr=effPr(UI.kparty,UI.kpartner);if(!samePr(pr,UI.kpr)){reprice(UI.cart,UI.kpr,pr);UI.kpr=pr;render();openCheckout()}else coRefresh();return}
   if(t.id&&t.id.startsWith('lb_')&&LB){refreshLabel();return}
-  if(t.id==='q'||t.id==='cq'||t.id==='pq'||t.id==='kq'){UI[t.id]=t.value;renderKeep(t.id);return}
+  if(t.id==='q'||t.id==='cq'||t.id==='pq'||t.id==='kq'||t.id==='lq'){UI[t.id]=t.value;renderKeep(t.id);return}
   if(t.id==='fq'){UI.fq=t.value;filterPicker();return}
   if(t.id==='kcust'){UI.kparty=t.value;const v=t.value.trim();if((!v&&UI.kApplied)||(isKnownCust(v)&&norm(v)!==UI.kApplied)){applyKCust();renderKeep('kcust');askPartnerK().then(ch=>{if(ch)renderKeep('kcust')})}return}
   if(t.id==='prPct')return;
@@ -3009,7 +3012,7 @@ function fitVals(){fitQ=0;document.querySelectorAll(FIT_SEL).forEach(el=>{el.sty
 const fitSoon=()=>{if(!fitQ)fitQ=requestAnimationFrame(fitVals)};
 new MutationObserver(fitSoon).observe(document.body,{childList:true,subtree:true});
 addEventListener('resize',fitSoon);document.fonts&&document.fonts.ready.then(fitSoon);
-const APP_VER='78';
+const APP_VER='79';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
