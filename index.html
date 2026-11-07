@@ -123,6 +123,11 @@ button.row:hover{background:var(--surface-2)}
 .pill.open{background:var(--warn-soft);color:var(--warn)}
 .pill.ok{background:var(--surface-2);color:var(--muted)}
 .inp.err{border-color:var(--neg);box-shadow:0 0 0 3px var(--neg-soft)}
+.drv-card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:14px;margin-bottom:12px}
+.drv-top{display:flex;align-items:center;gap:8px;margin-bottom:6px}.drv-top b{font-size:17px}
+.drv-items{margin:8px 0;padding:8px 10px;background:var(--surface-2);border-radius:10px;font-size:14.5px;line-height:1.55}
+.drv-pay{display:flex;justify-content:space-between;align-items:center;font-weight:700;margin:8px 0}
+body.driver .nav{display:none}
 .pill.var{background:var(--accent-soft);color:var(--accent);margin-left:4px;vertical-align:1px}
 .pill.ex{background:var(--surface-2);color:var(--muted);margin-left:4px}
 .grp-head{padding:8px 14px 7px;font-size:13px;font-weight:650;color:var(--ink);background:var(--surface-2);border-top:1px solid var(--line);display:flex;justify-content:space-between}
@@ -470,7 +475,9 @@ const DEF={owner:'',company:'',address:'',email:'',phone:'',uidNr:'',iban:'',
   invoiceYear:new Date().getFullYear(),nextInvoice:1,partners:[],payDays:14,payTerms:'Zahlbar innerhalb von 14 Tagen ohne Abzug.'};
 
 const S={settings:{...DEF},products:[],entries:[],customers:[],suppliers:[],recurring:[]};
-const UI={ofilt:lsGet('kb_ofilt','alle'),osort:lsGet('kb_osort','alt'),csort:lsGet('kb_csort','zuletzt'),lblFmt:lsGet('kb_lblfmt','a6'),ktab:'kunde',cart:[],kq:'',ksort:lsGet('kb_ksort','az'),kstage:lsGet('kb_kstage','geplant'),kcat:'alle',kpay:'bar',kparty:'',remTone:lsGet('kb_tone','du'),cq:'',pq:'',pcat:'alle',psort:lsGet('kb_psort','kat'),screen:'start',period:'monat',filter:'alle',q:'',lagerCat:'alle',year:new Date().getFullYear(),ready:false};
+/* Zusteller-Modus: nur offene Bestellungen, keine Preise/Gewinne; Beenden nur mit PIN (gilt nur auf diesem Gerät) */
+const DRV_OK=new Set(['close','close-bg','d-exit','d-exit-ok','d-filter','d-next','d-finish','d-done','d-nocode','msg','msg-k','msg-tone','msg-send']);
+const UI={driver:lsGet('kb_driver','')==='1',dfilt:'alle',ofilt:lsGet('kb_ofilt','alle'),osort:lsGet('kb_osort','alt'),csort:lsGet('kb_csort','zuletzt'),lblFmt:lsGet('kb_lblfmt','a6'),ktab:'kunde',cart:[],kq:'',ksort:lsGet('kb_ksort','az'),kstage:lsGet('kb_kstage','geplant'),kcat:'alle',kpay:'bar',kparty:'',remTone:lsGet('kb_tone','du'),cq:'',pq:'',pcat:'alle',psort:lsGet('kb_psort','kat'),screen:'start',period:'monat',filter:'alle',q:'',lagerCat:'alle',year:new Date().getFullYear(),ready:false};
 const LKEY='kassabuch_v1';
 
 /* ---------- Speicher: alles lokal auf dem Gerät (localStorage), Belege in IndexedDB ---------- */
@@ -736,11 +743,15 @@ function render(){
   if(!UI.ready){m.innerHTML=header('Kassabuch')+`<div class="list"><div class="empty">Daten werden geladen …</div></div>`;return}
   m.classList.toggle('kasse',UI.screen==='kasse');
   const back=m.dataset.scr===UI.screen?snapScroll(m):null;m.dataset.scr=UI.screen;
+  document.body.classList.toggle('driver',UI.driver);
+  if(UI.driver){m.classList.remove('kasse');m.innerHTML=vDriver();if(back)back();return}
   m.innerHTML=({kasse:vKasse,start:vStart,buchungen:vBuchungen,kunden:vKunden,lager:vLager,auswertung:vAuswertung,mehr:vMehr}[UI.screen])();
   if(back)back();
+  if($('#vpTiles'))vpRender();
 }
 /* Neu zeichnen, ohne das Suchfeld zu ersetzen – sonst schließt iOS die Tastatur */
 function renderKeep(id){
+  if(UI.driver){render();return}
   const m=$('#main'),old=$('#'+id);
   const fb=()=>{const pos=old?old.selectionStart:null;render();const n=$('#'+id);if(n){n.focus();if(pos!=null)try{n.setSelectionRange(pos,pos)}catch{}}};
   if(!old||old.parentNode!==m)return fb();
@@ -758,6 +769,42 @@ function filterPicker(){const q=norm(UI.fq||'');let n=0;
 UI.fold=(()=>{try{return JSON.parse(lsGet('kb_fold','{}'))}catch{return{}}})();
 const isOpen=(k,def)=>UI.fold[k]??def;
 const foldHead=(k,def,title,count)=>`<button class="fold-head" data-act="fold" data-v="${k}" data-def="${def?1:0}" aria-expanded="${isOpen(k,def)}"><h2>${title}${count!=null?` <span class="h-n">${count}</span>`:''}</h2><span class="fold-ic" aria-hidden="true"></span></button>`;
+function vDriver(){const st=S.settings,who=partnerById(st.driverBy)?.name||'';
+  const all=sorted(S.entries.filter(e=>e.type==='verkauf'&&e.delivered===false&&live(e))).reverse();
+  const cnt=k=>all.filter(e=>stage(e)===k).length,f=UI.dfilt||'alle',l=f==='alle'?all:all.filter(e=>stage(e)===f);
+  return header('Zustellung',`<button class="btn ghost sm" style="flex:0 0 auto" data-act="d-exit">Beenden</button>`,`Zusteller-Modus${who?' · '+esc(who):''}`)+`
+  <div class="chips">${[['alle','Alle',all.length],['geplant','Abzuholen',cnt('geplant')],['abpacken','Abzupacken',cnt('abpacken')],['fertig','Abgepackt',cnt('fertig')]].map(([k,t,n])=>`<button class="chip ${f===k?'on':''}" data-act="d-filter" data-v="${k}">${t} ${n}</button>`).join('')}</div>
+  ${l.length?l.map(e=>{const c=custByName(e.party)||{},ad=e.partyAddress||c.address||'',ph=c.phone||'',open=openAmt(e),sg=stage(e),nx={geplant:['abpacken','Abpacken'],abpacken:['fertig','Abgepackt']}[sg];
+    return `<div class="drv-card"><div class="drv-top"><b>${fmtOrder(e.orderNo)||'Bestellung'}</b><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.party||'Laufkunde')}</span>${STAGE_PILL(e)}</div>
+     ${e.deliveryNote?hintBox(e.deliveryNote,true):''}
+     ${ad||ph?`<div style="margin:4px 0 8px;font-size:15px;line-height:1.45">${ad?esc(ad).replace(/\n/g,'<br>'):''}${ph?`<div style="margin-top:4px"><a href="tel:${esc(String(ph).replace(/[^\d+]/g,''))}">${esc(ph)}</a></div>`:''}</div>
+      <div class="btn-row" style="margin-bottom:6px">${ad?`<a class="btn ghost sm" style="text-decoration:none" href="https://maps.apple.com/?q=${encodeURIComponent(ad.replace(/\n/g,', '))}" target="_blank" rel="noopener">Karte</a>`:''}${ph?`<a class="btn ghost sm" style="text-decoration:none" href="tel:${esc(String(ph).replace(/[^\d+]/g,''))}">Anrufen</a>`:''}<button class="btn ghost sm" data-act="msg" data-id="${e.id}">Nachricht</button></div>`:`<div class="btn-row" style="margin-bottom:6px"><button class="btn ghost sm" data-act="msg" data-id="${e.id}">Nachricht</button></div>`}
+     <div class="drv-items">${mergeItems(e.items).map(i=>`<div><b>${num(i.qty)}×</b> ${esc(i.name)}</div>`).join('')}</div>
+     <div class="drv-pay"><span>${open>0.005?'Kassieren':'Bezahlt'}</span><span class="num ${open>0.005?'neg':'pos'}">${open>0.005?eur(open):'✓'}</span></div>
+     <div class="btn-row">${nx?`<button class="btn ghost" data-act="d-next" data-id="${e.id}" data-v="${nx[0]}">→ ${nx[1]}</button>`:''}<button class="btn" data-act="d-finish" data-id="${e.id}">Übergeben</button></div></div>`}).join('')
+   :`<div class="empty">${all.length?'Keine Bestellungen in diesem Status.':'Keine offenen Bestellungen. 🎉'}</div>`}`}
+function openDriverFinish(id){const e=S.entries.find(x=>x.id===id);if(!e)return;const open=openAmt(e);
+  openSheet(`${fmtOrder(e.orderNo)||'Bestellung'} übergeben`,`<p class="muted" style="margin:-6px 0 12px">${esc(e.party||'Laufkunde')}${open>0.005?` · <b class="neg">${eur(open)} kassieren</b>`:' · bereits bezahlt'}</p>
+   ${e.pickupCode?`<label class="field"><span>Abholcode vom Kunden</span><input class="inp num" id="dCode" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="5 Ziffern" style="font-size:22px;letter-spacing:.2em"></label>`:''}
+   ${open>0.005?`<button class="btn" data-act="d-done" data-id="${id}" data-v="paid">Übergeben & ${eur(open)} bar kassiert</button><button class="btn ghost" style="margin-top:8px" data-act="d-done" data-id="${id}" data-v="open">Übergeben, nicht bezahlt</button>`
+    :`<button class="btn" data-act="d-done" data-id="${id}" data-v="open">Übergeben</button>`}
+   ${e.pickupCode?`<button class="link" style="margin-top:12px" data-act="d-nocode" data-id="${id}">Kunde hat keinen Code</button>`:''}`);
+  setTimeout(()=>$('#dCode')?.focus(),80)}
+async function driverDone(id,how,nocode){const e=S.entries.find(x=>x.id===id);if(!e||e.delivered!==false)return;const open=openAmt(e);
+  if(e.pickupCode&&!nocode){const c=($('#dCode')?.value||'').replace(/\D/g,'');if(!c){toast('Bitte den Abholcode eingeben.');$('#dCode')?.focus();return}
+    const ok=String(e.pickupCode)===c;await Store.put('entries',{...e,pickupLog:[...(e.pickupLog||[]),{at:new Date().toISOString(),ok,by:'zusteller',...(ok?{}:{code:c})}]}).catch(()=>{});
+    if(!ok){toast('Code passt nicht – nicht aushändigen!');try{navigator.vibrate&&navigator.vibrate([60,40,60])}catch{}$('#dCode').classList.add('err');return}}
+  if(nocode)await Store.put('entries',{...e,pickupLog:[...(e.pickupLog||[]),{at:new Date().toISOString(),ok:false,by:'zusteller',nocode:true}]}).catch(()=>{});
+  const pt=partnerById(S.settings.driverBy),cur=S.entries.find(x=>x.id===id);
+  if(pt&&!cur.exec){const xs=execSnap(pt.id,pt.execPct??3,pt.execBase||'roh');if(xs)await Store.put('entries',{...cur,exec:xs}).catch(()=>{})}
+  if(!await deliverEntry(id))return;if(how==='paid'&&open>0.005)await addPayment(id,open,today(),'bar');
+  closeSheet();try{navigator.vibrate&&navigator.vibrate(15)}catch{}toast(`${fmtOrder(e.orderNo)||'Bestellung'} übergeben${how==='paid'&&open>0.005?' & '+eur(open)+' kassiert':''} ✓`)}
+function openDriverSetup(){const st=S.settings;
+  openSheet('Zusteller-Modus',`<p class="muted" style="margin:-6px 0 12px">Dein Zusteller sieht dann nur die offenen Bestellungen: Adresse, Hinweis, Produkte, den zu kassierenden Betrag und Abholcode-Prüfung. Keine Einkaufspreise, Gewinne, Provisionen, Kunden- oder Buchungslisten. Beenden geht nur mit deiner PIN.</p>
+   <label class="field"><span>PIN zum Beenden (4 Ziffern)</span><input class="inp num" id="dPin" type="password" inputmode="numeric" maxlength="4" autocomplete="off" value="${esc(st.driverPin||'')}" placeholder="z. B. 2580"></label>
+   ${partners().length?`<label class="field"><span>Wer liefert? (optional)</span><select class="inp" id="dBy">${execOptions(st.driverBy||'').replace('— ich selbst —','— niemand bestimmter —')}</select></label>
+   <p class="hint" style="margin:-4px 0 12px">Übergibt er eine Bestellung, wird er automatisch unter „Ausgeführt durch“ mit seinem Standard-% eingetragen.</p>`:''}
+   <button class="btn" data-act="d-start">Zusteller-Modus starten</button>`);setTimeout(()=>$('#dPin')?.focus(),80)}
 function header(t,act,sub){
   return `<div class="page-top"><div>${sub?`<div class="hdr-sub">${sub}</div>`:''}<h1>${t}</h1></div>${act||''}</div>`;
 }
@@ -1059,7 +1106,7 @@ function openParty(kind,name){
     <div class="kpi"><div class="lbl">${kd?'Offen zu zahlen':'Du schuldest noch'}</div><div class="val ${c.offen>0.005?'warn':''}">${eur(c.offen)}</div></div>
     <div class="kpi"><div class="lbl">${kd?'Bestellt, nicht geliefert':'Bestellt, unterwegs'}</div><div class="val ${c.bestellt?'pos':''}">${c.bestellt}</div></div>
    </div>
-   ${kd?`<div class="btn-row" style="margin-bottom:8px"><button class="btn ghost" data-act="label" data-name="${esc(c.name)}">Versandlabel</button><button class="btn ghost" data-act="price-pdf" data-name="${esc(c.name)}">⤓ Preisliste</button></div>`:''}<div class="btn-row" style="margin-bottom:14px"><button class="btn" data-act="party-order" data-kind="${kind}" data-name="${esc(c.name)}" data-v="0">+ Neue Bestellung</button><button class="btn ghost" data-act="party-order" data-kind="${kind}" data-name="${esc(c.name)}" data-v="1">${kd?'+ Sofort-Verkauf':'+ Wareneingang'}</button></div>
+   ${kd?`<button class="btn ghost" style="margin-bottom:8px" data-act="msg-c" data-name="${esc(c.name)}">Nachricht schicken</button><div class="btn-row" style="margin-bottom:8px"><button class="btn ghost" data-act="label" data-name="${esc(c.name)}">Versandlabel</button><button class="btn ghost" data-act="price-pdf" data-name="${esc(c.name)}">⤓ Preisliste</button></div>`:''}<div class="btn-row" style="margin-bottom:14px"><button class="btn" data-act="party-order" data-kind="${kind}" data-name="${esc(c.name)}" data-v="0">+ Neue Bestellung</button><button class="btn ghost" data-act="party-order" data-kind="${kind}" data-name="${esc(c.name)}" data-v="1">${kd?'+ Sofort-Verkauf':'+ Wareneingang'}</button></div>
    ${kd?'':detail}
    <div class="card" style="margin-bottom:14px">
     ${r.address?`<p>${esc(r.address).replace(/\n/g,'<br>')}</p>`:'<p class="muted">Keine Adresse hinterlegt</p>'}
@@ -1268,6 +1315,10 @@ function sortProducts(l,mode,sm,priceKey='vk'){
 const sortSelect=(id,cur)=>`<div class="sortbar"><label for="${id}">Sortieren</label><select class="inp" id="${id}">${Object.entries(KSORTS).map(([k,v])=>`<option value="${k}" ${cur===k?'selected':''}>${v}</option>`).join('')}</select></div>`;
 const withCatHeads=(l,mode,tile)=>{if(mode!=='kat')return l.map(tile).join('');let last=null;return l.map(p=>{const c=p.cat||'Allgemein';const h=c!==last?`<div class="tiles-head">${esc(c)}</div>`:'';last=c;return h+tile(p)}).join('')};
 const cartTotal=()=>r2(UI.cart.reduce((s,c)=>s+num(c.qty)*num(c.price),0));
+function openVarPick(pid){const p=prodById(pid);if(!p)return;UI.vp=pid;openSheet(esc(baseOf(p)),`<p class="muted" style="margin:-6px 0 12px">Variation antippen zum Hinzufügen · lange drücken nimmt eins weg</p><div class="tiles" id="vpTiles"></div><button class="btn" style="margin-top:14px" data-act="close">Fertig</button>`);vpRender()}
+function vpRender(){const el=$('#vpTiles'),p=prodById(UI.vp);if(!el||!p)return;const sm=stockMap(),pm=pendingMap(),use=cartUse();
+  el.innerHTML=variantsOf(p).map(v=>{const inC=UI.cart.find(c=>c.pid===v.id),free=(sm[v.id]||0)-(pm.res[v.id]||0)-(use[v.id]||0);
+    return `<button class="tile ${inC?'on':''}" data-act="cart-add" data-id="${v.id}">${inC?`<span class="tile-q">${inC.qty}</span>`:''}<span class="tile-n">${esc(v.variant||v.name)}</span>${v.sku?`<span class="tile-h">${esc(v.sku)}</span>`:''}${tilePrice(v,UI.kpr)}<span class="tile-s ${free<0?'neg':''}">${free<0?'zu wenig auf Lager':free+' übrig'}</span></button>`}).join('')}
 function cartAdd(pid,n=1){const p=prodById(pid);if(!p)return;const c=UI.cart.find(x=>x.pid===pid);if(c)c.qty+=n;else UI.cart.push({pid,qty:n,price:custPrice(p,UI.kpr)});UI.cart=UI.cart.filter(x=>x.qty>0)}
 /* ---------- Bundles: feste Pakete aus mehreren Produkten zu einem Paketpreis ---------- */
 const bundles=()=>(S.settings.bundles||[]).filter(b=>b&&b.items&&b.items.length);
@@ -1394,8 +1445,13 @@ function vKasse(){
   const q=norm(UI.kq);if(q)l=l.filter(p=>norm(p.name+' '+(p.sku||'')+' '+(p.ean||'')).includes(q));
   l=sortProducts(l,UI.ksort,sm);
   const cf=custFirst(l,UI.kparty);
+  // Variationen eines Wirkstoffs zu einer Kachel zusammenfassen (bei Suche einzeln zeigen)
+  if(!q){const grp=list=>{const seen={};return list.flatMap(p=>{const vs=variantsOf(p);if(vs.length<2)return[p];const k=norm(baseOf(p));if(seen[k])return[];seen[k]=1;return[{...p,_grp:vs}]})};cf.top=grp(cf.top);cf.rest=grp(cf.rest)}
   const n=UI.cart.reduce((s,c)=>s+c.qty,0);
-  const tile=p=>{const inC=UI.cart.find(c=>c.pid===p.id);const free=(sm[p.id]||0)-(pm.res[p.id]||0)-(use[p.id]||0);const hx=cf.h&&cf.h.prod[p.id];
+  const gtile=g=>{const vs=g._grp,inQ=UI.cart.filter(c=>vs.some(v=>v.id===c.pid)).reduce((s,c)=>s+c.qty,0),fr=vs.reduce((s,v)=>s+(sm[v.id]||0)-(pm.res[v.id]||0)-(use[v.id]||0),0);
+    const ps=vs.map(v=>custPrice(v,UI.kpr)),lo=Math.min(...ps),hi=Math.max(...ps);
+    return `<button class="tile ${inQ?'on':''}" data-act="var-pick" data-id="${g.id}">${inQ?`<span class="tile-q">${inQ}</span>`:''}<span class="tile-n">${esc(baseOf(g))}</span><span class="tile-h">${vs.length} Variationen</span><span class="tile-p num">${lo===hi?eur(lo):eur(lo)+' – '+eur(hi).replace('€ ','')}</span><span class="tile-s ${fr<0?'neg':''}">${fr<0?'zu wenig auf Lager':fr+' übrig'}</span></button>`};
+  const tile=p=>{if(p._grp)return gtile(p);const inC=UI.cart.find(c=>c.pid===p.id);const free=(sm[p.id]||0)-(pm.res[p.id]||0)-(use[p.id]||0);const hx=cf.h&&cf.h.prod[p.id];
     return `<button class="tile ${inC?'on':''}" data-act="cart-add" data-id="${p.id}">${inC?`<span class="tile-q">${inC.qty}</span>`:''}<span class="tile-n">${esc(p.name)}</span>${hx?histLine(hx):''}${tilePrice(p,UI.kpr)}<span class="tile-s ${free<0?'neg':''}">${free<0?'zu wenig auf Lager':free+' übrig'}</span></button>`};
   return header('Kasse',canScan()?'<button class="add-btn" data-act="scan" data-v="kasse">Scannen</button>':'')+`
   ${S.products.length?`<input class="search cust" id="kcust" list="kcList" autocomplete="off" placeholder="Kunde (optional)" value="${esc(UI.kparty||'')}" aria-label="Kunde"><datalist id="kcList">${custNames().map(c=>`<option value="${esc(c)}">`).join('')}</datalist>${custBox('k')}`:''}
@@ -1547,6 +1603,9 @@ function vMehr(){
   <div class="card"><p><b>${esc(st.company||st.owner)}</b></p><p class="muted">${esc(st.address||'Keine Adresse hinterlegt')}${st.uidNr?' · UID '+esc(st.uidNr):''}</p>
    <p class="muted">${st.kleinunternehmer?'Kleinunternehmer – Rechnungen ohne Umsatzsteuer':'Regelbesteuert – Rechnungen mit USt-Ausweis'}${st.taxReserve?' · Steuer-Rücklage '+st.taxReserve+' %':''}</p>
    <button class="btn ghost sm" data-act="edit-settings">Bearbeiten</button></div>
+
+  <h2>Zusteller-Modus</h2>
+  <div class="card"><p class="muted" style="margin:0 0 10px">Gib das Handy deinem Zusteller: Er sieht nur die offenen Bestellungen mit Adresse, Hinweis und Betrag zum Kassieren – keine Preise oder Gewinne. Beenden nur mit PIN.</p><button class="btn ghost sm" data-act="d-setup">Zusteller-Modus starten</button></div>
 
   <h2>Daten</h2>
   <div class="card">
@@ -1864,10 +1923,6 @@ async function checkPickup(){
   if(!ok){openPickup(e.id,{ok:false,msg:`Code passt nicht zu ${fmtOrder(e.orderNo)}. Nicht aushändigen.`});return}
   UI.pickOk=e.id;UI.pkNo='';openEntry(e.id);
 }
-async function shareCode(id){const e=S.entries.find(x=>x.id===id);if(!e)return;
-  const t=`Deine Bestellung ${fmtOrder(e.orderNo)}${e.party?' ('+e.party+')':''}: Abholcode ${e.pickupCode}. Bitte bei der Abholung Bestellnummer und Code nennen.`;
-  try{if(navigator.share){await navigator.share({text:t});return}}catch(x){if(x&&x.name==='AbortError')return}
-  try{await navigator.clipboard.writeText(t);toast('Text kopiert')}catch{toast(t)}}
 function openEntry(id){
   const e=S.entries.find(x=>x.id===id);if(!e)return;if(UI.pickOk&&UI.pickOk!==id)UI.pickOk=null;
   if(UI.pmId!==id){UI.pm=null;UI.pmId=id}
@@ -1890,7 +1945,7 @@ function openEntry(id){
    ${e.type==='verkauf'&&e.orderNo&&!e.storno?`<div class="card" style="margin-bottom:12px;padding:4px 14px">
     <div class="kv"><span>Bestellnummer <small class="muted">(aufs Paket)</small></span><b>${fmtOrder(e.orderNo)}</b></div>
     ${e.pickupCode?`<div class="kv"><span>Abholcode <small class="muted">(geheim, nur für den Kunden)</small></span><b style="letter-spacing:.08em">${e.pickupCode}</b></div>`:''}
-    <div class="btn-row" style="padding:6px 0 10px">${e.pickupCode?`<button class="btn ghost sm" data-act="share-code" data-id="${e.id}">Code an Kunden schicken</button>`:''}${e.delivered===false?`<button class="btn ghost sm" data-act="pickup" data-id="${e.id}">Abholung prüfen</button>`:''}</div>
+    <div class="btn-row" style="padding:6px 0 10px">${e.type==='verkauf'&&!e.storno?`<button class="btn ghost sm" data-act="msg" data-id="${e.id}">Nachricht an Kunden</button>`:''}${e.delivered===false?`<button class="btn ghost sm" data-act="pickup" data-id="${e.id}">Abholung prüfen</button>`:''}</div>
     ${(e.pickupLog||[]).length?`<div class="cb-l" style="padding-top:8px;border-top:1px solid var(--line)">Protokoll</div>${e.pickupLog.slice().reverse().map(x=>`<div class="kv" style="font-size:13.5px"><span>${new Date(x.at).toLocaleString('de-AT',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</span><b class="${x.ok?'pos':'neg'}" style="font-weight:600">${x.ok?'Code richtig':'Code falsch'+(x.code?' ('+esc(x.code)+')':'')}</b></div>`).join('')}`:''}
    </div>`:''}
    ${e.cancelled?(e.cancelNo?`<div class="banner">Storniert durch Stornorechnung ${esc(e.cancelNo)}.</div>`:`<div class="banner b-act alert"><span>Bestellung storniert${e.cancelledAt?' am '+fdate(e.cancelledAt.slice(0,10)):''}.</span><button class="btn sm" data-act="uncancel" data-id="${e.id}">Aufheben</button></div>`):''}
@@ -2279,16 +2334,42 @@ function reminderText(e,tone){
    ?`Hallo ${first},\n\nkurze Erinnerung: ${ref} ist seit ${fdate(dueDate(e))} fällig.${part?` Bisher sind ${eur(paid)} bezahlt.`:''} Offen sind noch ${eur(open)}.\n\nBitte überweise den Betrag${acc}${vz}. Falls du schon bezahlt hast, ignorier diese Nachricht einfach.\n\nDanke dir & liebe Grüße\n${who}`
    :`Guten Tag ${e.party||''},\n\nich möchte Sie freundlich daran erinnern, dass ${ref} seit ${fdate(dueDate(e))} fällig ist.${part?` Bisher sind ${eur(paid)} eingegangen.`:''} Offen sind noch ${eur(open)}.\n\nBitte überweisen Sie den Betrag${acc}${vz}. Sollten Sie bereits bezahlt haben, betrachten Sie diese Nachricht bitte als gegenstandslos.\n\nMit freundlichen Grüßen\n${who}`;
 }
-function openReminder(id){
-  const e=S.entries.find(x=>x.id===id);if(!e)return;
-  const tone=UI.remTone||'du';const c=custByName(e.party)||{};
-  openSheet('Zahlungserinnerung',`
-   <div class="seg" style="margin-bottom:12px"><button class="${tone==='du'?'on':''}" data-act="rem-tone" data-v="du" data-id="${id}">Du</button><button class="${tone==='sie'?'on':''}" data-act="rem-tone" data-v="sie" data-id="${id}">Sie</button></div>
-   ${c.phone||c.email?`<p class="muted" style="margin:0 0 10px;user-select:text">${esc([c.phone,c.email].filter(Boolean).join(' · '))}</p>`:''}
-   <label class="field"><span>Text (anpassbar)</span><textarea class="inp" id="remText" rows="12">${esc(reminderText(e,tone))}</textarea></label>
-   <div class="btn-row"><button class="btn" data-act="rem-share" data-id="${id}">Teilen …</button><button class="btn ghost" data-act="rem-copy" data-id="${id}">Kopieren</button></div>
-   <p class="hint" style="margin-top:10px">Mit „Teilen“ schickst du den Text direkt per WhatsApp, SMS oder Mail. Die Erinnerung wird mit Datum vermerkt.</p>`);
-}
+/* ---------- Fertige Nachrichten an Kunden: Vorlage wählen, anpassen, per WhatsApp / SMS / Teilen schicken ---------- */
+const MSG_K={bestaetigt:'Bestätigung',abholbereit:'Abholbereit',unterwegs:'Unterwegs',danke:'Danke',zahlung:'Zahlung offen',nachkauf:'Nachkauf',frei:'Freier Text'};
+const waNum=ph=>{let d=String(ph||'').replace(/[^\d+]/g,'');if(d.startsWith('+'))return d.slice(1);if(d.startsWith('00'))return d.slice(2);if(d.startsWith('0'))return '43'+d.slice(1);return d};
+function msgKinds(e,c){if(!e)return['nachkauf','frei'];if(e.type!=='verkauf'||e.storno||e.cancelled)return['frei'];
+  const k=['bestaetigt'];if(e.delivered===false)k.push('abholbereit','unterwegs');else k.push('danke');if(openAmt(e)>0.005)k.push('zahlung');k.push('frei');return k}
+function msgText(k,e,name,tone){const st=S.settings,du=tone!=='sie',who=st.owner||st.company||'',first=(name||'').trim().split(/\s+/)[0]||'';
+  const hi=du?`Hallo${first?' '+first:''},`:`Guten Tag${name?' '+name:''},`,bye=du?`Liebe Grüße\n${who}`:`Mit freundlichen Grüßen\n${who}`;
+  const nr=e?fmtOrder(e.orderNo):'',its=e?mergeItems(e.items).map(i=>`${num(i.qty)}× ${i.name}`).join('\n'):'',open=e?openAmt(e):0;
+  const code=e&&e.pickupCode?(du?`\n\nDein Abholcode: ${e.pickupCode} – bitte bei der Übergabe nennen.`:`\n\nIhr Abholcode: ${e.pickupCode} – bitte bei der Übergabe nennen.`):'';
+  const pay=open>0.005?(du?`\nZu zahlen: ${eur(open)}`:`\nZu zahlen: ${eur(open)}`):'';
+  switch(k){
+   case'bestaetigt':return `${hi}\n\n${du?'danke für deine Bestellung':'vielen Dank für Ihre Bestellung'}${nr?' '+nr:''}!\n\n${its}\n\nSumme: ${eur(e.total)}${open>0.005&&open<num(e.total)-0.005?`\nNoch offen: ${eur(open)}`:''}${code}\n\n${bye}`;
+   case'abholbereit':return `${hi}\n\n${du?'deine':'Ihre'} Bestellung${nr?' '+nr:''} ist fertig und ${du?'kann abgeholt werden':'kann abgeholt werden'}.${pay}${code}\n\n${bye}`;
+   case'unterwegs':return `${hi}\n\n${du?'ich bin mit deiner':'ich bin mit Ihrer'} Bestellung${nr?' '+nr:''} unterwegs und in ca. 15 Minuten ${du?'bei dir':'bei Ihnen'}.${pay}${code}\n\n${bye}`;
+   case'danke':return `${hi}\n\n${du?'danke für deinen Einkauf! Ich hoffe, alles passt. Wenn du Fragen hast, melde dich jederzeit.':'vielen Dank für Ihren Einkauf! Ich hoffe, alles passt. Bei Fragen melden Sie sich gerne jederzeit.'}\n\n${bye}`;
+   case'zahlung':return reminderText(e,tone);
+   case'nachkauf':{const l=sorted(S.entries.filter(x=>x.type==='verkauf'&&live(x)&&norm(x.party)===norm(name)))[0],w=l?Math.max(1,Math.round(daysBetween(l.date,today())/7)):0;
+     const what=l?mergeItems(l.items).filter(i=>prodById(i.pid)).map(i=>`${num(i.qty)}× ${i.name}`).join(', '):'';
+     return `${hi}\n\n${l?`${du?'dein':'Ihr'} letzter Einkauf${what?' ('+what+')':''} ist jetzt ${w===1?'eine Woche':'ca. '+w+' Wochen'} her. `:''}${du?'Soll ich dir wieder etwas zusammenpacken? Sag einfach Bescheid.':'Darf ich Ihnen wieder etwas zusammenstellen? Geben Sie mir einfach Bescheid.'}\n\n${bye}`}
+   default:return `${hi}\n\n\n\n${bye}`}}
+function openMsg(id,name,k){const e=id?S.entries.find(x=>x.id===id):null;name=name||e?.party||'';const c=custByName(name)||{},kinds=msgKinds(e,c);
+  k=kinds.includes(k)?k:kinds.includes(UI.msgK)?UI.msgK:kinds[0];UI.msgK=k;const tone=UI.remTone||'du';UI.msgCtx={id,name};
+  openSheet(`Nachricht an ${esc(name||'Kunden')}`,`
+   <div class="chips" style="margin-bottom:10px">${kinds.map(x=>`<button class="chip ${x===k?'on':''}" data-act="msg-k" data-v="${x}">${MSG_K[x]}</button>`).join('')}</div>
+   <div class="seg" style="margin-bottom:12px"><button class="${tone==='du'?'on':''}" data-act="msg-tone" data-v="du">Du</button><button class="${tone==='sie'?'on':''}" data-act="msg-tone" data-v="sie">Sie</button></div>
+   <label class="field"><span>Text (anpassbar)</span><textarea class="inp" id="msgText" rows="11">${esc(msgText(k,e,name,tone))}</textarea></label>
+   ${c.phone?`<p class="muted" style="margin:-4px 0 10px;user-select:text">${esc(c.phone)}</p>`:''}
+   <div class="btn-row"><button class="btn" data-act="msg-send" data-v="wa">WhatsApp</button><button class="btn ghost" data-act="msg-send" data-v="sms">SMS</button></div>
+   <div class="btn-row" style="margin-top:8px"><button class="btn ghost" data-act="msg-send" data-v="share">Teilen …</button><button class="btn ghost" data-act="msg-send" data-v="copy">Kopieren</button></div>
+   ${c.phone?'':`<p class="hint" style="margin-top:10px">Keine Telefonnummer gespeichert – bei WhatsApp wählst du den Kontakt selbst. Nummer eintragen: Kunde → Kontakt & Preise bearbeiten.</p>`}`)}
+async function msgSend(how){const t=$('#msgText')?.value||'',ctx=UI.msgCtx||{},c=custByName(ctx.name)||{};
+  if(how==='wa')location.href=`https://wa.me/${c.phone?waNum(c.phone):''}?text=${encodeURIComponent(t)}`;
+  else if(how==='sms')location.href=`sms:${c.phone?String(c.phone).replace(/[^\d+]/g,''):''}${/iPhone|iPad|Mac/.test(navigator.userAgent)?'&':'?'}body=${encodeURIComponent(t)}`;
+  else if(how==='share'){try{if(navigator.share){await navigator.share({text:t})}else{await navigator.clipboard.writeText(t);toast('Text kopiert')}}catch(x){if(x&&x.name==='AbortError')return}}
+  else{try{await navigator.clipboard.writeText(t);toast('Text kopiert')}catch{const ta=$('#msgText');ta.focus();ta.select();toast('Text markiert – jetzt kopieren')}}
+  if(UI.msgK==='zahlung'&&ctx.id)await markReminded(ctx.id)}
 async function markReminded(id){const e=S.entries.find(x=>x.id===id);if(!e)return;await Store.put('entries',{...e,reminders:[...(e.reminders||[]),today()]}).catch(()=>{})}
 /* attachments */
 const IDB={db:null,
@@ -2697,12 +2778,24 @@ async function clearSample(){
 
 /* ---------- events ---------- */
 document.addEventListener('click',async ev=>{
+  if(UI.driver){const x=ev.target.closest('[data-go],[data-act]');if(x&&(x.dataset.go||!DRV_OK.has(x.dataset.act))){ev.preventDefault();return}}
   const go=ev.target.closest('[data-go]');if(go){UI.screen=go.dataset.go;closeSheet();render();scrollTo(0,0);return}
   const b=ev.target.closest('[data-act]');if(!b)return;
   const a=b.dataset.act,id=b.dataset.id,v=b.dataset.v;
   if(a==='close-bg'&&ev.target!==b)return;
   switch(a){
     case'close':case'close-bg':closeSheet();break;
+    case'd-setup':openDriverSetup();break;
+    case'd-start':{const pin=($('#dPin').value||'').replace(/\D/g,'');if(pin.length!==4){toast('Bitte eine 4-stellige PIN eingeben.');break}
+      await Store.setSettings({...S.settings,driverPin:pin,driverBy:$('#dBy')?.value||''});UI.driver=true;UI.dfilt='alle';lsSet('kb_driver','1');closeSheet();render();scrollTo(0,0);toast('Zusteller-Modus aktiv');break}
+    case'd-exit':openSheet('Zusteller-Modus beenden',`<label class="field"><span>PIN</span><input class="inp num" id="dPinX" type="password" inputmode="numeric" maxlength="4" autocomplete="off" style="font-size:22px;letter-spacing:.3em"></label><button class="btn" data-act="d-exit-ok">Beenden</button>`);setTimeout(()=>$('#dPinX')?.focus(),80);break;
+    case'd-exit-ok':{if(($('#dPinX').value||'')!==String(S.settings.driverPin||'')){toast('PIN falsch');$('#dPinX').value='';$('#dPinX').classList.add('err');break}
+      UI.driver=false;lsSet('kb_driver','');closeSheet();UI.screen='start';render();scrollTo(0,0);toast('Zusteller-Modus beendet');break}
+    case'd-filter':UI.dfilt=v;render();break;
+    case'd-next':{const e=S.entries.find(x=>x.id===id);if(e)await Store.put('entries',setStage(e,v)).catch(()=>{});break}
+    case'd-finish':openDriverFinish(id);break;
+    case'd-done':driverDone(id,v);break;
+    case'd-nocode':{const e=S.entries.find(x=>x.id===id);if(!e)break;const open=openAmt(e);const k=await choose('Ohne Abholcode übergeben? Wird im Protokoll vermerkt.',open>0.005?[['paid',`Übergeben & ${eur(open)} bar kassiert`,''],['open','Übergeben, nicht bezahlt','']]:[['open','Übergeben','']]);if(k)driverDone(id,k,true);break}
     case'period':UI.period=v;render();break;
     case'kpi':if(v==='offen'){UI.filter='offen';UI.q='';UI.screen='buchungen';render();scrollTo(0,0);requestAnimationFrame(()=>document.querySelector('.chip.on')?.scrollIntoView({inline:'center',block:'nearest'}))}
       else if(v==='lager'){UI.lagerCat='alle';UI.screen='lager';render();scrollTo(0,0)}
@@ -2764,7 +2857,6 @@ document.addEventListener('click',async ev=>{
     case'codes':UI.codesQ='';openCodes();break;
     case'codes-mode':UI.codesAll=v==='alle';openCodes();break;
     case'pickup-check':checkPickup();break;
-    case'share-code':shareCode(id);break;
     case'complete':{const e=S.entries.find(x=>x.id===id);if(!await deliverEntry(id))break;
       const ne=S.entries.find(x=>x.id===id);const o=openAmt(ne);if(o>0.005)await addPayment(id,o,today(),UI.pm||e.method||'bar');
       closeSheet();toast('Abgeschlossen ✓');break}
@@ -2798,17 +2890,19 @@ document.addEventListener('click',async ev=>{
         const ne={...e,total:newTot,discount:disc};ne.paid=isPaid(ne);await Store.put('entries',ne).catch(()=>{});closeSheet();toast('Preis auf '+eur(newTot)+' gesenkt');break}
       toast('Zahlung erfasst');openEntry(id);break}
     case'del-pay':{const e=S.entries.find(x=>x.id===id);if(!await ask('Diese Zahlung entfernen?','Entfernen'))break;const pays=[...paysOf(e)];pays.splice(+b.dataset.i,1);const ne={...e,payments:pays};ne.paid=isPaid(ne);await Store.put('entries',ne).catch(()=>{});openEntry(id);break}
-    case'remind':openReminder(id);break;
-    case'rem-tone':UI.remTone=v;lsSet('kb_tone',v);openReminder(id);break;
-    case'rem-copy':{const txt=$('#remText').value;try{await navigator.clipboard.writeText(txt);await markReminded(id);toast('Text kopiert – Erinnerung vermerkt')}catch{const ta=$('#remText');ta.focus();ta.select();toast('Text markiert – jetzt kopieren')}break}
-    case'rem-share':{const txt=$('#remText').value;if(navigator.share){try{await navigator.share({text:txt});await markReminded(id);toast('Erinnerung vermerkt')}catch(err){if(!err||err.name!=='AbortError')toast('Teilen nicht möglich – bitte kopieren.')}}
-      else{try{await navigator.clipboard.writeText(txt);await markReminded(id);toast('Text kopiert – Erinnerung vermerkt')}catch{toast('Bitte den Text kopieren.')}}break}
+    case'remind':openMsg(id,null,'zahlung');break;
+    case'msg':openMsg(id,null);break;
+    case'msg-c':openMsg(null,b.dataset.name);break;
+    case'msg-k':openMsg(UI.msgCtx?.id,UI.msgCtx?.name,v);break;
+    case'msg-tone':UI.remTone=v;lsSet('kb_tone',v);openMsg(UI.msgCtx?.id,UI.msgCtx?.name,UI.msgK);break;
+    case'msg-send':msgSend(v);break;
     case'show-overdue':UI.filter='ueberfaellig';UI.screen='buchungen';render();scrollTo(0,0);break;
     case'view-att':viewAtt(id);break;
     case'kcat':UI.kcat=v;render();break;
     case'ofilt':UI.ofilt=v;lsSet('kb_ofilt',v);render();break;
     case'osort':UI.osort=UI.osort==='neu'?'alt':'neu';lsSet('kb_osort',UI.osort);render();break;
     case'cart-add':cartAdd(id);render();break;
+    case'var-pick':openVarPick(id);break;
     case'cart-bundle':{const bb=bundleById(id);if(!bb)break;const c=UI.cart.find(x=>x.bid===id);if(c)c.qty++;else UI.cart.push({bid:id,qty:1,price:num(bb.price)});render();break}
     case'f-bundle':{const bb=bundleById(id);if(!bb||!F)break;F.items=F.items.filter(i=>i.pid);F.items.push(...expandBundle(bb,1).map(i=>({...i,name:prodById(i.pid)?.name})));renderEntryForm();toast(bb.name+' hinzugefügt');break}
     case'new-bundle':openBundleForm();break;case'edit-bundle':openBundleForm(id);break;
@@ -3012,7 +3106,7 @@ function fitVals(){fitQ=0;document.querySelectorAll(FIT_SEL).forEach(el=>{el.sty
 const fitSoon=()=>{if(!fitQ)fitQ=requestAnimationFrame(fitVals)};
 new MutationObserver(fitSoon).observe(document.body,{childList:true,subtree:true});
 addEventListener('resize',fitSoon);document.fonts&&document.fonts.ready.then(fitSoon);
-const APP_VER='79';
+const APP_VER='80';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
