@@ -2786,7 +2786,7 @@ document.addEventListener('click',async ev=>{
     case'lb-pdf':labelPDF();break;
     case'lb-ship':saveShipment();break;
     case'print-invoice':printNow('print-inv');break;
-    case'new-product':openProduct();break;
+    case'new-product':openProduct(null,UI.screen==='mehr'&&UI.pcat&&UI.pcat!=='alle'?{cat:UI.pcat}:null);break;
     case'add-variant':closeSheet();openProduct(id,null,true);break;
     case'pv-add':{PV.rows.push({id:null,variant:'',ek:$('#pEk').value,vk:$('#pVk').value,sku:'',auto:true,stock:0,isNew:true});$('#pVars').innerHTML=pvHTML();pvCodes();document.querySelector(`[data-pv="${PV.rows.length-1}"][data-k="variant"]`)?.focus();break}
     case'pv-rm':{PV.rows.splice(+b.dataset.i,1);$('#pVars').innerHTML=pvHTML();pvCodes();break}
@@ -2945,7 +2945,7 @@ function fitVals(){fitQ=0;document.querySelectorAll(FIT_SEL).forEach(el=>{el.sty
 const fitSoon=()=>{if(!fitQ)fitQ=requestAnimationFrame(fitVals)};
 new MutationObserver(fitSoon).observe(document.body,{childList:true,subtree:true});
 addEventListener('resize',fitSoon);document.fonts&&document.fonts.ready.then(fitSoon);
-const APP_VER='72';
+const APP_VER='73';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
