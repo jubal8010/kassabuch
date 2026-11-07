@@ -476,7 +476,7 @@ const DEF={owner:'',company:'',address:'',email:'',phone:'',uidNr:'',iban:'',
 
 const S={settings:{...DEF},products:[],entries:[],customers:[],suppliers:[],recurring:[]};
 /* Zusteller-Modus: nur offene Bestellungen, keine Preise/Gewinne; Beenden nur mit PIN (gilt nur auf diesem Gerät) */
-const DRV_OK=new Set(['close','close-bg','d-exit','d-exit-ok','d-filter','d-next','d-finish','d-done','d-nocode','msg','msg-k','msg-tone','msg-send']);
+const DRV_OK=new Set(['close','close-bg','d-exit','d-exit-ok','d-filter','d-next','d-finish','d-done','msg','msg-k','msg-tone','msg-send']);
 const UI={driver:lsGet('kb_driver','')==='1',dfilt:'alle',ofilt:lsGet('kb_ofilt','alle'),osort:lsGet('kb_osort','alt'),csort:lsGet('kb_csort','zuletzt'),lblFmt:lsGet('kb_lblfmt','a6'),ktab:'kunde',cart:[],kq:'',ksort:lsGet('kb_ksort','az'),kstage:lsGet('kb_kstage','geplant'),kcat:'alle',kpay:'bar',kparty:'',remTone:lsGet('kb_tone','du'),cq:'',pq:'',pcat:'alle',psort:lsGet('kb_psort','kat'),screen:'start',period:'monat',filter:'alle',q:'',lagerCat:'alle',year:new Date().getFullYear(),ready:false};
 const LKEY='kassabuch_v1';
 
@@ -785,22 +785,15 @@ function vDriver(){const st=S.settings,who=partnerById(st.driverBy)?.name||'';
    :`<div class="empty">${all.length?'Keine Bestellungen in diesem Status.':'Keine offenen Bestellungen. 🎉'}</div>`}`}
 function openDriverFinish(id){const e=S.entries.find(x=>x.id===id);if(!e)return;const open=openAmt(e);
   openSheet(`${fmtOrder(e.orderNo)||'Bestellung'} übergeben`,`<p class="muted" style="margin:-6px 0 12px">${esc(e.party||'Laufkunde')}${open>0.005?` · <b class="neg">${eur(open)} kassieren</b>`:' · bereits bezahlt'}</p>
-   ${e.pickupCode?`<label class="field"><span>Abholcode vom Kunden</span><input class="inp num" id="dCode" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="5 Ziffern" style="font-size:22px;letter-spacing:.2em"></label>`:''}
    ${open>0.005?`<button class="btn" data-act="d-done" data-id="${id}" data-v="paid">Übergeben & ${eur(open)} bar kassiert</button><button class="btn ghost" style="margin-top:8px" data-act="d-done" data-id="${id}" data-v="open">Übergeben, nicht bezahlt</button>`
-    :`<button class="btn" data-act="d-done" data-id="${id}" data-v="open">Übergeben</button>`}
-   ${e.pickupCode?`<button class="link" style="margin-top:12px" data-act="d-nocode" data-id="${id}">Kunde hat keinen Code</button>`:''}`);
-  setTimeout(()=>$('#dCode')?.focus(),80)}
-async function driverDone(id,how,nocode){const e=S.entries.find(x=>x.id===id);if(!e||e.delivered!==false)return;const open=openAmt(e);
-  if(e.pickupCode&&!nocode){const c=($('#dCode')?.value||'').replace(/\D/g,'');if(!c){toast('Bitte den Abholcode eingeben.');$('#dCode')?.focus();return}
-    const ok=String(e.pickupCode)===c;await Store.put('entries',{...e,pickupLog:[...(e.pickupLog||[]),{at:new Date().toISOString(),ok,by:'zusteller',...(ok?{}:{code:c})}]}).catch(()=>{});
-    if(!ok){toast('Code passt nicht – nicht aushändigen!');try{navigator.vibrate&&navigator.vibrate([60,40,60])}catch{}$('#dCode').classList.add('err');return}}
-  if(nocode)await Store.put('entries',{...e,pickupLog:[...(e.pickupLog||[]),{at:new Date().toISOString(),ok:false,by:'zusteller',nocode:true}]}).catch(()=>{});
+    :`<button class="btn" data-act="d-done" data-id="${id}" data-v="open">Übergeben</button>`}`)}
+async function driverDone(id,how){const e=S.entries.find(x=>x.id===id);if(!e||e.delivered!==false)return;const open=openAmt(e);
   const pt=partnerById(S.settings.driverBy),cur=S.entries.find(x=>x.id===id);
   if(pt&&!cur.exec){const xs=execSnap(pt.id,pt.execPct??3,pt.execBase||'roh');if(xs)await Store.put('entries',{...cur,exec:xs}).catch(()=>{})}
   if(!await deliverEntry(id))return;if(how==='paid'&&open>0.005)await addPayment(id,open,today(),'bar');
   closeSheet();try{navigator.vibrate&&navigator.vibrate(15)}catch{}toast(`${fmtOrder(e.orderNo)||'Bestellung'} übergeben${how==='paid'&&open>0.005?' & '+eur(open)+' kassiert':''} ✓`)}
 function openDriverSetup(){const st=S.settings;
-  openSheet('Zusteller-Modus',`<p class="muted" style="margin:-6px 0 12px">Dein Zusteller sieht dann nur die offenen Bestellungen: Adresse, Hinweis, Produkte, den zu kassierenden Betrag und Abholcode-Prüfung. Keine Einkaufspreise, Gewinne, Provisionen, Kunden- oder Buchungslisten. Beenden geht nur mit deiner PIN.</p>
+  openSheet('Zusteller-Modus',`<p class="muted" style="margin:-6px 0 12px">Dein Zusteller sieht dann nur die offenen Bestellungen: Adresse, Hinweis, Produkte und den zu kassierenden Betrag. Keine Einkaufspreise, Gewinne, Provisionen, Kunden- oder Buchungslisten. Beenden geht nur mit deiner PIN.</p>
    <label class="field"><span>PIN zum Beenden (4 Ziffern)</span><input class="inp num" id="dPin" type="password" inputmode="numeric" maxlength="4" autocomplete="off" value="${esc(st.driverPin||'')}" placeholder="z. B. 2580"></label>
    ${partners().length?`<label class="field"><span>Wer liefert? (optional)</span><select class="inp" id="dBy">${execOptions(st.driverBy||'').replace('— ich selbst —','— niemand bestimmter —')}</select></label>
    <p class="hint" style="margin:-4px 0 12px">Übergibt er eine Bestellung, wird er automatisch unter „Ausgeführt durch“ mit seinem Standard-% eingetragen.</p>`:''}
@@ -2347,7 +2340,7 @@ function msgText(k,e,name,tone){const st=S.settings,du=tone!=='sie',who=st.owner
   switch(k){
    case'bestaetigt':return `${hi}\n\n${du?'danke für deine Bestellung':'vielen Dank für Ihre Bestellung'}${nr?' '+nr:''}!\n\n${its}\n\nSumme: ${eur(e.total)}${open>0.005&&open<num(e.total)-0.005?`\nNoch offen: ${eur(open)}`:''}${code}\n\n${bye}`;
    case'abholbereit':return `${hi}\n\n${du?'deine':'Ihre'} Bestellung${nr?' '+nr:''} ist fertig und ${du?'kann abgeholt werden':'kann abgeholt werden'}.${pay}${code}\n\n${bye}`;
-   case'unterwegs':return `${hi}\n\n${du?'ich bin mit deiner':'ich bin mit Ihrer'} Bestellung${nr?' '+nr:''} unterwegs und in ca. 15 Minuten ${du?'bei dir':'bei Ihnen'}.${pay}${code}\n\n${bye}`;
+   case'unterwegs':return `${hi}\n\n${du?'ich bin mit deiner':'ich bin mit Ihrer'} Bestellung${nr?' '+nr:''} unterwegs und in ca. 15 Minuten ${du?'bei dir':'bei Ihnen'}.${pay}\n\n${bye}`;
    case'danke':return `${hi}\n\n${du?'danke für deinen Einkauf! Ich hoffe, alles passt. Wenn du Fragen hast, melde dich jederzeit.':'vielen Dank für Ihren Einkauf! Ich hoffe, alles passt. Bei Fragen melden Sie sich gerne jederzeit.'}\n\n${bye}`;
    case'zahlung':return reminderText(e,tone);
    case'nachkauf':{const l=sorted(S.entries.filter(x=>x.type==='verkauf'&&live(x)&&norm(x.party)===norm(name)))[0],w=l?Math.max(1,Math.round(daysBetween(l.date,today())/7)):0;
@@ -2795,7 +2788,6 @@ document.addEventListener('click',async ev=>{
     case'd-next':{const e=S.entries.find(x=>x.id===id);if(e)await Store.put('entries',setStage(e,v)).catch(()=>{});break}
     case'd-finish':openDriverFinish(id);break;
     case'd-done':driverDone(id,v);break;
-    case'd-nocode':{const e=S.entries.find(x=>x.id===id);if(!e)break;const open=openAmt(e);const k=await choose('Ohne Abholcode übergeben? Wird im Protokoll vermerkt.',open>0.005?[['paid',`Übergeben & ${eur(open)} bar kassiert`,''],['open','Übergeben, nicht bezahlt','']]:[['open','Übergeben','']]);if(k)driverDone(id,k,true);break}
     case'period':UI.period=v;render();break;
     case'kpi':if(v==='offen'){UI.filter='offen';UI.q='';UI.screen='buchungen';render();scrollTo(0,0);requestAnimationFrame(()=>document.querySelector('.chip.on')?.scrollIntoView({inline:'center',block:'nearest'}))}
       else if(v==='lager'){UI.lagerCat='alle';UI.screen='lager';render();scrollTo(0,0)}
@@ -3106,7 +3098,7 @@ function fitVals(){fitQ=0;document.querySelectorAll(FIT_SEL).forEach(el=>{el.sty
 const fitSoon=()=>{if(!fitQ)fitQ=requestAnimationFrame(fitVals)};
 new MutationObserver(fitSoon).observe(document.body,{childList:true,subtree:true});
 addEventListener('resize',fitSoon);document.fonts&&document.fonts.ready.then(fitSoon);
-const APP_VER='80';
+const APP_VER='81';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
