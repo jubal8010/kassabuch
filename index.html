@@ -122,6 +122,7 @@ button.row:hover{background:var(--surface-2)}
 .pill{display:inline-block;font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:99px;margin-top:3px;white-space:nowrap}
 .pill.open{background:var(--warn-soft);color:var(--warn)}
 .pill.ok{background:var(--surface-2);color:var(--muted)}
+.pill.var{background:var(--accent-soft);color:var(--accent);margin-left:4px;vertical-align:1px}
 .pill.ex{background:var(--surface-2);color:var(--muted);margin-left:4px}
 .grp-head{padding:8px 14px 7px;font-size:13px;font-weight:650;color:var(--ink);background:var(--surface-2);border-top:1px solid var(--line);display:flex;justify-content:space-between}
 .grp-head span:last-child{color:var(--muted);font-weight:600;font-variant-numeric:tabular-nums}
@@ -661,6 +662,14 @@ function orderText(ps){
   if(!isFinite(ps.daysToOrder)||ps.daysToOrder>180)return 'nicht absehbar';
   return ps.daysToOrder<=0?'jetzt':'ca. '+fdate(addDays(ps.daysToOrder));
 }
+/* Variationen: jede Variation ist ein eigenes Produkt (eigener Bestand, Preis, Code) mit gemeinsamem Wirkstoff (base) */
+const baseOf=p=>(p.base||p.name||'').trim();
+const variantsOf=p=>S.products.filter(x=>norm(baseOf(x))===norm(baseOf(p))).sort((a,b)=>(a.variant||'').localeCompare(b.variant||'','de',{numeric:true}));
+const fullName=(b,v)=>v?`${b} ${v}`:b;
+const codeSlug=(t,n)=>String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/ß/g,'SS').replace(/[^A-Z0-9]+/g,'').slice(0,n);
+function suggestCode(b,v,selfId){const root=[codeSlug(b,8),codeSlug(v,6)].filter(Boolean).join('-')||'ART';let c=root,i=2;
+  while(S.products.some(x=>x.id!==selfId&&x.sku&&norm(x.sku)===norm(c)))c=root+'-'+i++;return c}
+const varPill=p=>p.variant?` <span class="pill var">${esc(p.variant)}</span>`:'';
 function openProductStats(id){
   const p=prodById(id);if(!p)return;const ps=productStats(p);
   const [cls,lbl]=STATUS[ps.status];const max=Math.max(1,...ps.weeks);
@@ -691,7 +700,9 @@ function openProductStats(id){
     ${(()=>{const sp=supplierPrices(p.id);return sp.length?`<div class="kv"><span>Einkaufspreis je Lieferant</span><b style="font-family:var(--f-ui);font-weight:500">${sp.map((x,i)=>`${esc(x.name)}: <span class="num">${eur(x.last)}</span>${i===0&&sp.length>1?' <span class="pill top">günstigster</span>':''}`).join('<br>')}</b></div>`:''})()}
    </div>
    <p class="hint" style="margin:0 0 14px">${ps.enough?`Prognose aus den Verkäufen der letzten ${ps.win} Tage. Nachbestellen, wenn der freie Bestand nur noch für ${ps.lead} Tage Lieferzeit plus ${ps.low} Stück Puffer reicht. Die Empfehlung deckt ${ps.cover} Tage ab.`:'Für eine verlässliche Prognose braucht es noch ein paar Verkäufe – die Zahlen werden mit jedem Verkauf genauer.'} Lieferzeit und Bestellreichweite änderst du unter Mehr → Firmendaten.</p>
-   <div class="btn-row"><button class="btn ghost" data-act="stock" data-id="${p.id}">Bestand korrigieren</button><button class="btn ghost" data-act="edit-product" data-id="${p.id}">Bearbeiten</button></div>`);
+   ${(()=>{const vs=variantsOf(p),sm=stockMap();return vs.length>1||p.variant?`<div class="eyebrow" style="margin:14px 0 6px">Variationen von ${esc(baseOf(p))}</div><div class="list" style="margin-bottom:10px">${vs.map(v=>`<button class="row" data-act="prod" data-id="${v.id}"${v.id===p.id?' style="background:var(--accent-soft)"':''}><span style="min-width:0"><span class="row-title" style="display:block">${esc(v.variant||'ohne Variation')}</span><span class="row-sub" style="display:block">${v.sku?esc(v.sku)+' · ':''}Bestand ${sm[v.id]||0}</span></span><span class="row-amt"><span class="num">${eur(v.vk)}</span></span></button>`).join('')}</div>`:''})()}
+   <div class="btn-row"><button class="btn ghost" data-act="stock" data-id="${p.id}">Bestand korrigieren</button><button class="btn ghost" data-act="edit-product" data-id="${p.id}">Bearbeiten</button></div>
+   <button class="btn ghost" style="margin-top:8px" data-act="add-variant" data-id="${p.id}">+ Variation von ${esc(baseOf(p))}</button>`);
 }
 function inPeriod(d,p){const t=today();if(p==='monat')return d.slice(0,7)===t.slice(0,7);if(p==='jahr')return d.slice(0,4)===t.slice(0,4);return true}
 function totals(pred){
@@ -954,7 +965,7 @@ function vKunden(){
   const CS=kd?{zuletzt:'Zuletzt gekauft',umsatz:'Meister Umsatz',monat:'Ø Umsatz pro Monat',kaeufe:'Meiste Käufe',offen:'Offen zu zahlen',nachkauf:'Nachkauf fällig',name:'Name A–Z'}
     :{zuletzt:'Zuletzt geliefert',umsatz:'Meister Einkauf',kaeufe:'Meiste Lieferungen',offen:'Du schuldest',name:'Name A–Z'};
   all.forEach(c=>{c.mo=kd?custMonthly(c):null;c.pr=kd?custPr(c.name):null});
-  const cs=CS[UI.csort]?UI.csort:'zuletzt',nm=(a,b)=>a.name.localeCompare(b.name,'de'),mo=c=>c.mo?.avg||0,rbM={},rb=c=>{if(!(c.name in rbM)){const r=rebuyInfo(c.name);rbM[c.name]=r&&r.due?r.since-r.every:-1e9}return rbM[c.name]};
+  const cs=CS[UI.csort]?UI.csort:'zuletzt',nm=(a,b)=>a.name.localeCompare(b.name,'de',{numeric:true}),mo=c=>c.mo?.avg||0,rbM={},rb=c=>{if(!(c.name in rbM)){const r=rebuyInfo(c.name);rbM[c.name]=r&&r.due?r.since-r.every:-1e9}return rbM[c.name]};
   const cmp={zuletzt:(a,b)=>(b.last||'').localeCompare(a.last||'')||nm(a,b),umsatz:(a,b)=>b.umsatz-a.umsatz||nm(a,b),monat:(a,b)=>mo(b)-mo(a)||nm(a,b),kaeufe:(a,b)=>b.n-a.n||nm(a,b),
     offen:(a,b)=>b.offen-a.offen||b.bestellt-a.bestellt||nm(a,b),nachkauf:(a,b)=>rb(b)-rb(a)||nm(a,b),name:nm}[cs];
   let l=[...all].sort(cmp);
@@ -1199,7 +1210,7 @@ async function saveShipment(){
 const KSORTS={az:'Name A–Z',beliebt:'Beliebtheit',preisauf:'Preis aufsteigend',preisab:'Preis absteigend',kat:'Nach Kategorie',bestand:'Bestand (viel zuerst)'};
 function popularity(){const m={},cut=addDays(-90);S.entries.forEach(e=>{if(e.type!=='verkauf'||e.delivered===false||!live(e))return;(e.items||[]).forEach(i=>{const x=m[i.pid]=m[i.pid]||[0,0];x[1]+=num(i.qty);if(e.date>=cut)x[0]+=num(i.qty)})});return m}
 function sortProducts(l,mode,sm,priceKey='vk'){
-  const nm=(a,b)=>a.name.localeCompare(b.name,'de'),pop=mode==='beliebt'?popularity():null,pz=p=>pop[p.id]||[0,0];
+  const nm=(a,b)=>a.name.localeCompare(b.name,'de',{numeric:true}),pop=mode==='beliebt'?popularity():null,pz=p=>pop[p.id]||[0,0];
   const f={az:nm,beliebt:(a,b)=>pz(b)[0]-pz(a)[0]||pz(b)[1]-pz(a)[1]||nm(a,b),preisauf:(a,b)=>num(a[priceKey])-num(b[priceKey])||nm(a,b),preisab:(a,b)=>num(b[priceKey])-num(a[priceKey])||nm(a,b),
     kat:(a,b)=>(a.cat||'Allgemein').localeCompare(b.cat||'Allgemein','de')||nm(a,b),bestand:(a,b)=>(sm[b.id]||0)-(sm[a.id]||0)||nm(a,b)}[mode]||nm;
   return [...l].sort(f);
@@ -1269,7 +1280,7 @@ function custHistory(name){const k=norm(name);if(!k)return null;
   return{last:es[0],prod,n:es.length}}
 // Was der Kunde schon gekauft hat, zuerst – das zuletzt Gekaufte ganz vorne
 function custFirst(l,name){const h=custHistory(name);if(!h)return{top:[],rest:l,h:null};
-  const top=l.filter(p=>h.prod[p.id]).sort((a,b)=>h.prod[a.id].rank-h.prod[b.id].rank||h.prod[b.id].qty-h.prod[a.id].qty||a.name.localeCompare(b.name,'de'));
+  const top=l.filter(p=>h.prod[p.id]).sort((a,b)=>h.prod[a.id].rank-h.prod[b.id].rank||h.prod[b.id].qty-h.prod[a.id].qty||a.name.localeCompare(b.name,'de',{numeric:true}));
   return{top,rest:l.filter(p=>!h.prod[p.id]),h}}
 const histLine=x=>`<span class="tile-h">${x.lastQty}× am ${fdShort(x.date)}</span>`;
 const tilePrice=(p,pr)=>{const cp=custPrice(p,pr),vk=num(p.vk);return `<span class="tile-p num${Math.abs(cp-vk)>0.004?' cp':''}">${eur(cp)}${Math.abs(cp-vk)>0.004?`<s>${eur(vk)}</s>`:''}</span>`};
@@ -1434,16 +1445,16 @@ function handleScan(target,code){
 function vMehr(){
   const st=S.settings;const sm=stockMap();
   const SORTS={kat:'Kategorie',az:'Name A–Z',za:'Name Z–A',vkab:'Preis aufsteigend',vkzu:'Preis absteigend',marge:'Marge (höchste zuerst)',bestand:'Bestand (wenig zuerst)'};
-  const mg=p=>p.vk>0?(p.vk-p.ek)/p.vk:-1;const nm=(a,b)=>a.name.localeCompare(b.name,'de');
+  const mg=p=>p.vk>0?(p.vk-p.ek)/p.vk:-1;const nm=(a,b)=>a.name.localeCompare(b.name,'de',{numeric:true});
   const cmp={kat:(a,b)=>(a.cat||'Allgemein').localeCompare(b.cat||'Allgemein','de')||nm(a,b),az:nm,za:(a,b)=>-nm(a,b),
     vkab:(a,b)=>num(a.vk)-num(b.vk)||nm(a,b),vkzu:(a,b)=>num(b.vk)-num(a.vk)||nm(a,b),marge:(a,b)=>mg(b)-mg(a)||nm(a,b),bestand:(a,b)=>sm[a.id]-sm[b.id]||nm(a,b)}[UI.psort]||nm;
   const pcats=[...new Set(S.products.map(p=>p.cat||'Allgemein'))].sort((a,b)=>a.localeCompare(b,'de'));
   if(UI.pcat!=='alle'&&!pcats.includes(UI.pcat))UI.pcat='alle';
   let prods=S.products.filter(p=>UI.pcat==='alle'||(p.cat||'Allgemein')===UI.pcat);
-  const pq=UI.pq.trim().toLowerCase();if(pq)prods=prods.filter(p=>(p.name+' '+(p.sku||'')).toLowerCase().includes(pq));
+  const pq=UI.pq.trim().toLowerCase();if(pq)prods=prods.filter(p=>norm(p.name+' '+(p.sku||'')+' '+(p.ean||'')).includes(norm(pq)));
   prods.sort(cmp);
   const prow=p=>`<button class="row" data-act="prod" data-id="${p.id}"><span class="tag ek">${esc((p.cat||'A').slice(0,2))}</span>
-    <span style="min-width:0"><span class="row-title" style="display:block">${esc(p.name)}${p.sample?'<span class="pill ex">Beispiel</span>':''}</span><span class="row-sub" style="display:block">${UI.psort==='kat'?'':esc(p.cat||'Allgemein')+' · '}EK ${eur(p.ek)} · Bestand ${sm[p.id]}${p.sku?' · '+esc(p.sku):''}</span></span>
+    <span style="min-width:0"><span class="row-title" style="display:block">${esc(p.variant?baseOf(p):p.name)}${varPill(p)}${p.sample?'<span class="pill ex">Beispiel</span>':''}</span><span class="row-sub" style="display:block">${UI.psort==='kat'?'':esc(p.cat||'Allgemein')+' · '}EK ${eur(p.ek)} · Bestand ${sm[p.id]}${p.sku?' · '+esc(p.sku):''}</span></span>
     <span class="row-amt"><span class="num">${eur(p.vk)}</span><span class="row-sub">${p.vk>0?Math.round((p.vk-p.ek)/p.vk*100)+' % Marge':''}</span></span></button>`;
   let plist='';
   if(!prods.length)plist=`<div class="empty">${S.products.length?'Kein Produkt passt zur Suche.':'Noch keine Produkte.'}</div>`;
@@ -1957,7 +1968,7 @@ async function savePayout(id){
 }
 function stockRows(){
   const sm=stockMap(),pm=pendingMap();
-  let l=[...S.products].sort((a,b)=>(a.cat||'Allgemein').localeCompare(b.cat||'Allgemein','de')||a.name.localeCompare(b.name,'de'));
+  let l=[...S.products].sort((a,b)=>(a.cat||'Allgemein').localeCompare(b.cat||'Allgemein','de')||a.name.localeCompare(b.name,'de',{numeric:true}));
   if(UI.lagerCat!=='alle')l=l.filter(p=>(p.cat||'Allgemein')===UI.lagerCat);
   return l.map(p=>{const q=sm[p.id]||0,s=Math.max(0,q);return{cat:p.cat||'Allgemein',name:p.name,sku:p.sku||'',unit:p.unit||'Stk',q,res:pm.res[p.id]||0,inc:pm.inc[p.id]||0,ek:num(p.ek),vk:num(p.vk),wEk:r2(s*num(p.ek)),wVk:r2(s*num(p.vk))}});
 }
@@ -2019,7 +2030,7 @@ async function priceListPDF(name){
   if(!await loadPdfLib()){toast('PDF konnte nicht geladen werden.');return}
   const st=S.settings,pr=name?custPr(name):null,disc=hasDisc(pr);const {jsPDF}=window.jspdf;const doc=new jsPDF({unit:'mm',format:'a4'});const W=210,M=14;
   const ink=[22,32,27],mut=[102,116,108],acc=[28,106,88],line=[212,219,211];
-  const l=S.products.filter(p=>num(p.vk)>0).sort((a,b)=>(a.cat||'Allgemein').localeCompare(b.cat||'Allgemein','de')||a.name.localeCompare(b.name,'de'));
+  const l=S.products.filter(p=>num(p.vk)>0).sort((a,b)=>(a.cat||'Allgemein').localeCompare(b.cat||'Allgemein','de')||a.name.localeCompare(b.name,'de',{numeric:true}));
   let Y=pdfHead(doc,'Preisliste',name?'für '+name:'',[`Stand ${fdate(today())}`]);
   if(disc){doc.setFillColor(232,242,236);doc.roundedRect(M,Y-5,W-2*M,10,2,2,'F');doc.setFontSize(9.5);doc.setTextColor(...acc);doc.setFont('helvetica','bold');
     doc.text(pdfSafe(pr.mode==='rabatt'?`Deine persönlichen Preise: ${fmtPct(pr.pct)} % Rabatt auf alle Produkte`:'Deine persönlichen Sonderpreise'),M+4,Y+1.5);Y+=12}
@@ -2455,9 +2466,11 @@ function openProduct(id,preset){
   P=p?{...p}:{id:null,name:'',cat:st.categories[0]||'Allgemein',sku:'',unit:'Stk',ek:'',vk:'',tax:st.defaultTax,stockStart:0,low:'',ean:''};
   if(preset)Object.assign(P,preset);
   openSheet(p?'Produkt bearbeiten':'Neues Produkt',`
-   <label class="field"><span>Bezeichnung</span><input class="inp" id="pName" value="${esc(P.name)}" placeholder="z. B. Notizbuch A5 liniert"></label>
+   <div class="grid2" style="grid-template-columns:minmax(0,1.6fr) minmax(0,1fr)"><label class="field"><span>Wirkstoff / Produkt</span><input class="inp" id="pName" value="${esc(P.base??P.name)}" placeholder="z. B. BPC-157"></label>
+    <label class="field"><span>Variation</span><input class="inp" id="pVar" value="${esc(P.variant||'')}" placeholder="z. B. 10 mg"></label></div>
+   ${P.id&&variantsOf(P).length>1?`<p class="hint" style="margin:-4px 0 10px">${variantsOf(P).length} Variationen: ${variantsOf(P).map(v=>esc(v.variant||'ohne')).join(', ')}. Änderst du den Wirkstoff-Namen, wird er bei allen Variationen geändert.</p>`:''}
    <div class="grid2"><label class="field"><span>Kategorie</span><select class="inp" id="pCat">${[...new Set([...st.categories,P.cat])].map(c=>`<option ${c===P.cat?'selected':''}>${esc(c)}</option>`).join('')}</select></label>
-    <label class="field"><span>Artikelnr. (optional)</span><input class="inp" id="pSku" value="${esc(P.sku)}"></label></div>
+    <label class="field"><span>Produktcode</span><input class="inp" id="pSku" value="${esc(P.sku||'')}" placeholder="automatisch" autocapitalize="characters"></label></div>
    <div class="field"><span>Barcode / EAN (optional)</span><div class="inline"><input class="inp" id="pEan" inputmode="numeric" value="${esc(P.ean||'')}" placeholder="zum Scannen an der Kasse">${canScan()?'<button class="btn ghost sm" data-act="scan" data-v="ean">Scannen</button>':''}</div></div>
    <div class="grid3"><label class="field"><span>EK €</span><input class="inp num" id="pEk" type="number" inputmode="decimal" min="0" step="0.01" value="${P.ek}"></label>
     <label class="field"><span>VK € ${st.kleinunternehmer?'':'brutto'}</span><input class="inp num" id="pVk" type="number" inputmode="decimal" min="0" step="0.01" value="${P.vk}"></label>
@@ -2471,14 +2484,20 @@ function openProduct(id,preset){
    ${p?'<button class="btn danger" style="margin-top:8px" data-act="del-product">Produkt löschen</button>':''}`);
 }
 async function saveProduct(){
-  const name=$('#pName').value.trim();if(!name){toast('Bitte eine Bezeichnung eingeben.');return}
+  const base=$('#pName').value.trim(),variant=($('#pVar')?.value||'').trim();if(!base){toast('Bitte eine Bezeichnung eingeben.');return}
+  const name=fullName(base,variant),oldBase=P.id?baseOf(prodById(P.id)||P):null;
+  if(variant&&S.products.some(x=>x.id!==P.id&&norm(baseOf(x))===norm(base)&&norm(x.variant||'')===norm(variant))){toast(`„${name}“ gibt es schon.`);return}
+  let sku=($('#pSku')?.value||'').trim();if(!sku&&(variant||variantsOf({base}).some(x=>x.id!==P.id)))sku=suggestCode(base,variant,P.id);
+  if(sku&&S.products.some(x=>x.id!==P.id&&x.sku&&norm(x.sku)===norm(sku))){toast(`Produktcode ${sku} gehört schon zu einem anderen Produkt.`);return}
   const ean=($('#pEan')?.value||'').trim();
   if(ean&&S.products.some(x=>x.ean===ean&&x.id!==P.id)){toast('Dieser Barcode gehört schon zu einem anderen Produkt.');return}
-  const p={...P,id:P.id||newId(),name,ean,cat:$('#pCat').value,sku:$('#pSku').value.trim(),unit:$('#pUnit').value.trim()||'Stk',
+  const p={...P,id:P.id||newId(),name,base,variant,ean,cat:$('#pCat').value,sku,unit:$('#pUnit').value.trim()||'Stk',
     ek:r2(num($('#pEk').value)),vk:r2(num($('#pVk').value)),tax:$('#pTax')?num($('#pTax').value):num(P.tax??S.settings.defaultTax),
     stockStart:Math.round(num($('#pStock').value)),low:$('#pLow').value===''?null:Math.round(num($('#pLow').value)),noReorder:$('#pNoReorder').checked};
-  if(p.low===null)delete p.low;if(!p.noReorder)delete p.noReorder;
-  try{await Store.put('products',p)}catch{return}
+  if(p.low===null)delete p.low;if(!p.noReorder)delete p.noReorder;if(!p.variant)delete p.variant;
+  // Wirkstoff umbenannt: alle Variationen mitziehen
+  const sibs=oldBase&&norm(oldBase)!==norm(base)?S.products.filter(x=>x.id!==p.id&&norm(baseOf(x))===norm(oldBase)):[];
+  try{await Store.bulk(async()=>{await Store.put('products',p);for(const x of sibs)await Store.put('products',{...x,base,name:fullName(base,x.variant)})})}catch{return}
   closeSheet();toast(P.id?'Produkt gespeichert':'Produkt angelegt');
 }
 function openStock(id){
@@ -2742,6 +2761,7 @@ document.addEventListener('click',async ev=>{
     case'lb-ship':saveShipment();break;
     case'print-invoice':printNow('print-inv');break;
     case'new-product':openProduct();break;
+    case'add-variant':{const s0=prodById(id);if(!s0)break;closeSheet();openProduct(null,{base:baseOf(s0),name:baseOf(s0),variant:'',cat:s0.cat,unit:s0.unit,tax:s0.tax,ek:s0.ek,vk:s0.vk,sku:'',ean:'',stockStart:0});setTimeout(()=>$('#pVar')?.focus(),80);break}
     case'edit-product':closeSheet();openProduct(id);break;
     case'save-product':saveProduct();break;
     case'del-product':{const used=S.entries.some(e=>(e.items||[]).some(i=>i.pid===P.id)),inB=(S.settings.bundles||[]).filter(x=>(x.items||[]).some(i=>i.pid===P.id));
@@ -2894,7 +2914,7 @@ function fitVals(){fitQ=0;document.querySelectorAll(FIT_SEL).forEach(el=>{el.sty
 const fitSoon=()=>{if(!fitQ)fitQ=requestAnimationFrame(fitVals)};
 new MutationObserver(fitSoon).observe(document.body,{childList:true,subtree:true});
 addEventListener('resize',fitSoon);document.fonts&&document.fonts.ready.then(fitSoon);
-const APP_VER='70';
+const APP_VER='71';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
