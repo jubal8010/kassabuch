@@ -2466,7 +2466,7 @@ function openProduct(id,preset,addRow){
   P=p?{...p}:{id:null,name:'',cat:st.categories[0]||'Allgemein',sku:'',unit:'Stk',ek:'',vk:'',tax:st.defaultTax,stockStart:0,low:'',ean:''};
   if(preset)Object.assign(P,preset);
   PV={rows:(p?variantsOf(p).filter(x=>x.id!==p.id):[]).map(x=>({id:x.id,variant:x.variant||'',ek:x.ek,vk:x.vk,sku:x.sku||'',stock:sm[x.id]||0}))};
-  if(addRow)PV.rows.push({id:null,variant:'',ek:P.ek,vk:P.vk,sku:'',stock:0,isNew:true});
+  if(addRow)PV.rows.push({id:null,variant:'',ek:'',vk:'',sku:'',stock:0,isNew:true});
   openSheet(p?'Produkt bearbeiten':'Neues Produkt',`
    <div class="grid2" style="grid-template-columns:minmax(0,1.6fr) minmax(0,1fr)"><label class="field"><span>Wirkstoff / Produkt</span><input class="inp" id="pName" value="${esc(P.base??P.name)}" placeholder="z. B. BPC-157"></label>
     <label class="field"><span>Variation</span><input class="inp" id="pVar" value="${esc(P.variant||'')}" placeholder="z. B. 10 mg"></label></div>
@@ -2787,7 +2787,7 @@ document.addEventListener('click',async ev=>{
     case'print-invoice':printNow('print-inv');break;
     case'new-product':openProduct(null,UI.screen==='mehr'&&UI.pcat&&UI.pcat!=='alle'?{cat:UI.pcat}:null);break;
     case'add-variant':closeSheet();openProduct(id,null,true);break;
-    case'pv-add':{PV.rows.push({id:null,variant:'',ek:$('#pEk').value,vk:$('#pVk').value,sku:'',stock:0,isNew:true});$('#pVars').innerHTML=pvHTML();document.querySelector(`[data-pv="${PV.rows.length-1}"][data-k="variant"]`)?.focus();break}
+    case'pv-add':{PV.rows.push({id:null,variant:'',ek:'',vk:'',sku:'',stock:0,isNew:true});$('#pVars').innerHTML=pvHTML();document.querySelector(`[data-pv="${PV.rows.length-1}"][data-k="variant"]`)?.focus();break}
     case'pv-rm':{PV.rows.splice(+b.dataset.i,1);$('#pVars').innerHTML=pvHTML();break}
     case'edit-product':closeSheet();openProduct(id);break;
     case'save-product':saveProduct();break;
@@ -2945,7 +2945,7 @@ function fitVals(){fitQ=0;document.querySelectorAll(FIT_SEL).forEach(el=>{el.sty
 const fitSoon=()=>{if(!fitQ)fitQ=requestAnimationFrame(fitVals)};
 new MutationObserver(fitSoon).observe(document.body,{childList:true,subtree:true});
 addEventListener('resize',fitSoon);document.fonts&&document.fonts.ready.then(fitSoon);
-const APP_VER='75';
+const APP_VER='76';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
