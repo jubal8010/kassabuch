@@ -879,7 +879,7 @@ function vLager(){
   const v={ek:0,vk:0,stk:0,inc:0};
   l.forEach(p=>{const q=Math.max(0,sm[p.id]);v.ek+=q*num(p.ek);v.vk+=q*num(p.vk);v.stk+=q;v.inc+=(pm.inc[p.id]||0)*num(p.ek)});
   const byCat={};S.products.forEach(p=>{const k=p.cat||'Allgemein';byCat[k]=(byCat[k]||0)+Math.max(0,sm[p.id])*num(p.ek)});
-  return header('Lager','<button class="add-btn" data-act="new-product">+ Produkt</button>')+`${S.products.length?`<div class="btn-row" style="margin:-4px 0 12px"><button class="btn ghost sm" style="flex:0 1 auto;min-width:0" data-act="stock-export">⤓ Bestand exportieren</button><button class="btn ghost sm" style="flex:0 1 auto;min-width:0" data-act="price-pdf" data-name="">⤓ Preisliste</button></div>`:''}
+  return header('Lager','<button class="add-btn" data-act="new-product">+ Produkt</button>')+`${S.products.length?`<div class="btn-row" style="margin:-4px 0 12px"><button class="btn ghost sm" style="flex:0 1 auto;min-width:0" data-act="stock-export">⤓ Bestand exportieren</button><button class="btn ghost sm" style="flex:0 1 auto;min-width:0" data-act="price-pdf" data-name="">⤓ Preisliste</button><button class="btn ghost sm" style="flex:0 1 auto;min-width:0" data-act="order-list">Bestellliste</button></div>`:''}
   ${cats.length>2?`<div class="chips">${cats.map(c=>`<button class="chip ${UI.lagerCat===c?'on':''}" data-act="lagercat" data-v="${esc(c)}">${c==='alle'?'Alle':esc(c)}</button>`).join('')}</div>`:''}
   ${S.products.length?`<div class="kpi-main" style="margin:0 0 8px"><div class="lbl">Warenwert im Lager${UI.lagerCat!=='alle'?' · '+esc(UI.lagerCat):''} (zum Einkaufspreis)</div><div class="val">${eur(v.ek)}</div>
    <div class="sub">${v.stk} Stück auf Lager${v.inc?` · dazu ${eur(v.inc)} bestellt`:''}</div></div>
@@ -889,6 +889,7 @@ function vLager(){
   </div>
   ${UI.lagerCat==='alle'&&Object.keys(byCat).length>1?`<div class="tbl-wrap" style="margin-bottom:14px"><table><thead><tr><th>Kategorie</th><th>Warenwert (EK)</th></tr></thead><tbody>${Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([k,x])=>`<tr><td>${esc(k)}</td><td>${eur(x)}</td></tr>`).join('')}</tbody></table></div>`:''}`:''}
   ${(()=>{const need=l.map(p=>({p,ps:productStats(p,sm,pm)})).filter(x=>x.ps.need);return need.length?`${foldHead('reorder',true,'Nachbestellen empfohlen'+(UI.lagerCat!=='alle'?' · '+esc(UI.lagerCat):''),need.length)}${isOpen('reorder',true)?`
+   <button class="btn" style="margin-bottom:10px" data-act="order-list">Bestellliste erstellen</button>
    <div class="list" style="margin-bottom:14px">${need.map(({p,ps})=>`<button class="row" data-act="prod" data-id="${p.id}"><span class="tag aus">!</span><span style="min-width:0"><span class="row-title" style="display:block">${esc(p.name)}</span><span class="row-sub" style="display:block">frei ${ps.avail}${ps.inc?' · +'+ps.inc+' bestellt':''} · reicht ${fmtReach(ps.reach)}</span></span><span class="row-amt"><span class="num">${ps.suggest}</span><span class="row-sub">empfohlen</span></span></button>`).join('')}</div>`:''}
    `:''})()}
   ${S.products.length?foldHead('inv',true,UI.lagerCat!=='alle'?'Inventar · '+esc(UI.lagerCat):'Inventar',l.length):''}
@@ -981,6 +982,53 @@ function vKunden(){
     <span class="row-amt"><span class="num">${eur(c.umsatz)}</span>${c.bestellt?`<span class="pill ord">${c.bestellt} bestellt</span>`:c.offen>0.005?`<span class="pill open">${eur(c.offen)} offen</span>`:''}</span></button>`).join('')
     :`<div class="empty"><b>${q?'Nichts gefunden':'Noch keine '+K.many}</b>${q?'':`${K.many} entstehen automatisch bei der ersten Buchung – oder du legst sie hier an.`}</div>`}</div>`;
 }
+/* ---------- Bestellliste: automatisch aus Verkaufstempo, Lieferzeit und Reichweite, je Lieferant ---------- */
+let OL=null;
+const lastSupplier=pid=>[...supplierPrices(pid)].sort((a,b)=>b.date.localeCompare(a.date))[0]?.name||'';
+function openOrderList(){const sm=stockMap(),pm=pendingMap();
+  OL={rows:S.products.map(p=>({p,ps:productStats(p,sm,pm)})).filter(x=>x.ps.need).map(({p,ps})=>({pid:p.id,qty:Math.max(1,ps.suggest),on:true,sup:lastSupplier(p.id)}))};
+  openSheet('Bestellliste','<div id="olBody"></div>');olRender()}
+const olGroups=()=>{const g={};OL.rows.forEach((r,i)=>{if(!prodById(r.pid))return;(g[r.sup||'']=g[r.sup||'']||[]).push({...r,i})});return Object.entries(g).sort((a,b)=>(a[0]?0:1)-(b[0]?0:1)||a[0].localeCompare(b[0],'de'))};
+const olSel=()=>OL.rows.filter(r=>r.on&&num(r.qty)>0&&prodById(r.pid));
+function olRender(){const el=$('#olBody');if(!el||!OL)return;const sm=stockMap(),pm=pendingMap(),st=S.settings;
+  const sups=[...new Set([...S.suppliers.map(x=>x.name),...OL.rows.map(r=>r.sup).filter(Boolean)])].sort((a,b)=>a.localeCompare(b,'de'));
+  const sel=olSel(),sum=r2(sel.reduce((s,r)=>s+num(r.qty)*num(prodById(r.pid).ek),0));
+  const rest=S.products.filter(p=>!OL.rows.some(r=>r.pid===p.id)).sort((a,b)=>a.name.localeCompare(b.name,'de',{numeric:true}));
+  el.innerHTML=`<p class="muted" style="margin:-6px 0 12px">Automatisch berechnet aus dem Verkaufstempo: Ware für ${num(st.leadTime??7)} Tage Lieferzeit plus ${num(st.coverDays??30)} Tage Reichweite. Mengen kannst du anpassen.</p>
+   ${OL.rows.length?olGroups().map(([sup,rows])=>`<div class="grp-head"><span>${sup?esc(sup):'Ohne Lieferant'}</span><span>${eur(rows.filter(r=>r.on).reduce((s,r)=>s+num(r.qty)*num(prodById(r.pid).ek),0))}</span></div>
+    <div class="list" style="margin-bottom:12px">${rows.map(r=>{const p=prodById(r.pid),ps=productStats(p,sm,pm);return `<div class="row" style="grid-template-columns:auto minmax(0,1fr) 4.6em;cursor:default;${r.on?'':'opacity:.5'}">
+     <input type="checkbox" data-ol="${r.i}" data-k="on" ${r.on?'checked':''} aria-label="Bestellen" style="width:22px;height:22px;accent-color:var(--accent)">
+     <span style="min-width:0"><span class="row-title" style="display:block">${esc(p.name)}${p.sku?` <small class="muted">${esc(p.sku)}</small>`:''}</span>
+      <span class="row-sub" style="display:block">frei ${ps.avail}${ps.inc?' · +'+ps.inc+' bestellt':''} · ${ps.rate>0?'reicht '+fmtReach(ps.reach):'noch kein Verkaufstempo'} · EK ${eur(p.ek)}</span>
+      <select class="inp" data-ol="${r.i}" data-k="sup" style="margin-top:6px;padding:6px 10px;font-size:13px;min-height:0"><option value="">Ohne Lieferant</option>${sups.map(n=>`<option ${n===r.sup?'selected':''}>${esc(n)}</option>`).join('')}</select></span>
+     <input class="inp num" type="number" inputmode="numeric" min="0" step="1" data-ol="${r.i}" data-k="qty" value="${esc(r.qty)}" aria-label="Menge"></div>`}).join('')}</div>`).join('')
+    :`<div class="empty" style="margin-bottom:12px">Gerade muss nichts nachbestellt werden. Du kannst trotzdem Produkte hinzufügen.</div>`}
+   ${rest.length?`<label class="field"><span>Produkt hinzufügen</span><select class="inp" id="olAdd"><option value="">— auswählen —</option>${rest.map(p=>`<option value="${p.id}">${esc(p.name)}${p.sku?' · '+esc(p.sku):''}</option>`).join('')}</select></label>`:''}
+   <div class="summary"><div class="l tot"><span>${sel.length} ${sel.length===1?'Produkt':'Produkte'} · ${sel.reduce((s,r)=>s+num(r.qty),0)} Stk</span><span class="num">${eur(sum)}</span></div></div>
+   <button class="btn" data-act="ol-book" ${sel.length?'':'disabled'}>Als Bestellung anlegen</button>
+   <div class="btn-row" style="margin-top:8px"><button class="btn ghost" data-act="ol-share" ${sel.length?'':'disabled'}>Teilen / Kopieren</button><button class="btn ghost" data-act="ol-pdf" ${sel.length?'':'disabled'}>⤓ PDF</button></div>
+   <p class="hint" style="margin-top:10px">„Als Bestellung anlegen“ erstellt je Lieferant einen Einkauf mit Status „bestellt“. Sobald die Ware da ist, markierst du ihn als geliefert – dann zählt sie zum Bestand.</p>`}
+function olText(){const st=S.settings,g={};olSel().forEach(r=>{(g[r.sup||'']=g[r.sup||'']||[]).push(r)});
+  return Object.entries(g).map(([sup,rows])=>`Bestellung${sup?' bei '+sup:''} – ${fdate(today())}${st.owner?'\nvon '+st.owner:''}\n\n`+rows.map(r=>{const p=prodById(r.pid);return `${num(r.qty)}× ${p.name}${p.sku?' ('+p.sku+')':''}`}).join('\n')).join('\n\n———\n\n')}
+async function olBook(){const g={};olSel().forEach(r=>{(g[r.sup||'']=g[r.sup||'']||[]).push(r)});const now=new Date().toISOString(),es=[];
+  for(const [sup,rows] of Object.entries(g)){const items=rows.map(r=>{const p=prodById(r.pid);return{pid:p.id,name:p.name,qty:num(r.qty),price:r2(num(p.ek)),ek:r2(num(p.ek)),tax:S.settings.kleinunternehmer?0:num(p.tax??S.settings.defaultTax),unit:p.unit||'Stk'}});
+    es.push({id:newId(),created:now,type:'einkauf',date:today(),party:sup,method:'ueb',note:'Aus Bestellliste',total:r2(items.reduce((s,i)=>s+i.qty*i.price,0)),items,delivered:false,payments:[],paid:false,att:[]})}
+  try{await Store.bulk(async()=>{for(const e of es)await Store.put('entries',e)})}catch{return}
+  closeSheet();OL=null;toast(es.length===1?'Bestellung angelegt':`${es.length} Bestellungen angelegt (je Lieferant)`)}
+async function olPDF(){if(!await loadPdfLib()){toast('PDF konnte nicht geladen werden.');return}
+  const {jsPDF}=window.jspdf;const doc=new jsPDF({unit:'mm',format:'a4'});const W=210,M=14,ink=[22,32,27],mut=[102,116,108],line=[212,219,211];
+  let Y=pdfHead(doc,'Bestellliste',fdate(today()),[]);const g={};olSel().forEach(r=>{(g[r.sup||'']=g[r.sup||'']||[]).push(r)});
+  const cx=[M,M+34,W-M-62,W-M-30,W-M];let tot=0;
+  for(const [sup,rows] of Object.entries(g)){if(Y>250){doc.addPage();Y=20}
+    doc.setFont('helvetica','bold');doc.setFontSize(11);doc.setTextColor(...ink);doc.text(pdfSafe(sup||'Ohne Lieferant'),M,Y);Y+=7;
+    doc.setFontSize(8);doc.setTextColor(...mut);['CODE','PRODUKT','MENGE','EK','SUMME'].forEach((h,i)=>i>=2?doc.text(h,cx[i],Y,{align:'right'}):doc.text(h,cx[i],Y));doc.setDrawColor(...line);doc.line(M,Y+2,W-M,Y+2);Y+=7;let st=0;
+    for(const r of rows){if(Y>275){doc.addPage();Y=20}const p=prodById(r.pid),sm=num(r.qty)*num(p.ek);st+=sm;
+      doc.setFont('helvetica','normal');doc.setFontSize(9.5);doc.setTextColor(...ink);doc.text(pdfSafe(p.sku||'-'),cx[0],Y);doc.text(doc.splitTextToSize(pdfSafe(p.name),cx[2]-cx[1]-20)[0],cx[1],Y);
+      doc.setFont('helvetica','bold');doc.text(`${num(r.qty)} ${pdfSafe(p.unit||'Stk')}`,cx[2],Y,{align:'right'});doc.setFont('helvetica','normal');doc.text(pdfE(p.ek),cx[3],Y,{align:'right'});doc.text(pdfE(sm),cx[4],Y,{align:'right'});
+      doc.setDrawColor(236,240,235);doc.line(M,Y+2.2,W-M,Y+2.2);Y+=6.8}
+    doc.setFont('helvetica','bold');doc.setFontSize(10);doc.text('Summe',M,Y);doc.text(pdfE(st),cx[4],Y,{align:'right'});Y+=12;tot+=st}
+  if(Object.keys(g).length>1){doc.setFont('helvetica','bold');doc.setFontSize(11);doc.text('Gesamt',M,Y);doc.text(pdfE(tot),cx[4],Y,{align:'right'})}
+  await Store.save(`Bestellliste_${today()}.pdf`,doc.output('blob'))}
 function supplierPrices(pid){
   const m={};
   S.entries.filter(e=>e.type==='einkauf'&&e.delivered!==false&&e.party).sort((a,b)=>a.date.localeCompare(b.date)).forEach(e=>(e.items||[]).forEach(i=>{if(i.pid!==pid)return;const k=norm(e.party);
@@ -2807,6 +2855,11 @@ document.addEventListener('click',async ev=>{
     case'stock':openStock(id);break;
     case'prod':openProductStats(id);break;
     case'reorder':{const p=prodById(id);const ps=productStats(p);closeSheet();openEntryForm('einkauf',null,{items:[{pid:p.id,qty:ps.suggest,price:p.ek}],delivered:false,paid:false,updateEk:true});break}
+    case'order-list':openOrderList();break;
+    case'ol-book':olBook();break;
+    case'ol-pdf':olPDF();break;
+    case'ol-share':{const t=olText();try{if(navigator.share){await navigator.share({text:t});break}}catch(x){if(x&&x.name==='AbortError')break}
+      try{await navigator.clipboard.writeText(t);toast('Bestellliste kopiert')}catch{toast('Teilen nicht möglich')}break}
     case'save-stock':{const p=prodById(id);const cur=stockMap()[id];const n=Math.round(num($('#sCount').value));await Store.put('products',{...p,stockStart:num(p.stockStart)+(n-cur)}).catch(()=>{});closeSheet();toast('Bestand korrigiert');break}
     case'edit-settings':openSettings();break;
     case'save-settings':saveSettings();break;
@@ -2876,6 +2929,7 @@ document.addEventListener('click',ev=>{if(LP.skip){LP.skip=false;if(ev.target.cl
 document.addEventListener('contextmenu',ev=>{if(ev.target.closest('.tile'))ev.preventDefault()});
 document.addEventListener('input',ev=>{
   const t=ev.target;
+  if(t.dataset.ol!==undefined&&OL&&t.dataset.k==='qty'){const r=OL.rows[+t.dataset.ol];if(r){r.qty=t.value;const sel=olSel(),sm=$('#olBody .summary .num');if(sm)sm.textContent=eur(r2(sel.reduce((s,x)=>s+num(x.qty)*num(prodById(x.pid).ek),0)))}return}
   // Produktcodes immer in Großbuchstaben (Cursor bleibt an seiner Stelle)
   if(t.id==='pSku'||t.dataset.k==='sku'){const u=t.value.toUpperCase();if(u!==t.value){const a=t.selectionStart,b=t.selectionEnd;t.value=u;try{t.setSelectionRange(a,b)}catch{}}}
   if(t.classList.contains('err')&&t.value.trim())t.classList.remove('err');
@@ -2922,11 +2976,13 @@ document.addEventListener('change',async ev=>{
   if(t.id==='csort'){UI.csort=t.value;lsSet('kb_csort',t.value);render();return}
   if(t.id==='psort'){UI.psort=t.value;lsSet('kb_psort',t.value);render();return}
   if(t.id==='importFile'&&t.files[0]){importJSON(t.files[0]);t.value='';return}
+  if(t.id==='xId'){const pt=partnerById(t.value);if(pt)UI.xb=pt.execBase||'roh';$('#xMore').innerHTML=execMore(t.value,'');return}
+  if(t.dataset.ol!==undefined&&OL){const r=OL.rows[+t.dataset.ol];if(r){if(t.dataset.k==='on')r.on=t.checked;else if(t.dataset.k==='sup')r.sup=t.value;else r.qty=t.value;const back=snapScroll($('#olBody'));olRender();back()}return}
+  if(t.id==='olAdd'&&OL&&t.value){const p=prodById(t.value);OL.rows.push({pid:p.id,qty:Math.max(1,productStats(p).suggest||1),on:true,sup:lastSupplier(p.id)});olRender();return}
   if(!F)return;
   if(t.dataset.k==='pid'){const it=F.items[+t.dataset.row];it.pid=t.value;delete it.ek;delete it.name;delete it.tax;delete it.unit;const p=prodById(t.value);if(p)it.price=F.type==='verkauf'?custPrice(p,F.pr):p.ek;renderEntryForm();return}
   if(t.dataset.f==='paid'){F.payStatus=t.value;return}
   if(t.dataset.f==='delivered'){F.delivered=t.value==='1';if(!F.id)F.payStatus=F.delivered?'1':'0';renderEntryForm();return}
-  if(t.id==='xId'){const pt=partnerById(t.value);if(pt)UI.xb=pt.execBase||'roh';$('#xMore').innerHTML=execMore(t.value,'');return}
   if(t.dataset.f==='shareId'){F.shareId=t.value;renderEntryForm();return}
   if(t.dataset.f==='execId'){F.execId=t.value;const pt=partnerById(t.value);if(pt){F.execPct=String(pt.execPct??3);F.execBase=pt.execBase||'roh'}renderEntryForm();return}
   if(t.dataset.f==='partnerId'){F.partnerId=t.value;applyFCust();refreshFormCust();return}
@@ -2953,7 +3009,7 @@ function fitVals(){fitQ=0;document.querySelectorAll(FIT_SEL).forEach(el=>{el.sty
 const fitSoon=()=>{if(!fitQ)fitQ=requestAnimationFrame(fitVals)};
 new MutationObserver(fitSoon).observe(document.body,{childList:true,subtree:true});
 addEventListener('resize',fitSoon);document.fonts&&document.fonts.ready.then(fitSoon);
-const APP_VER='77';
+const APP_VER='78';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
