@@ -2514,6 +2514,14 @@ async function saveProduct(){
   if(dupC){toast(`Produktcode ${dupC.toUpperCase()} gibt es schon.`);return}
   const ean=($('#pEan')?.value||'').trim();
   if(ean&&S.products.some(x=>x.ean===ean&&x.id!==P.id)){toast('Dieser Barcode gehört schon zu einem anderen Produkt.');return}
+  // Vergessene Angaben bei neuen Produkten/Variationen: kurz nachfragen
+  const gaps=[],FL={ek:'Einkaufspreis',vk:'Verkaufspreis',sku:'Produktcode'};
+  const chk=(lbl,vals,els)=>{const m=Object.keys(FL).filter(k=>!String(vals[k]??'').trim());if(m.length)gaps.push({lbl,m,el:els(m[0])})};
+  if(!P.id)chk(name,{ek:$('#pEk').value,vk:$('#pVk').value,sku:$('#pSku').value},k=>({ek:$('#pEk'),vk:$('#pVk'),sku:$('#pSku')})[k]);
+  PV.rows.forEach((r,i)=>{if(r.isNew)chk(fullName(base,r.variant.trim()),r,k=>document.querySelector(`[data-pv="${i}"][data-k="${k}"]`))});
+  if(gaps.length){const r=await choose('Noch nicht eingetragen:\n'+gaps.map(g=>`• ${g.lbl}: ${g.m.map(k=>FL[k]).join(', ')}`).join('\n'),
+      [['fix','Ergänzen','Zurück zum Formular'],['go','Trotzdem speichern',gaps.some(g=>g.m.some(k=>k!=='sku'))?'Fehlende Preise werden als 0 € gespeichert':'Ohne Produktcode speichern']],true);
+    if(r!=='go'){const el=gaps[0].el;if(el){el.classList.add('err');el.scrollIntoView({block:'center',behavior:'smooth'});setTimeout(()=>el.focus(),250)}return}}
   const p={...P,id:P.id||newId(),name,base,variant,ean,cat:$('#pCat').value,sku:grp[0].sku,unit:$('#pUnit').value.trim()||'Stk',
     ek:r2(num($('#pEk').value)),vk:r2(num($('#pVk').value)),tax:$('#pTax')?num($('#pTax').value):num(P.tax??S.settings.defaultTax),
     stockStart:Math.round(num($('#pStock').value)),low:$('#pLow').value===''?null:Math.round(num($('#pLow').value)),noReorder:$('#pNoReorder').checked};
@@ -2580,7 +2588,7 @@ async function exportJSON(){
 }
 function choose(msg,opts,noCancel){return new Promise(res=>{
   const root=document.createElement('div');root.className='overlay';root.style.zIndex=70;root.style.alignItems='center';
-  root.innerHTML=`<div class="sheet" style="border-radius:16px;max-width:400px;margin:16px"><p style="margin:0 0 14px;font-weight:600">${esc(msg)}</p>${opts.map(([k,l,d],i)=>`<button class="btn ${i?'ghost':''}" style="margin-bottom:8px;text-align:left" data-r="${k}">${esc(l)}<small style="display:block;font-weight:500;opacity:.8;font-size:12px;margin-top:2px">${esc(d)}</small></button>`).join('')}${noCancel?'':'<button class="btn ghost" data-r="">Abbrechen</button>'}</div>`;
+  root.innerHTML=`<div class="sheet" style="border-radius:16px;max-width:400px;margin:16px"><p style="margin:0 0 14px;font-weight:600;white-space:pre-line">${esc(msg)}</p>${opts.map(([k,l,d],i)=>`<button class="btn ${i?'ghost':''}" style="margin-bottom:8px;text-align:left" data-r="${k}">${esc(l)}<small style="display:block;font-weight:500;opacity:.8;font-size:12px;margin-top:2px">${esc(d)}</small></button>`).join('')}${noCancel?'':'<button class="btn ghost" data-r="">Abbrechen</button>'}</div>`;
   root.addEventListener('click',e=>{const b=e.target.closest('[data-r]');if(b||e.target===root){root.remove();res(b?b.dataset.r:'')}});
   document.body.appendChild(root);
 })}
@@ -2945,7 +2953,7 @@ function fitVals(){fitQ=0;document.querySelectorAll(FIT_SEL).forEach(el=>{el.sty
 const fitSoon=()=>{if(!fitQ)fitQ=requestAnimationFrame(fitVals)};
 new MutationObserver(fitSoon).observe(document.body,{childList:true,subtree:true});
 addEventListener('resize',fitSoon);document.fonts&&document.fonts.ready.then(fitSoon);
-const APP_VER='76';
+const APP_VER='77';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
