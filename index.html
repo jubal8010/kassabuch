@@ -484,6 +484,7 @@ const Store={
     try{localStorage.setItem('kb_test','1');localStorage.removeItem('kb_test')}catch{saveWarn(true)}
     render();
     try{await ensureOrderNos()}catch(e){console.error(e)}
+    try{const lc=S.products.filter(x=>x.sku&&x.sku!==String(x.sku).toUpperCase());if(lc.length)await Store.bulk(async()=>{for(const x of lc)await Store.put('products',{...x,sku:String(x.sku).toUpperCase()})})}catch(e){console.error(e)}
     try{const n=await runRecurring();if(n)toast(n===1?'1 wiederkehrende Ausgabe gebucht':n+' wiederkehrende Ausgaben gebucht')}catch(e){console.error(e)}
     setTimeout(()=>cleanupFiles().catch(()=>{}),3000);
   },
@@ -667,7 +668,6 @@ function orderText(ps){
 const baseOf=p=>(p.base||p.name||'').trim();
 const variantsOf=p=>S.products.filter(x=>norm(baseOf(x))===norm(baseOf(p))).sort((a,b)=>(a.variant||'').localeCompare(b.variant||'','de',{numeric:true}));
 const fullName=(b,v)=>v?`${b} ${v}`:b;
-const codeSlug=(t,n)=>String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/ß/g,'SS').replace(/[^A-Z0-9]+/g,'').slice(0,n);
 const varPill=p=>p.variant?` <span class="pill var">${esc(p.variant)}</span>`:'';
 function openProductStats(id){
   const p=prodById(id);if(!p)return;const ps=productStats(p);
@@ -2460,21 +2460,18 @@ async function saveRec(){
 
 /* ---------- product form ---------- */
 let P=null;
-/* Produktcode: automatisch aus Wirkstoff + Variation (folgt beim Umbenennen). Ein selbst eingetragener Code bleibt, bis du das Feld leerst. */
-const codeRoot=(b,v)=>[codeSlug(b,8),codeSlug(v,6)].filter(Boolean).join('-')||'ART';
-const isAutoCode=(sku,b,v)=>!sku||new RegExp('^'+codeRoot(b,v)+'(-\\d+)?$','i').test(sku);
 let PV=null; // weitere Variationen im Produktformular
 function openProduct(id,preset,addRow){
   const st=S.settings;const p=id?prodById(id):null,sm=stockMap();
   P=p?{...p}:{id:null,name:'',cat:st.categories[0]||'Allgemein',sku:'',unit:'Stk',ek:'',vk:'',tax:st.defaultTax,stockStart:0,low:'',ean:''};
   if(preset)Object.assign(P,preset);
-  PV={mainAuto:isAutoCode(P.sku,baseOf(P),P.variant),rows:(p?variantsOf(p).filter(x=>x.id!==p.id):[]).map(x=>({id:x.id,variant:x.variant||'',ek:x.ek,vk:x.vk,sku:x.sku||'',auto:isAutoCode(x.sku,baseOf(x),x.variant),stock:sm[x.id]||0}))};
-  if(addRow)PV.rows.push({id:null,variant:'',ek:P.ek,vk:P.vk,sku:'',auto:true,stock:0,isNew:true});
+  PV={rows:(p?variantsOf(p).filter(x=>x.id!==p.id):[]).map(x=>({id:x.id,variant:x.variant||'',ek:x.ek,vk:x.vk,sku:x.sku||'',stock:sm[x.id]||0}))};
+  if(addRow)PV.rows.push({id:null,variant:'',ek:P.ek,vk:P.vk,sku:'',stock:0,isNew:true});
   openSheet(p?'Produkt bearbeiten':'Neues Produkt',`
    <div class="grid2" style="grid-template-columns:minmax(0,1.6fr) minmax(0,1fr)"><label class="field"><span>Wirkstoff / Produkt</span><input class="inp" id="pName" value="${esc(P.base??P.name)}" placeholder="z. B. BPC-157"></label>
     <label class="field"><span>Variation</span><input class="inp" id="pVar" value="${esc(P.variant||'')}" placeholder="z. B. 10 mg"></label></div>
    <div class="grid2"><label class="field"><span>Kategorie</span><select class="inp" id="pCat">${[...new Set([...st.categories,P.cat])].map(c=>`<option ${c===P.cat?'selected':''}>${esc(c)}</option>`).join('')}</select></label>
-    <label class="field"><span>Produktcode</span><input class="inp" id="pSku" value="${esc(P.sku||'')}" placeholder="automatisch" autocapitalize="characters"></label></div>
+    <label class="field"><span>Produktcode</span><input class="inp" id="pSku" value="${esc(P.sku||'')}" placeholder="optional" autocapitalize="characters"></label></div>
    <div class="field"><span>Barcode / EAN (optional)</span><div class="inline"><input class="inp" id="pEan" inputmode="numeric" value="${esc(P.ean||'')}" placeholder="zum Scannen an der Kasse">${canScan()?'<button class="btn ghost sm" data-act="scan" data-v="ean">Scannen</button>':''}</div></div>
    <div class="grid3"><label class="field"><span>EK €</span><input class="inp num" id="pEk" type="number" inputmode="decimal" min="0" step="0.01" value="${P.ek}"></label>
     <label class="field"><span>VK € ${st.kleinunternehmer?'':'brutto'}</span><input class="inp num" id="pVk" type="number" inputmode="decimal" min="0" step="0.01" value="${P.vk}"></label>
@@ -2486,33 +2483,26 @@ function openProduct(id,preset,addRow){
    <div class="field" style="margin-top:6px"><span>Weitere Variationen</span></div>
    <div id="pVars">${pvHTML()}</div>
    <button class="add-row" data-act="pv-add" style="margin-bottom:6px">+ Variation</button>
-   <p class="hint" style="margin:0 0 12px">Jede Variation ist ein eigenes Produkt mit eigenem Bestand, Preis und Produktcode. Der Code entsteht automatisch aus Wirkstoff und Variation und ändert sich mit, wenn du sie umbenennst.</p>
+   <p class="hint" style="margin:0 0 12px">Jede Variation ist ein eigenes Produkt mit eigenem Bestand, Preis und Produktcode.</p>
    ${p?'<p class="hint">Preisänderungen gelten nur für neue Buchungen. Bereits gebuchte Verkäufe und Einkäufe behalten ihren damaligen Preis, Einkaufspreis und Namen. Den Bestand korrigierst du am einfachsten im Lager.</p>':''}
    <button class="btn" data-act="save-product">${p?'Speichern':'Produkt anlegen'}</button>
    ${p?'<button class="btn danger" style="margin-top:8px" data-act="del-product">Produkt löschen</button>':''}`);
-  pvCodes();if(addRow)setTimeout(()=>document.querySelector(`[data-pv="${PV.rows.length-1}"][data-k="variant"]`)?.focus(),80);
+  if(addRow)setTimeout(()=>document.querySelector(`[data-pv="${PV.rows.length-1}"][data-k="variant"]`)?.focus(),80);
 }
 function pvHTML(){return PV.rows.length?`<div class="items">${PV.rows.map((r,i)=>`<div class="item" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr)${r.isNew?' 28px':''}">
     <label>Variation${!r.isNew&&!r.variant?' <small class="neg">(bisher ohne)</small>':''}<input class="inp" data-pv="${i}" data-k="variant" value="${esc(r.variant)}" placeholder="z. B. 20 mg"></label>
-    <label>Produktcode<input class="inp" data-pv="${i}" data-k="sku" value="${esc(r.sku)}" placeholder="automatisch" autocapitalize="characters"></label>
+    <label>Produktcode<input class="inp" data-pv="${i}" data-k="sku" value="${esc(r.sku)}" placeholder="optional" autocapitalize="characters"></label>
     ${r.isNew?`<button class="x" data-act="pv-rm" data-i="${i}" aria-label="Entfernen">✕</button>`:''}
     <div class="grid3" style="grid-column:1/-1"><label>EK €<input class="inp num" type="number" inputmode="decimal" min="0" step="0.01" data-pv="${i}" data-k="ek" value="${esc(r.ek)}"></label>
      <label>VK €<input class="inp num" type="number" inputmode="decimal" min="0" step="0.01" data-pv="${i}" data-k="vk" value="${esc(r.vk)}"></label>
      ${r.isNew?`<label>Bestand<input class="inp num" type="number" step="1" data-pv="${i}" data-k="stock" value="${esc(r.stock)}"></label>`:`<label>Bestand<span class="inp" style="display:block;background:transparent;border-color:transparent;padding-left:2px">${r.stock}</span></label>`}</div></div>`).join('')}</div>`:''}
-// Codes neu berechnen: eigene Codes bleiben, automatische folgen Wirkstoff + Variation, alles eindeutig
-function pvCodes(){if(!PV||!$('#pName'))return;const base=$('#pName').value.trim(),ids=new Set([P.id,...PV.rows.map(r=>r.id)].filter(Boolean));
-  const taken=new Set(S.products.filter(x=>!ids.has(x.id)&&x.sku).map(x=>norm(x.sku))),need=PV.rows.length>0||!!$('#pVar').value.trim();
-  const ent=[{v:$('#pVar').value.trim(),auto:PV.mainAuto,el:$('#pSku'),keep:P.sku||'',set:()=>{}},...PV.rows.map((r,i)=>({v:r.variant.trim(),auto:r.auto,el:document.querySelector(`[data-pv="${i}"][data-k="sku"]`),keep:r.sku,set:c=>{r.sku=c}}))];
-  ent.forEach(e=>{if(!e.auto&&e.el&&e.el.value.trim())taken.add(norm(e.el.value.trim()))});
-  ent.forEach(e=>{if(!e.auto||!e.el)return;let c='';if(need){const root=codeRoot(base,e.v);c=root;let i=2;while(taken.has(norm(c)))c=root+'-'+i++;taken.add(norm(c))}else c=e.keep;e.el.value=c;e.set(c)})}
 async function saveProduct(){
   const base=$('#pName').value.trim(),variant=($('#pVar')?.value||'').trim();if(!base){toast('Bitte eine Bezeichnung eingeben.');return}
   // Leere neue Zeilen (nichts eingetragen) einfach weglassen
-  const blank=r=>r.isNew&&!r.variant.trim()&&!String(r.sku||'').trim()||r.isNew&&!r.variant.trim()&&r.auto;
+  const blank=r=>r.isNew&&!r.variant.trim()&&!String(r.sku||'').trim();
   if(PV.rows.some(blank)){PV.rows=PV.rows.filter(r=>!blank(r));$('#pVars').innerHTML=pvHTML()}
-  pvCodes();
   const name=fullName(base,variant),ids=new Set([P.id,...PV.rows.map(r=>r.id)].filter(Boolean));
-  const grp=[{id:P.id,variant,sku:$('#pSku').value.trim()},...PV.rows.map(r=>({id:r.id,variant:r.variant.trim(),sku:r.sku.trim()}))];
+  const grp=[{id:P.id,variant,sku:$('#pSku').value.trim().toUpperCase()},...PV.rows.map(r=>({id:r.id,variant:r.variant.trim(),sku:r.sku.trim().toUpperCase()}))];
   document.querySelectorAll('.inp.err').forEach(x=>x.classList.remove('err'));
   const miss=grp.length>1?grp.findIndex(g=>!g.variant):-1;
   if(miss>=0){const el=miss===0?$('#pVar'):document.querySelector(`[data-pv="${miss-1}"][data-k="variant"]`);
@@ -2529,7 +2519,7 @@ async function saveProduct(){
     stockStart:Math.round(num($('#pStock').value)),low:$('#pLow').value===''?null:Math.round(num($('#pLow').value)),noReorder:$('#pNoReorder').checked};
   if(p.low===null)delete p.low;if(!p.noReorder)delete p.noReorder;if(!p.variant)delete p.variant;
   const others=PV.rows.map(r=>{const v=r.variant.trim(),o=r.id?prodById(r.id):{id:newId(),cat:p.cat,unit:p.unit,tax:p.tax,stockStart:Math.round(num(r.stock)),ean:''};
-    return{...o,base,variant:v,name:fullName(base,v),sku:r.sku.trim(),ek:r2(num(r.ek)),vk:r2(num(r.vk))}});
+    return{...o,base,variant:v,name:fullName(base,v),sku:r.sku.trim().toUpperCase(),ek:r2(num(r.ek)),vk:r2(num(r.vk))}});
   try{await Store.bulk(async()=>{await Store.put('products',p);for(const x of others)await Store.put('products',x)})}catch{return}
   const nNew=PV.rows.filter(r=>r.isNew).length;
   closeSheet();toast((P.id?'Produkt gespeichert':'Produkt angelegt')+(nNew?` · ${nNew} ${nNew===1?'Variation':'Variationen'} neu`:''));
@@ -2621,6 +2611,7 @@ async function importJSON(file){
   for(const f of (data.files||[])){try{if(mode==='replace'||!await IDB.get(f.id))await IDB.put(f)}catch{}}
   const seen={};let dup=0;S.entries.forEach(e=>{if(!e.invoiceNo)return;if(seen[e.invoiceNo])dup++;seen[e.invoiceNo]=1});
   try{await ensureOrderNos()}catch{}
+  try{const lc=S.products.filter(x=>x.sku&&x.sku!==String(x.sku).toUpperCase());if(lc.length)await Store.bulk(async()=>{for(const x of lc)await Store.put('products',{...x,sku:String(x.sku).toUpperCase()})})}catch{}
   toast(mode==='merge'?`Zusammengeführt: ${added} neu, ${updated} aktualisiert`:'Backup geladen');
   if(dup)setTimeout(()=>toast(`Achtung: ${dup} Rechnungsnummer${dup>1?'n':''} doppelt – Rechnungen bitte nur auf einem Gerät erstellen.`),3000);
 }
@@ -2796,8 +2787,8 @@ document.addEventListener('click',async ev=>{
     case'print-invoice':printNow('print-inv');break;
     case'new-product':openProduct(null,UI.screen==='mehr'&&UI.pcat&&UI.pcat!=='alle'?{cat:UI.pcat}:null);break;
     case'add-variant':closeSheet();openProduct(id,null,true);break;
-    case'pv-add':{PV.rows.push({id:null,variant:'',ek:$('#pEk').value,vk:$('#pVk').value,sku:'',auto:true,stock:0,isNew:true});$('#pVars').innerHTML=pvHTML();pvCodes();document.querySelector(`[data-pv="${PV.rows.length-1}"][data-k="variant"]`)?.focus();break}
-    case'pv-rm':{PV.rows.splice(+b.dataset.i,1);$('#pVars').innerHTML=pvHTML();pvCodes();break}
+    case'pv-add':{PV.rows.push({id:null,variant:'',ek:$('#pEk').value,vk:$('#pVk').value,sku:'',stock:0,isNew:true});$('#pVars').innerHTML=pvHTML();document.querySelector(`[data-pv="${PV.rows.length-1}"][data-k="variant"]`)?.focus();break}
+    case'pv-rm':{PV.rows.splice(+b.dataset.i,1);$('#pVars').innerHTML=pvHTML();break}
     case'edit-product':closeSheet();openProduct(id);break;
     case'save-product':saveProduct();break;
     case'del-product':{const used=S.entries.some(e=>(e.items||[]).some(i=>i.pid===P.id)),inB=(S.settings.bundles||[]).filter(x=>(x.items||[]).some(i=>i.pid===P.id));
@@ -2877,10 +2868,10 @@ document.addEventListener('click',ev=>{if(LP.skip){LP.skip=false;if(ev.target.cl
 document.addEventListener('contextmenu',ev=>{if(ev.target.closest('.tile'))ev.preventDefault()});
 document.addEventListener('input',ev=>{
   const t=ev.target;
+  // Produktcodes immer in Großbuchstaben (Cursor bleibt an seiner Stelle)
+  if(t.id==='pSku'||t.dataset.k==='sku'){const u=t.value.toUpperCase();if(u!==t.value){const a=t.selectionStart,b=t.selectionEnd;t.value=u;try{t.setSelectionRange(a,b)}catch{}}}
   if(t.classList.contains('err')&&t.value.trim())t.classList.remove('err');
-  if(t.dataset.pv!==undefined&&PV){const r=PV.rows[+t.dataset.pv];if(r){r[t.dataset.k]=t.value;if(t.dataset.k==='sku')r.auto=!t.value.trim();if(t.dataset.k==='variant')pvCodes()}return}
-  if(t.id==='pName'||t.id==='pVar'){pvCodes();return}
-  if(t.id==='pSku'&&PV){PV.mainAuto=!t.value.trim();return}
+  if(t.dataset.pv!==undefined&&PV){const r=PV.rows[+t.dataset.pv];if(r)r[t.dataset.k]=t.value;return}
   if(t.dataset.cartPrice!==undefined){const c=UI.cart[+t.dataset.cartPrice];if(c)c.price=num(t.value);coRefresh();return}
   if(t.id==='noteEdit'){const b=$('#noteBtn');if(b)b.hidden=false;return}
   if(t.id==='coGiven'){UI.kgiven=t.value;coRefresh();return}
@@ -2954,7 +2945,7 @@ function fitVals(){fitQ=0;document.querySelectorAll(FIT_SEL).forEach(el=>{el.sty
 const fitSoon=()=>{if(!fitQ)fitQ=requestAnimationFrame(fitVals)};
 new MutationObserver(fitSoon).observe(document.body,{childList:true,subtree:true});
 addEventListener('resize',fitSoon);document.fonts&&document.fonts.ready.then(fitSoon);
-const APP_VER='74';
+const APP_VER='75';
 async function checkUpdate(){try{if(!navigator.onLine)return;const r=await fetch('index.html?u='+Date.now(),{cache:'no-store'});if(!r.ok)return;
   const m=(await r.text()).match(/const APP_VER='([^']+)'/);if(!m||m[1]===APP_VER||document.getElementById('updBar'))return;
   const w=document.createElement('button');w.id='updBar';w.innerHTML='<b>Neue Version verfügbar</b><span>Tippen zum Aktualisieren – deine Daten bleiben erhalten</span>';
